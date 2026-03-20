@@ -1,0 +1,753 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'api_client.dart';
+import 'product_model.dart';
+import 'cart_provider.dart';
+import 'checkout_models.dart';
+import 'auth_provider.dart';
+import 'customer_provider.dart';
+import 'customer_model.dart';
+import 'group_model.dart';
+import 'document_model.dart';
+import 'company_provider.dart';
+import 'my_company_screen.dart';
+import 'customers_screen.dart';
+import 'users_screen.dart';
+import 'reports_screen.dart';
+
+// --- PROVIDERS ---
+
+// 1. Current Folder State (Null = Root)
+class CurrentGroupNotifier extends Notifier<Group?> {
+  @override
+  Group? build() => null;
+}
+
+final currentGroupProvider = NotifierProvider<CurrentGroupNotifier, Group?>(
+    () => CurrentGroupNotifier());
+
+// 2. Search Query State
+class SearchQueryNotifier extends Notifier<String> {
+  @override
+  String build() => "";
+}
+
+final searchQueryProvider =
+    NotifierProvider<SearchQueryNotifier, String>(() => SearchQueryNotifier());
+
+// 3. Fetch ALL Groups — filtered by selected company
+final groupsProvider = FutureProvider<List<Group>>((ref) async {
+  final company = ref.watch(selectedCompanyProvider);
+  if (company == null) return [];
+  final dio = createDio();
+  final response = await dio.get(
+    'https://localhost:7002/api/ProductGroups/GetAll',
+    queryParameters: {'companyId': company.id},
+  );
+  final data = response.data as List;
+  return data.map((json) => Group.fromJson(json)).toList();
+});
+
+// 4. Fetch ALL Products — filtered by selected company
+final productsProvider = FutureProvider<List<Product>>((ref) async {
+  final company = ref.watch(selectedCompanyProvider);
+  if (company == null) return [];
+  final dio = createDio();
+  final response = await dio.get(
+    'https://localhost:7002/api/Products/GetAll',
+    queryParameters: {'companyId': company.id},
+  );
+  final data = response.data as List;
+  return data.map((json) => Product.fromJson(json)).toList();
+});
+
+// 5. Fetch Payment Types
+final paymentTypesProvider = FutureProvider<List<PaymentType>>((ref) async {
+  final dio = createDio();
+  final response =
+      await dio.get('https://localhost:7002/api/PaymentTypes/GetAll');
+  final data = response.data as List;
+  return data.map((json) => PaymentType.fromJson(json)).toList();
+});
+
+// --- MAIN SCREEN ---
+class MenuScreen extends ConsumerWidget {
+  const MenuScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentUser = ref.watch(currentUserProvider);
+    final selectedCompany = ref.watch(selectedCompanyProvider);
+
+    return Scaffold(
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: const BoxDecoration(color: Colors.blueGrey),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  const Icon(Icons.point_of_sale,
+                      color: Colors.white, size: 36),
+                  const SizedBox(height: 8),
+                  Text(
+                    selectedCompany?.name ?? "POS System",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Text(
+                    currentUser?.displayName ?? "",
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+
+            // My Company — navigates to edit screen, NOT selection screen
+            ListTile(
+              leading: const Icon(Icons.business),
+              title: const Text("My Company"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MyCompanyScreen()),
+                );
+              },
+            ),
+
+            // Customers
+            ListTile(
+              leading: const Icon(Icons.people),
+              title: const Text("Customers"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CustomersScreen()),
+                );
+              },
+            ),
+
+            // Users
+            ListTile(
+              leading: const Icon(Icons.manage_accounts),
+              title: const Text("Users"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const UsersScreen()),
+                );
+              },
+            ),
+
+            // Reports
+            ListTile(
+              leading: const Icon(Icons.bar_chart),
+              title: const Text("Reports"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ReportsScreen()),
+                );
+              },
+            ),
+
+            const Divider(),
+
+            // Logout
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: const Text("Logout", style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(context);
+                ref.read(currentUserProvider.notifier).state = null;
+                ref.read(cartProvider.notifier).clearCart();
+                Navigator.of(context).pushReplacementNamed('/');
+              },
+            ),
+          ],
+        ),
+      ),
+      appBar: AppBar(
+        title: const Text("POS System"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.kitchen, color: Colors.purple),
+            tooltip: "Open Kitchen Screen",
+            onPressed: () async {
+              final Uri url = Uri.parse('/#/kitchen');
+              if (!await launchUrl(url, webOnlyWindowName: '_blank')) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text("Could not launch kitchen screen")));
+              }
+            },
+          ),
+          if (MediaQuery.of(context).size.width > 600)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Text(
+                  "User: ${currentUser?.displayName ?? 'Unknown'}",
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.red),
+            tooltip: "Logout",
+            onPressed: () {
+              ref.read(currentUserProvider.notifier).state = null;
+              ref.read(cartProvider.notifier).clearCart();
+              Navigator.of(context).pushReplacementNamed('/');
+            },
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
+      body: Row(
+        children: [
+          Expanded(
+            flex: 2,
+            child: Container(
+              color: Colors.grey[100],
+              child: const BrowserSection(),
+            ),
+          ),
+          const VerticalDivider(width: 1, thickness: 1),
+          Expanded(
+            flex: 1,
+            child: Container(
+              color: Colors.white,
+              child: const CartSection(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// --- BROWSER SECTION ---
+class BrowserSection extends ConsumerWidget {
+  const BrowserSection({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final asyncGroups = ref.watch(groupsProvider);
+    final asyncProducts = ref.watch(productsProvider);
+    final currentGroup = ref.watch(currentGroupProvider);
+    final searchQuery = ref.watch(searchQueryProvider);
+    final selectedCompany = ref.watch(selectedCompanyProvider);
+
+    if (selectedCompany == null) {
+      return const Center(
+        child: Text("No company selected. Open the menu and pick a company."),
+      );
+    }
+
+    if (asyncGroups.isLoading || asyncProducts.isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (asyncGroups.hasError || asyncProducts.hasError) {
+      return const Center(child: Text("Error loading data"));
+    }
+
+    final allGroups = asyncGroups.value ?? [];
+    final allProducts = asyncProducts.value ?? [];
+
+    List<dynamic> itemsToDisplay = [];
+    bool isSearching = searchQuery.isNotEmpty;
+
+    if (isSearching) {
+      itemsToDisplay = allProducts.where((p) {
+        final query = searchQuery.toLowerCase();
+        return p.name.toLowerCase().contains(query) ||
+            (p.code?.toLowerCase().contains(query) ?? false);
+      }).toList();
+    } else {
+      final visibleGroups =
+          allGroups.where((g) => g.parentGroupId == currentGroup?.id).toList();
+      final visibleProducts = allProducts
+          .where((p) => p.productGroupId == currentGroup?.id)
+          .toList();
+      itemsToDisplay = [...visibleGroups, ...visibleProducts];
+    }
+
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          color: Colors.white,
+          child: TextField(
+            decoration: InputDecoration(
+              hintText: "Search products...",
+              prefixIcon: const Icon(Icons.search),
+              suffixIcon: searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () =>
+                          ref.read(searchQueryProvider.notifier).state = "",
+                    )
+                  : null,
+              border:
+                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              contentPadding:
+                  const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+            ),
+            onChanged: (value) =>
+                ref.read(searchQueryProvider.notifier).state = value,
+          ),
+        ),
+        if (!isSearching && currentGroup != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: Colors.grey[200],
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back, size: 20),
+                  onPressed: () {
+                    if (currentGroup.parentGroupId == null) {
+                      ref.read(currentGroupProvider.notifier).state = null;
+                    } else {
+                      try {
+                        final parent = allGroups.firstWhere(
+                            (g) => g.id == currentGroup.parentGroupId);
+                        ref.read(currentGroupProvider.notifier).state = parent;
+                      } catch (e) {
+                        ref.read(currentGroupProvider.notifier).state = null;
+                      }
+                    }
+                  },
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  currentGroup.name,
+                  style: const TextStyle(
+                      fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+        Expanded(
+          child: itemsToDisplay.isEmpty
+              ? Center(
+                  child: Text(isSearching
+                      ? "No products found matching '$searchQuery'"
+                      : "Empty Folder"))
+              : GridView.builder(
+                  padding: const EdgeInsets.all(16),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 180,
+                    childAspectRatio: 0.85,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                  ),
+                  itemCount: itemsToDisplay.length,
+                  itemBuilder: (context, index) {
+                    final item = itemsToDisplay[index];
+                    if (item is Group) return _buildGroupCard(ref, item);
+                    if (item is Product) return _buildProductCard(ref, item);
+                    return const SizedBox();
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGroupCard(WidgetRef ref, Group group) {
+    return InkWell(
+      onTap: () {
+        ref.read(currentGroupProvider.notifier).state = group;
+        ref.read(searchQueryProvider.notifier).state = "";
+      },
+      child: Card(
+        color: Colors.blue[50],
+        elevation: 2,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.folder, size: 48, color: Colors.blue),
+            const SizedBox(height: 8),
+            Text(
+              group.name,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProductCard(WidgetRef ref, Product product) {
+    return InkWell(
+      onTap: () => ref.read(cartProvider.notifier).addProduct(product),
+      child: Card(
+        color: Colors.white,
+        elevation: 2,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.fastfood, size: 40, color: Colors.orange),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+              child: Text(
+                product.name,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            Text(
+              "\$${product.price.toStringAsFixed(2)}",
+              style: TextStyle(color: Colors.grey[700]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- CART SECTION ---
+class CartSection extends ConsumerStatefulWidget {
+  const CartSection({super.key});
+
+  @override
+  ConsumerState<CartSection> createState() => _CartSectionState();
+}
+
+class _CartSectionState extends ConsumerState<CartSection> {
+  late final ProviderSubscription<AsyncValue<List<Customer>>> _customersSub;
+
+  Future<void> _processCheckout(BuildContext context) async {
+    final cartItems = ref.read(cartProvider);
+    if (cartItems.isEmpty) return;
+    final parentContext = context;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text("Select Payment Method"),
+          content: Consumer(
+            builder: (context, ref, _) {
+              final asyncTypes = ref.watch(paymentTypesProvider);
+              return asyncTypes.when(
+                loading: () => const SizedBox(
+                    height: 100,
+                    child: Center(child: CircularProgressIndicator())),
+                error: (err, _) => Text("Error: $err"),
+                data: (paymentTypes) {
+                  if (paymentTypes.isEmpty) {
+                    return const Text("No payment methods found.");
+                  }
+                  return SizedBox(
+                    width: 300,
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: paymentTypes.length,
+                      separatorBuilder: (_, __) => const Divider(),
+                      itemBuilder: (itemCtx, index) {
+                        final type = paymentTypes[index];
+                        return ListTile(
+                          leading: const Icon(Icons.payment),
+                          title: Text(type.name),
+                          onTap: () {
+                            Navigator.of(ctx).pop();
+                            _submitOrderChain(parentContext, type);
+                          },
+                        );
+                      },
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text("Cancel")),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _submitOrderChain(
+      BuildContext context, PaymentType paymentType) async {
+    final dio = createDio();
+    final cartItems = ref.read(cartProvider);
+    final total = ref.read(cartTotalProvider);
+    final currentUser = ref.read(currentUserProvider);
+    final currentCustomer = ref.read(currentCustomerProvider);
+    final selectedCompany = ref.read(selectedCompanyProvider);
+
+    if (cartItems.isEmpty) return;
+
+    if (currentUser == null || currentUser.id == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Error: Valid User Required"),
+          backgroundColor: Colors.red));
+      return;
+    }
+
+    final int customerIdToSend = currentCustomer?.id ?? 4;
+    // Use selected company id instead of hardcoded 2
+    final int companyIdToSend = selectedCompany?.id ?? 2;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    bool spinnerShown = false;
+
+    try {
+      spinnerShown = true;
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()),
+      );
+
+      final nowIso = DateTime.now().toIso8601String();
+      final docNumber = "REC-${DateTime.now().millisecondsSinceEpoch}";
+
+      final docPayload = DocumentDto(
+        number: docNumber,
+        userId: currentUser.id,
+        customerId: customerIdToSend,
+        date: nowIso,
+        total: total,
+        companyId: companyIdToSend,
+      ).toJson();
+
+      final docResponse = await dio.post(
+        'https://localhost:7002/api/Document/Add',
+        data: docPayload,
+      );
+
+      final docData = docResponse.data;
+      final int? newDocId = (docData is Map<String, dynamic>)
+          ? (docData['id'] as num?)?.toInt()
+          : null;
+
+      if (newDocId == null || newDocId == 0) {
+        throw Exception("Server did not return a valid Document ID.");
+      }
+
+      for (final item in cartItems) {
+        final itemPayload = DocumentItemDto(
+          documentId: newDocId,
+          productId: item.product.id,
+          quantity: item.quantity.toDouble(),
+          price: item.product.price,
+          total: item.total,
+        ).toJson();
+
+        await dio.post(
+          'https://localhost:7002/api/DocumentItem/Create',
+          data: itemPayload,
+        );
+      }
+
+      final paymentPayload = <String, dynamic>{
+        "DocumentId": newDocId,
+        "PaymentTypeId": paymentType.id,
+        "Amount": total,
+        "UserId": currentUser.id,
+        "Date": nowIso,
+      };
+
+      final paymentResponse = await dio.post(
+        'https://localhost:7002/api/Payments/Add',
+        data: paymentPayload,
+      );
+
+      final status = paymentResponse.statusCode ?? 0;
+      if (status < 200 || status >= 300) {
+        throw Exception("Payment failed (HTTP $status).");
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      final message = (e is DioException && e.response?.data != null)
+          ? "Server: ${e.response?.data}"
+          : "Checkout Failed";
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
+      return;
+    } finally {
+      if (spinnerShown && context.mounted && navigator.canPop()) {
+        navigator.pop();
+      }
+    }
+
+    if (!context.mounted) return;
+    ref.read(cartProvider.notifier).clearCart();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Sale Finalized"),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _showCustomerDialog(
+      BuildContext context, WidgetRef ref, List<Customer> customers) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Select Customer"),
+        content: SizedBox(
+          width: 300,
+          height: 300,
+          child: ListView.separated(
+            itemCount: customers.length,
+            separatorBuilder: (_, __) => const Divider(),
+            itemBuilder: (ctx, i) {
+              final c = customers[i];
+              return ListTile(
+                leading: const Icon(Icons.person),
+                title: Text(c.name),
+                subtitle: Text(c.phoneNumber ?? c.email ?? ""),
+                onTap: () {
+                  ref.read(currentCustomerProvider.notifier).setCustomer(c);
+                  Navigator.pop(ctx);
+                },
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _customersSub = ref.listenManual(allCustomersProvider, (previous, next) {
+      final customers = next.value;
+      if (customers != null &&
+          customers.isNotEmpty &&
+          ref.read(currentCustomerProvider) == null) {
+        ref.read(currentCustomerProvider.notifier).setDefault(customers);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _customersSub.close();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cartItems = ref.watch(cartProvider);
+    final total = ref.watch(cartTotalProvider);
+    final currentCustomer = ref.watch(currentCustomerProvider);
+    final asyncCustomers = ref.watch(allCustomersProvider);
+
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          color: Colors.blueGrey[50],
+          width: double.infinity,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text("Order Details",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              asyncCustomers.when(
+                loading: () => const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2)),
+                error: (_, __) => const Icon(Icons.error, color: Colors.red),
+                data: (customers) => TextButton.icon(
+                  icon: const Icon(Icons.edit, size: 16),
+                  label: Text(currentCustomer?.name ?? "Select Customer"),
+                  onPressed: () => _showCustomerDialog(context, ref, customers),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: cartItems.isEmpty
+              ? const Center(
+                  child: Text("Cart is empty",
+                      style: TextStyle(color: Colors.grey)))
+              : ListView.separated(
+                  itemCount: cartItems.length,
+                  separatorBuilder: (ctx, i) => const Divider(),
+                  itemBuilder: (context, index) {
+                    final item = cartItems[index];
+                    return ListTile(
+                      title: Text(item.product.name),
+                      subtitle: Text("x${item.quantity}"),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text("\$${item.total.toStringAsFixed(2)}"),
+                          IconButton(
+                            icon: const Icon(Icons.close,
+                                color: Colors.red, size: 16),
+                            onPressed: () => ref
+                                .read(cartProvider.notifier)
+                                .removeItem(item.product),
+                          )
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black12,
+                  blurRadius: 10,
+                  offset: const Offset(0, -4))
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text("Total: \$${total.toStringAsFixed(2)}",
+                  style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green)),
+              ElevatedButton(
+                onPressed:
+                    cartItems.isEmpty ? null : () => _processCheckout(context),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                child: const Text("PAY", style: TextStyle(color: Colors.white)),
+              )
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}

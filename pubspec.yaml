@@ -1,0 +1,42 @@
+name: pos_app
+description: "A new Flutter project."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # State Management & Network
+  flutter_riverpod: ^3.1.0
+  riverpod_annotation: ^4.0.0
+  dio: ^5.7.0
+  
+  # Data Models & JSON
+  json_annotation: ^4.9.0
+  freezed_annotation: ^3.1.0
+  
+  # Utilities
+  google_fonts: ^8.0.2
+  intl: ^0.20.2
+  cupertino_icons: ^1.0.8
+  url_launcher: ^6.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  
+  # Code Generators (The "Build" tools)
+  build_runner: ^2.4.13
+  riverpod_generator: ^4.0.0+1
+  freezed: ^3.2.3
+  json_serializable: ^6.9.0
+  
+  # Web Support
+  build_web_compilers: ^4.0.12
+
+flutter:
+  uses-material-design: true
