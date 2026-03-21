@@ -77,8 +77,11 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
       setState(() {
         _countries = countries;
         // Pre-select the company's current countryId if it exists in the list
-        _selectedCountryId = company.countryId != null &&
-                countries.any((c) => c.id == company.countryId)
+        final hasMatch = company.countryId != null &&
+            company.countryId! > 0 &&
+            countries.any((c) => c.id == company.countryId);
+
+        _selectedCountryId = hasMatch
             ? company.countryId
             : (countries.isNotEmpty ? countries.first.id : null);
         _countriesLoading = false;
@@ -248,7 +251,7 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
                       child: _countriesLoading
                           ? const LinearProgressIndicator()
                           : DropdownButtonFormField<int>(
-                              initialValue: [0, 1].contains(_selectedCountryId) ? _selectedCountryId : 0,
+                              value: _selectedCountryId,
                               decoration: const InputDecoration(
                                 labelText: "Country *",
                                 border: OutlineInputBorder(),

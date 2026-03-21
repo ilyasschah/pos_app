@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'company_provider.dart';
-import 'auth_provider.dart';
 import 'api_client.dart';
 import 'user_model.dart';
 
@@ -210,7 +209,7 @@ class _CreateFirstUserDialogState
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
-                initialValue: [0, 1].contains(_accessLevel) ? _accessLevel : 0,
+                value: _accessLevel,
                 decoration: const InputDecoration(labelText: "Access Level"),
                 items: const [
                   DropdownMenuItem(value: 0, child: Text("Admin")),

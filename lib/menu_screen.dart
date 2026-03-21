@@ -5,7 +5,6 @@ import 'package:url_launcher/url_launcher.dart';
 import 'api_client.dart';
 import 'product_model.dart';
 import 'cart_provider.dart';
-import 'checkout_models.dart';
 import 'auth_provider.dart';
 import 'customer_provider.dart';
 import 'customer_model.dart';
@@ -16,7 +15,11 @@ import 'my_company_screen.dart';
 import 'customers_screen.dart';
 import 'users_screen.dart';
 import 'reports_screen.dart';
-
+import 'payment_types_screen.dart';
+import 'payment_type_model.dart';
+import 'warehouses_screen.dart';
+import 'tax_rates_screen.dart';
+import 'stock_screen.dart';
 // --- PROVIDERS ---
 
 // 1. Current Folder State (Null = Root)
@@ -136,7 +139,52 @@ class MenuScreen extends ConsumerWidget {
                 );
               },
             ),
-
+            // Payment Types
+            ListTile(
+              leading: const Icon(Icons.payment),
+              title: const Text("Payment Types"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PaymentTypesScreen()),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.inventory),
+              title: const Text("Stock"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const StockScreen()),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.percent),
+              title: const Text("Tax Rates"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const TaxRatesScreen()),
+                );
+              },
+            ),
+            // Warehouses
+            ListTile(
+              leading: const Icon(Icons.warehouse),
+              title: const Text("Warehouses"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const WarehousesScreen()),
+                );
+              },
+            ),
             // Users
             ListTile(
               leading: const Icon(Icons.manage_accounts),

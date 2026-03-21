@@ -356,7 +356,7 @@ class _AddUserDialogState extends ConsumerState<_AddUserDialog> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
-                initialValue: [0, 1].contains(_accessLevel) ? _accessLevel : 1,
+                value: _accessLevel,
                 decoration: const InputDecoration(labelText: "Access Level"),
                 items: const [
                   DropdownMenuItem(value: 0, child: Text("Admin")),
@@ -522,7 +522,7 @@ class _EditUserDialogState extends ConsumerState<_EditUserDialog> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
-                initialValue: [0, 1].contains(_accessLevel) ? _accessLevel : 0,
+                value: _accessLevel,
                 decoration: const InputDecoration(labelText: "Access Level"),
                 items: const [
                   DropdownMenuItem(value: 0, child: Text("Admin")),

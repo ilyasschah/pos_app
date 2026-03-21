@@ -1,5 +1,4 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
 import 'user_model.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
