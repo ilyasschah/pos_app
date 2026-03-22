@@ -76,7 +76,6 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
 
       setState(() {
         _countries = countries;
-        // Pre-select the company's current countryId if it exists in the list
         final hasMatch = company.countryId != null &&
             company.countryId! > 0 &&
             countries.any((c) => c.id == company.countryId);
@@ -128,11 +127,11 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
     try {
       final dio = createDio();
       await dio.patch(
-        '/Companies/Update',
+        '/Company/Update',
         data: {
           'id': company.id,
           'name': _nameCtrl.text.trim(),
-          'countryId': _selectedCountryId, // <-- required field
+          'countryId': _selectedCountryId,
           'taxNumber': _taxNumberCtrl.text.trim(),
           'streetName': _streetNameCtrl.text.trim(),
           'buildingNumber': _buildingNumberCtrl.text.trim(),

@@ -16,7 +16,7 @@ final selectedCompanyProvider =
 // Fetch all companies for the selection screen
 final allCompaniesProvider = FutureProvider<List<Company>>((ref) async {
   final dio = createDio();
-  final response = await dio.get('/Companies/GetAll');
+  final response = await dio.get('/Company/GetAll');
   return (response.data as List).map((j) => Company.fromJson(j)).toList();
 });
 
