@@ -5,6 +5,8 @@ import 'api_client.dart';
 import 'company_provider.dart';
 import 'document_model.dart';
 import 'document_editor_screen.dart';
+import 'document_editor_screen.dart';
+import 'document_model.dart';
 
 // --- PROVIDERS ---
 final allDocumentsProvider =
@@ -295,6 +297,108 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
           ),
         );
       },
+    );
+  }
+}
+
+class _ExpandableDocumentRow extends ConsumerWidget {
+  final Document document;
+
+  const _ExpandableDocumentRow({required this.document});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: ExpansionTile(
+        title: Text(document.number,
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text(
+          "${document.customerName ?? 'Unknown'} • ${document.documentTypeName ?? ''}",
+          style: TextStyle(color: Colors.grey[600]),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("\$${document.total.toStringAsFixed(2)}",
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: Colors.green)),
+            const SizedBox(width: 16),
+            IconButton(
+              icon: const Icon(Icons.edit, color: Colors.blueGrey),
+              onPressed: () =>
+                  showDocumentEditor(context, ref, existingDocument: document),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.redAccent),
+              onPressed: () {
+                // Call your existing Document delete function here
+              },
+            ),
+          ],
+        ),
+        children: [
+          // THIS IS THE DROP-DOWN SECTION THAT SHOWS THE ITEMS
+          Container(
+            width: double.infinity,
+            color: Colors.grey[50],
+            padding: const EdgeInsets.all(16),
+            child: Consumer(
+              builder: (ctx, ref, child) {
+                final itemsAsync =
+                    ref.watch(documentItemsByDocIdProvider(document.id));
+                return itemsAsync.when(
+                  loading: () => const Center(
+                      child: Padding(
+                          padding: EdgeInsets.all(16),
+                          child: CircularProgressIndicator())),
+                  error: (e, _) => Text("Failed to load items: $e",
+                      style: const TextStyle(color: Colors.red)),
+                  data: (items) {
+                    if (items.isEmpty)
+                      return const Text("No products inside this document.",
+                          style: TextStyle(
+                              color: Colors.grey, fontStyle: FontStyle.italic));
+                    return DataTable(
+                      headingRowHeight: 32,
+                      dataRowMinHeight: 40,
+                      dataRowMaxHeight: 40,
+                      columns: const [
+                        DataColumn(
+                            label: Text("Product",
+                                style: TextStyle(fontWeight: FontWeight.bold))),
+                        DataColumn(
+                            label: Text("Qty",
+                                style: TextStyle(fontWeight: FontWeight.bold))),
+                        DataColumn(
+                            label: Text("Price",
+                                style: TextStyle(fontWeight: FontWeight.bold))),
+                        DataColumn(
+                            label: Text("Subtotal",
+                                style: TextStyle(fontWeight: FontWeight.bold))),
+                      ],
+                      rows: items
+                          .map((i) => DataRow(cells: [
+                                DataCell(Text(i.productName ?? '-')),
+                                DataCell(Text(i.quantity.toString())),
+                                DataCell(
+                                    Text("\$${i.price.toStringAsFixed(2)}")),
+                                DataCell(Text("\$${i.total.toStringAsFixed(2)}",
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold))),
+                              ]))
+                          .toList(),
+                    );
+                  },
+                );
+              },
+            ),
+          )
+        ],
+      ),
     );
   }
 }

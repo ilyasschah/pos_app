@@ -259,7 +259,7 @@ class _EnableToggleState extends State<_EnableToggle> {
     return Switch(
       value: widget.customer.isEnabled,
       onChanged: (_) => _toggle(),
-      activeColor: Colors.green,
+      activeThumbColor: Colors.green,
     );
   }
 }
