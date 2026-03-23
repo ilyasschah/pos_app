@@ -10,6 +10,7 @@ import 'customer_provider.dart';
 import 'customer_model.dart';
 import 'group_model.dart';
 import 'document_model.dart';
+import 'documents_screen.dart';
 import 'company_provider.dart';
 import 'my_company_screen.dart';
 import 'customers_screen.dart';
@@ -126,7 +127,17 @@ class MenuScreen extends ConsumerWidget {
                 );
               },
             ),
-
+            ListTile(
+              leading: const Icon(Icons.description),
+              title: const Text("Documents"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DocumentsScreen()),
+                );
+              },
+            ),
             // Customers
             ListTile(
               leading: const Icon(Icons.people),
@@ -519,7 +530,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                           title: Text(type.name),
                           onTap: () {
                             Navigator.of(ctx).pop();
-                            _submitOrderChain(parentContext, type);
+                            // _submitOrderChain(parentContext, type);
                           },
                         );
                       },
@@ -539,121 +550,120 @@ class _CartSectionState extends ConsumerState<CartSection> {
     );
   }
 
-  Future<void> _submitOrderChain(
-      BuildContext context, PaymentType paymentType) async {
-    final dio = createDio();
-    final cartItems = ref.read(cartProvider);
-    final total = ref.read(cartTotalProvider);
-    final currentUser = ref.read(currentUserProvider);
-    final currentCustomer = ref.read(currentCustomerProvider);
-    final selectedCompany = ref.read(selectedCompanyProvider);
+  // Future<void> _submitOrderChain(
+  //     BuildContext context, PaymentType paymentType) async {
+  //   final dio = createDio();
+  //   final cartItems = ref.read(cartProvider);
+  //   final total = ref.read(cartTotalProvider);
+  //   final currentUser = ref.read(currentUserProvider);
+  //   final currentCustomer = ref.read(currentCustomerProvider);
+  //   final selectedCompany = ref.read(selectedCompanyProvider);
 
-    if (cartItems.isEmpty) return;
+  //   if (cartItems.isEmpty) return;
 
-    if (currentUser == null || currentUser.id == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Error: Valid User Required"),
-          backgroundColor: Colors.red));
-      return;
-    }
+  //   if (currentUser == null || currentUser.id == 0) {
+  //     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+  //         content: Text("Error: Valid User Required"),
+  //         backgroundColor: Colors.red));
+  //     return;
+  //   }
 
-    final int customerIdToSend = currentCustomer?.id ?? 4;
-    // Use selected company id instead of hardcoded 2
-    final int companyIdToSend = selectedCompany?.id ?? 2;
-    final navigator = Navigator.of(context, rootNavigator: true);
-    bool spinnerShown = false;
+  //   final int customerIdToSend = currentCustomer?.id ?? 4;
+  //   final int companyIdToSend = selectedCompany?.id ?? 2;
+  //   final navigator = Navigator.of(context, rootNavigator: true);
+  //   bool spinnerShown = false;
 
-    try {
-      spinnerShown = true;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => const Center(child: CircularProgressIndicator()),
-      );
+  //   try {
+  //     spinnerShown = true;
+  //     showDialog(
+  //       context: context,
+  //       barrierDismissible: false,
+  //       builder: (_) => const Center(child: CircularProgressIndicator()),
+  //     );
 
-      final nowIso = DateTime.now().toIso8601String();
-      final docNumber = "REC-${DateTime.now().millisecondsSinceEpoch}";
+  //     final nowIso = DateTime.now().toIso8601String();
+  //     final docNumber = "REC-${DateTime.now().millisecondsSinceEpoch}";
 
-      final docPayload = DocumentDto(
-        number: docNumber,
-        userId: currentUser.id,
-        customerId: customerIdToSend,
-        date: nowIso,
-        total: total,
-        companyId: companyIdToSend,
-      ).toJson();
+  //     final docPayload = Document(
+  //       number: docNumber,
+  //       userId: currentUser.id,
+  //       customerId: customerIdToSend,
+  //       date: nowIso,
+  //       total: total,
+  //       companyId: companyIdToSend,
+  //     ).toJson();
 
-      final docResponse = await dio.post(
-        'https://localhost:7002/api/Document/Add',
-        data: docPayload,
-      );
+  //     final docResponse = await dio.post(
+  //       'https://localhost:7002/api/Document/Add',
+  //       data: docPayload,
+  //     );
 
-      final docData = docResponse.data;
-      final int? newDocId = (docData is Map<String, dynamic>)
-          ? (docData['id'] as num?)?.toInt()
-          : null;
+  //     final docData = docResponse.data;
+  //     final int? newDocId = (docData is Map<String, dynamic>)
+  //         ? (docData['id'] as num?)?.toInt()
+  //         : null;
 
-      if (newDocId == null || newDocId == 0) {
-        throw Exception("Server did not return a valid Document ID.");
-      }
+  //     if (newDocId == null || newDocId == 0) {
+  //       throw Exception("Server did not return a valid Document ID.");
+  //     }
 
-      for (final item in cartItems) {
-        final itemPayload = DocumentItemDto(
-          documentId: newDocId,
-          productId: item.product.id,
-          quantity: item.quantity.toDouble(),
-          price: item.product.price,
-          total: item.total,
-        ).toJson();
+  //     for (final item in cartItems) {
+  //       final itemPayload = DocumentItemDto(
+  //         documentId: newDocId,
+  //         productId: item.product.id,
+  //         quantity: item.quantity.toDouble(),
+  //         price: item.product.price,
+  //         total: item.total,
+  //       ).toJson();
 
-        await dio.post(
-          'https://localhost:7002/api/DocumentItem/Create',
-          data: itemPayload,
-        );
-      }
+  //       await dio.post(
+  //         'https://localhost:7002/api/DocumentItem/Create',
+  //         data: itemPayload,
+  //       );
+  //     }
 
-      final paymentPayload = <String, dynamic>{
-        "DocumentId": newDocId,
-        "PaymentTypeId": paymentType.id,
-        "Amount": total,
-        "UserId": currentUser.id,
-        "Date": nowIso,
-      };
+  //     final paymentPayload = <String, dynamic>{
+  //       "DocumentId": newDocId,
+  //       "PaymentTypeId": paymentType.id,
+  //       "Amount": total,
+  //       "UserId": currentUser.id,
+  //       "Date": nowIso,
+  //     };
 
-      final paymentResponse = await dio.post(
-        'https://localhost:7002/api/Payments/Add',
-        data: paymentPayload,
-      );
+  //     final paymentResponse = await dio.post(
+  //       'https://localhost:7002/api/Payments/Add',
+  //       data: paymentPayload,
+  //     );
 
-      final status = paymentResponse.statusCode ?? 0;
-      if (status < 200 || status >= 300) {
-        throw Exception("Payment failed (HTTP $status).");
-      }
-    } catch (e) {
-      if (!context.mounted) return;
-      final message = (e is DioException && e.response?.data != null)
-          ? "Server: ${e.response?.data}"
-          : "Checkout Failed";
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.red),
-      );
-      return;
-    } finally {
-      if (spinnerShown && context.mounted && navigator.canPop()) {
-        navigator.pop();
-      }
-    }
+  //     final status = paymentResponse.statusCode ?? 0;
+  //     if (status < 200 || status >= 300) {
+  //       throw Exception("Payment failed (HTTP $status).");
+  //     }
+  //   } catch (e) {
+  //     if (!context.mounted) return;
+  //     final message = (e is DioException && e.response?.data != null)
+  //         ? "Server: ${e.response?.data}"
+  //         : "Checkout Failed";
+  //     ScaffoldMessenger.of(context).showSnackBar(
+  //       SnackBar(content: Text(message), backgroundColor: Colors.red),
+  //     );
+  //     return;
+  //   } finally {
+  //     if (spinnerShown && context.mounted && navigator.canPop()) {
+  //       navigator.pop();
+  //     }
+  //   }
 
-    if (!context.mounted) return;
-    ref.read(cartProvider.notifier).clearCart();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Sale Finalized"),
-        backgroundColor: Colors.green,
-        duration: Duration(seconds: 2),
-      ),
-    );
-  }
+  //   if (!context.mounted) return;
+  //   ref.read(cartProvider.notifier).clearCart();
+  //   ScaffoldMessenger.of(context).showSnackBar(
+  //     const SnackBar(
+  //       content: Text("Sale Finalized"),
+  //       backgroundColor: Colors.green,
+  //       duration: Duration(seconds: 2),
+  //     ),
+  //   );
+  // }
 
   void _showCustomerDialog(
       BuildContext context, WidgetRef ref, List<Customer> customers) {
