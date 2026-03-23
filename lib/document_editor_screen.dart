@@ -21,7 +21,7 @@ final documentCategoriesProvider =
   if (company == null) return [];
   final dio = createDio();
   final response = await dio.get(
-    '/DocumentCategory/GettAll',
+    '/DocumentCategory/GetAll', // Fixed typo from GettAll
     queryParameters: {'companyId': company.id},
   );
   return (response.data as List)
@@ -45,7 +45,6 @@ final documentItemsByDocIdProvider = FutureProvider.autoDispose
 });
 
 // --- MAIN DIALOG ENTRY POINT ---
-// Call this to open Create or Edit mode
 Future<void> showDocumentEditor(
   BuildContext context,
   WidgetRef ref, {
@@ -94,7 +93,6 @@ class _SelectDocumentTypeDialogState
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text("Error: $e")),
             data: (types) {
-              // Auto-select first category
               if (_selectedCategoryId == null && categories.isNotEmpty) {
                 _selectedCategoryId = categories.first.id;
               }
@@ -105,7 +103,6 @@ class _SelectDocumentTypeDialogState
 
               return Row(
                 children: [
-                  // Left: categories
                   Container(
                     width: 160,
                     decoration: BoxDecoration(
@@ -129,7 +126,6 @@ class _SelectDocumentTypeDialogState
                       }).toList(),
                     ),
                   ),
-                  // Right: types for selected category
                   Expanded(
                     child: ListView(
                       children: filteredTypes.map((t) {
@@ -179,12 +175,10 @@ class _DocumentEditorDialog extends ConsumerStatefulWidget {
 }
 
 class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
-  // Step tracking
   bool _headerSaved = false;
   int? _savedDocumentId;
   Document? _savedDocument;
 
-  // Header form state
   DocumentType? _selectedDocType;
   int? _selectedCustomerId;
   int? _selectedUserId;
@@ -368,7 +362,6 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.max,
           children: [
-            // --- TITLE BAR ---
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               color: Colors.blueGrey[800],
@@ -399,8 +392,6 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
                 ],
               ),
             ),
-
-            // --- BODY ---
             Flexible(
               child: _headerSaved && _savedDocumentId != null
                   ? _ItemsView(
@@ -560,88 +551,98 @@ class _HeaderForm extends ConsumerWidget {
     final asyncUsers = ref.watch(allUsersProvider);
     final asyncWarehouses = ref.watch(allWarehousesProvider);
 
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Doc type selector
-          Row(
-            children: [
-              const Text("Document Type *",
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(width: 16),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.list_alt),
-                label: Text(selectedDocType != null
-                    ? "${selectedDocType!.code} - ${selectedDocType!.name}"
-                    : "Select document type..."),
-                onPressed: onSelectDocType,
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Row 1: Number, Date, Due Date, Stock Date
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  controller: numberCtrl,
-                  decoration: const InputDecoration(
-                    labelText: "Number",
-                    border: OutlineInputBorder(),
-                  ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Text("Document Type *",
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(width: 16),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.list_alt),
+              label: Text(selectedDocType != null
+                  ? "${selectedDocType!.code} - ${selectedDocType!.name}"
+                  : "Select document type..."),
+              onPressed: onSelectDocType,
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: TextFormField(
+                controller: numberCtrl,
+                decoration: const InputDecoration(
+                  labelText: "Number",
+                  border: OutlineInputBorder(),
                 ),
               ),
-              const SizedBox(width: 16),
-              _datePicker("Date", date, onDatePick, _fmt),
-              const SizedBox(width: 16),
-              _datePicker("Due Date", dueDate, onDueDatePick, _fmt),
-              const SizedBox(width: 16),
-              _datePicker("Stock Date", stockDate, onStockDatePick, _fmt),
-            ],
-          ),
-          const SizedBox(height: 16),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: _datePicker("Date", date, onDatePick, _fmt),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: _datePicker("Due Date", dueDate, onDueDatePick, _fmt),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child:
+                  _datePicker("Stock Date", stockDate, onStockDatePick, _fmt),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: asyncCustomers.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (e, _) => Text("Error: $e"),
+                data: (customers) {
+                  final filtered = isSupplier
+                      ? customers.where((c) => c.isSupplier).toList()
+                      : customers.where((c) => c.isCustomer).toList();
+                  final isValid = selectedCustomerId == null ||
+                      filtered.any((c) => c.id == selectedCustomerId);
 
-          // Row 2: Customer/Supplier, User, Warehouse
-          Row(
-            children: [
-              // Customer or Supplier dropdown
-              Expanded(
-                child: asyncCustomers.when(
-                  loading: () => const LinearProgressIndicator(),
-                  error: (e, _) => Text("Error: $e"),
-                  data: (customers) {
-                    final filtered = isSupplier
-                        ? customers.where((c) => c.isSupplier).toList()
-                        : customers.where((c) => c.isCustomer).toList();
-                    return DropdownButtonFormField<int>(
-                      value: selectedCustomerId,
-                      decoration: InputDecoration(
-                        labelText: isSupplier ? "Supplier *" : "Customer *",
-                        border: const OutlineInputBorder(),
-                      ),
-                      items: filtered
-                          .map((c) => DropdownMenuItem(
-                                value: c.id,
-                                child: Text(c.name),
-                              ))
-                          .toList(),
-                      onChanged: onCustomerChanged,
-                    );
-                  },
-                ),
+                  return DropdownButtonFormField<int>(
+                    value: isValid ? selectedCustomerId : null,
+                    decoration: InputDecoration(
+                      labelText: isSupplier ? "Supplier *" : "Customer *",
+                      border: const OutlineInputBorder(),
+                    ),
+                    items: filtered
+                        .map((c) => DropdownMenuItem(
+                              value: c.id,
+                              child:
+                                  Text(c.name, overflow: TextOverflow.ellipsis),
+                            ))
+                        .toList(),
+                    onChanged: onCustomerChanged,
+                  );
+                },
               ),
-              const SizedBox(width: 16),
-
-              // User dropdown
-              Expanded(
-                child: asyncUsers.when(
-                  loading: () => const LinearProgressIndicator(),
-                  error: (e, _) => Text("Error: $e"),
-                  data: (users) => DropdownButtonFormField<int>(
-                    value: selectedUserId,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 3,
+              child: asyncUsers.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (e, _) => Text("Error: $e"),
+                data: (users) {
+                  final isValidUser = selectedUserId == null ||
+                      users.any((u) => u.id == selectedUserId);
+                  return DropdownButtonFormField<int>(
+                    value: isValidUser ? selectedUserId : null,
                     decoration: const InputDecoration(
                       labelText: "User *",
                       border: OutlineInputBorder(),
@@ -649,22 +650,26 @@ class _HeaderForm extends ConsumerWidget {
                     items: users
                         .map((u) => DropdownMenuItem(
                               value: u.id,
-                              child: Text(u.displayName),
+                              child: Text(u.displayName,
+                                  overflow: TextOverflow.ellipsis),
                             ))
                         .toList(),
                     onChanged: onUserChanged,
-                  ),
-                ),
+                  );
+                },
               ),
-              const SizedBox(width: 16),
-
-              // Warehouse dropdown
-              Expanded(
-                child: asyncWarehouses.when(
-                  loading: () => const LinearProgressIndicator(),
-                  error: (e, _) => Text("Error: $e"),
-                  data: (warehouses) => DropdownButtonFormField<int>(
-                    value: selectedWarehouseId,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 3,
+              child: asyncWarehouses.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (e, _) => Text("Error: $e"),
+                data: (warehouses) {
+                  final isValidWH = selectedWarehouseId == null ||
+                      warehouses.any((w) => w.id == selectedWarehouseId);
+                  return DropdownButtonFormField<int>(
+                    value: isValidWH ? selectedWarehouseId : null,
                     decoration: const InputDecoration(
                       labelText: "Warehouse *",
                       border: OutlineInputBorder(),
@@ -672,129 +677,138 @@ class _HeaderForm extends ConsumerWidget {
                     items: warehouses
                         .map((w) => DropdownMenuItem(
                               value: w.id,
-                              child: Text(w.name),
+                              child:
+                                  Text(w.name, overflow: TextOverflow.ellipsis),
                             ))
                         .toList(),
                     onChanged: onWarehouseChanged,
-                  ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: TextFormField(
+                controller: refDocCtrl,
+                decoration: const InputDecoration(
+                  labelText: "Reference Document",
+                  border: OutlineInputBorder(),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Row 3: Ref doc, discount
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  controller: refDocCtrl,
-                  decoration: const InputDecoration(
-                    labelText: "Reference Document",
-                    border: OutlineInputBorder(),
-                  ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: TextFormField(
+                initialValue: discount.toString(),
+                decoration: const InputDecoration(
+                  labelText: "Discount",
+                  border: OutlineInputBorder(),
                 ),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (v) => onDiscountChanged(double.tryParse(v) ?? 0),
               ),
-              const SizedBox(width: 16),
-              SizedBox(
-                width: 120,
-                child: TextFormField(
-                  initialValue: discount.toString(),
-                  decoration: const InputDecoration(
-                    labelText: "Discount",
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  onChanged: (v) => onDiscountChanged(double.tryParse(v) ?? 0),
-                ),
-              ),
-              const SizedBox(width: 16),
-              DropdownButton<int>(
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: DropdownButtonFormField<int>(
                 value: discountType,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                ),
                 items: const [
                   DropdownMenuItem(value: 0, child: Text("%")),
                   DropdownMenuItem(value: 1, child: Text("Fixed")),
                 ],
                 onChanged: (v) => onDiscountTypeChanged(v ?? 0),
               ),
-              const SizedBox(width: 16),
-              Row(
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 3,
+              child: Row(
                 children: [
                   Checkbox(
                     value: discountApplyRule,
                     onChanged: (v) => onDiscountApplyRuleChanged(v ?? true),
                   ),
-                  const Text("Apply discount after tax"),
+                  const Expanded(
+                    child: Text("Apply discount after tax",
+                        overflow: TextOverflow.ellipsis),
+                  ),
                 ],
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Notes
-          Row(
-            children: [
-              Expanded(
-                child: TextFormField(
-                  controller: internalNoteCtrl,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: "Internal Note",
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: TextFormField(
-                  controller: noteCtrl,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: "Note",
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          if (errorMessage != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.red[50],
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.red),
-              ),
-              child: Text(errorMessage!,
-                  style: const TextStyle(color: Colors.red)),
             ),
           ],
-
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              if (isLoading)
-                const CircularProgressIndicator()
-              else
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.save),
-                  label: const Text("Save & Add Items"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.indigo,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 24, vertical: 14),
-                  ),
-                  onPressed: onSave,
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: internalNoteCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: "Internal Note",
+                  border: OutlineInputBorder(),
                 ),
-            ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: TextFormField(
+                controller: noteCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: "Note",
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (errorMessage != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.red[50],
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.red),
+            ),
+            child:
+                Text(errorMessage!, style: const TextStyle(color: Colors.red)),
           ),
         ],
-      ),
+        const SizedBox(height: 24),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (isLoading)
+              const CircularProgressIndicator()
+            else
+              ElevatedButton.icon(
+                icon: const Icon(Icons.save),
+                label: const Text("Save & Add Items"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.indigo,
+                  foregroundColor: Colors.white,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                ),
+                onPressed: onSave,
+              ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -808,13 +822,13 @@ class _HeaderForm extends ConsumerWidget {
           border: const OutlineInputBorder(),
           suffixIcon: const Icon(Icons.calendar_today, size: 16),
         ),
-        child: Text(fmt(value)),
+        child: Text(fmt(value), overflow: TextOverflow.ellipsis),
       ),
     );
   }
 }
 
-// --- ITEMS VIEW (after header saved) ---
+// --- ITEMS VIEW ---
 class _ItemsView extends ConsumerStatefulWidget {
   final int documentId;
   final Document document;
@@ -831,6 +845,31 @@ class _ItemsView extends ConsumerStatefulWidget {
 }
 
 class _ItemsViewState extends ConsumerState<_ItemsView> {
+  // Automatically recalculate and sync parent document total to backend
+  Future<void> _syncDocumentTotal() async {
+    try {
+      final dio = createDio();
+      final resp =
+          await dio.get('/DocumentItems/GetByDocumentId', queryParameters: {
+        'documentId': widget.documentId,
+        'companyId': widget.companyId,
+      });
+      final itemsList =
+          (resp.data as List).map((j) => DocumentItem.fromJson(j)).toList();
+      final newTotal = itemsList.fold<double>(0, (s, i) => s + i.total);
+
+      await dio.patch('/Document/Update', queryParameters: {
+        'companyId': widget.companyId
+      }, data: {
+        'id': widget.documentId,
+        'total': newTotal,
+      });
+      ref.invalidate(allDocumentsProvider);
+    } catch (e) {
+      debugPrint("Failed to sync document total: $e");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final asyncItems =
@@ -838,7 +877,6 @@ class _ItemsViewState extends ConsumerState<_ItemsView> {
 
     return Column(
       children: [
-        // Header info bar
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           color: Colors.grey[100],
@@ -870,13 +908,12 @@ class _ItemsViewState extends ConsumerState<_ItemsView> {
                   );
                   ref.invalidate(
                       documentItemsByDocIdProvider(widget.documentId));
+                  await _syncDocumentTotal();
                 },
               ),
             ],
           ),
         ),
-
-        // Items table
         Expanded(
           child: asyncItems.when(
             loading: () => const Center(child: CircularProgressIndicator()),
@@ -891,7 +928,6 @@ class _ItemsViewState extends ConsumerState<_ItemsView> {
                 );
               }
 
-              // Totals
               final totalBeforeTax = items.fold<double>(
                   0, (s, i) => s + i.priceBeforeTaxAfterDiscount);
               final total = items.fold<double>(0, (s, i) => s + i.total);
@@ -954,6 +990,7 @@ class _ItemsViewState extends ConsumerState<_ItemsView> {
                                       ref.invalidate(
                                           documentItemsByDocIdProvider(
                                               widget.documentId));
+                                      await _syncDocumentTotal();
                                     },
                                   ),
                                   IconButton(
@@ -990,6 +1027,7 @@ class _ItemsViewState extends ConsumerState<_ItemsView> {
                                         ref.invalidate(
                                             documentItemsByDocIdProvider(
                                                 widget.documentId));
+                                        await _syncDocumentTotal();
                                       }
                                     },
                                   ),
@@ -1001,18 +1039,16 @@ class _ItemsViewState extends ConsumerState<_ItemsView> {
                       ),
                     ),
                   ),
-
-                  // Bottom totals
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 24, vertical: 12),
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       color: Colors.white,
                       boxShadow: [
                         BoxShadow(
                             color: Colors.black12,
                             blurRadius: 4,
-                            offset: const Offset(0, -2))
+                            offset: Offset(0, -2))
                       ],
                     ),
                     child: Row(
@@ -1156,7 +1192,6 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Product dropdown
             asyncProducts.when(
               loading: () => const LinearProgressIndicator(),
               error: (e, _) => Text("Error: $e"),
@@ -1189,7 +1224,6 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
               ),
             ),
             const SizedBox(height: 12),
-
             Row(
               children: [
                 Expanded(
@@ -1225,7 +1259,6 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
               ],
             ),
             const SizedBox(height: 12),
-
             Row(
               children: [
                 Expanded(
@@ -1238,28 +1271,37 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                DropdownButton<int>(
-                  value: _discountType,
-                  items: const [
-                    DropdownMenuItem(value: 0, child: Text("%")),
-                    DropdownMenuItem(value: 1, child: Text("Fixed")),
-                  ],
-                  onChanged: (v) => setState(() => _discountType = v ?? 0),
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    value: _discountType,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 0, child: Text("%")),
+                      DropdownMenuItem(value: 1, child: Text("Fixed")),
+                    ],
+                    onChanged: (v) => setState(() => _discountType = v ?? 0),
+                  ),
                 ),
                 const SizedBox(width: 12),
-                Row(
-                  children: [
-                    Checkbox(
-                      value: _discountApplyRule,
-                      onChanged: (v) =>
-                          setState(() => _discountApplyRule = v ?? true),
-                    ),
-                    const Text("After tax"),
-                  ],
+                Expanded(
+                  child: Row(
+                    children: [
+                      Checkbox(
+                        value: _discountApplyRule,
+                        onChanged: (v) =>
+                            setState(() => _discountApplyRule = v ?? true),
+                      ),
+                      const Expanded(
+                          child: Text("After tax",
+                              overflow: TextOverflow.ellipsis)),
+                    ],
+                  ),
                 ),
               ],
             ),
-
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),
               Text(_errorMessage!,
@@ -1379,7 +1421,7 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
     return AlertDialog(
       title: Text("Edit — ${widget.item.productName ?? ''}"),
       content: SizedBox(
-        width: 400,
+        width: 440,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1430,24 +1472,34 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                DropdownButton<int>(
-                  value: _discountType,
-                  items: const [
-                    DropdownMenuItem(value: 0, child: Text("%")),
-                    DropdownMenuItem(value: 1, child: Text("Fixed")),
-                  ],
-                  onChanged: (v) => setState(() => _discountType = v ?? 0),
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    value: _discountType,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 0, child: Text("%")),
+                      DropdownMenuItem(value: 1, child: Text("Fixed")),
+                    ],
+                    onChanged: (v) => setState(() => _discountType = v ?? 0),
+                  ),
                 ),
                 const SizedBox(width: 12),
-                Row(
-                  children: [
-                    Checkbox(
-                      value: _discountApplyRule,
-                      onChanged: (v) =>
-                          setState(() => _discountApplyRule = v ?? true),
-                    ),
-                    const Text("After tax"),
-                  ],
+                Expanded(
+                  child: Row(
+                    children: [
+                      Checkbox(
+                        value: _discountApplyRule,
+                        onChanged: (v) =>
+                            setState(() => _discountApplyRule = v ?? true),
+                      ),
+                      const Expanded(
+                          child: Text("After tax",
+                              overflow: TextOverflow.ellipsis)),
+                    ],
+                  ),
                 ),
               ],
             ),
