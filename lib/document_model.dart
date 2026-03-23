@@ -94,18 +94,113 @@ class DocumentType {
   final int id;
   final String name;
   final String? code;
+  final int? documentCategoryId;
+  final String? documentCategoryName;
+  final int? warehouseId;
 
-  DocumentType({required this.id, required this.name, this.code});
+  DocumentType({
+    required this.id,
+    required this.name,
+    this.code,
+    this.documentCategoryId,
+    this.documentCategoryName,
+    this.warehouseId,
+  });
 
   factory DocumentType.fromJson(Map<String, dynamic> json) {
     return DocumentType(
       id: json['id'] ?? 0,
       name: json['name'] ?? '',
       code: json['code'],
+      documentCategoryId: json['documentCategoryId'],
+      documentCategoryName: json['documentCategoryName'],
+      warehouseId: json['warehouseId'],
     );
   }
 }
 
+class DocumentCategory {
+  final int id;
+  final String name;
+
+  DocumentCategory({required this.id, required this.name});
+
+  factory DocumentCategory.fromJson(Map<String, dynamic> json) {
+    return DocumentCategory(
+      id: json['id'] ?? 0,
+      name: json['name'] ?? '',
+    );
+  }
+}
+
+class DocumentItem {
+  final int id;
+  final int companyId;
+  final int documentId;
+  final String? documentNumber;
+  final int productId;
+  final String? productName;
+  final double quantity;
+  final double expectedQuantity;
+  final double priceBeforeTax;
+  final double price;
+  final double discount;
+  final int discountType;
+  final double productCost;
+  final double priceBeforeTaxAfterDiscount;
+  final double priceAfterDiscount;
+  final double total;
+  final double totalAfterDocumentDiscount;
+  final bool discountApplyRule;
+
+  DocumentItem({
+    required this.id,
+    required this.companyId,
+    required this.documentId,
+    this.documentNumber,
+    required this.productId,
+    this.productName,
+    required this.quantity,
+    required this.expectedQuantity,
+    required this.priceBeforeTax,
+    required this.price,
+    required this.discount,
+    required this.discountType,
+    required this.productCost,
+    required this.priceBeforeTaxAfterDiscount,
+    required this.priceAfterDiscount,
+    required this.total,
+    required this.totalAfterDocumentDiscount,
+    required this.discountApplyRule,
+  });
+
+  factory DocumentItem.fromJson(Map<String, dynamic> json) {
+    return DocumentItem(
+      id: json['id'] ?? 0,
+      companyId: json['companyId'] ?? 0,
+      documentId: json['documentId'] ?? 0,
+      documentNumber: json['documentNumber'],
+      productId: json['productId'] ?? 0,
+      productName: json['productName'],
+      quantity: (json['quantity'] as num?)?.toDouble() ?? 0,
+      expectedQuantity: (json['expectedQuantity'] as num?)?.toDouble() ?? 0,
+      priceBeforeTax: (json['priceBeforeTax'] as num?)?.toDouble() ?? 0,
+      price: (json['price'] as num?)?.toDouble() ?? 0,
+      discount: (json['discount'] as num?)?.toDouble() ?? 0,
+      discountType: json['discountType'] ?? 0,
+      productCost: (json['productCost'] as num?)?.toDouble() ?? 0,
+      priceBeforeTaxAfterDiscount:
+          (json['priceBeforeTaxAfterDiscount'] as num?)?.toDouble() ?? 0,
+      priceAfterDiscount: (json['priceAfterDiscount'] as num?)?.toDouble() ?? 0,
+      total: (json['total'] as num?)?.toDouble() ?? 0,
+      totalAfterDocumentDiscount:
+          (json['totalAfterDocumentDiscount'] as num?)?.toDouble() ?? 0,
+      discountApplyRule: json['discountApplyRule'] ?? true,
+    );
+  }
+}
+
+// Keep existing DocumentItemDto for menu_screen checkout compatibility
 class DocumentItemDto {
   final int documentId;
   final int productId;
@@ -123,7 +218,6 @@ class DocumentItemDto {
 
   Map<String, dynamic> toJson() {
     return {
-      // "Id": 0, // Removed
       "DocumentId": documentId,
       "ProductId": productId,
       "Quantity": quantity,
@@ -135,7 +229,34 @@ class DocumentItemDto {
       "TaxRate": 0,
       "PriceBeforeTaxAfterDiscount": price,
       "PriceAfterDiscount": price,
-      "TotalAfterDocumentDiscount": total
+      "TotalAfterDocumentDiscount": total,
     };
   }
+}
+
+class DocumentDto {
+  final String number;
+  final int userId;
+  final int customerId;
+  final String date;
+  final double total;
+  final int companyId;
+
+  DocumentDto({
+    required this.number,
+    required this.userId,
+    required this.customerId,
+    required this.date,
+    required this.total,
+    required this.companyId,
+  });
+
+  Map<String, dynamic> toJson() => {
+        "Number": number,
+        "UserId": userId,
+        "CustomerId": customerId,
+        "Date": date,
+        "Total": total,
+        "CompanyId": companyId,
+      };
 }

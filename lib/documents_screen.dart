@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'document_model.dart';
+import 'document_editor_screen.dart';
 
 // --- PROVIDERS ---
 final allDocumentsProvider =
@@ -155,6 +156,13 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
                 tooltip: "Refresh",
                 onPressed: () => ref.invalidate(allDocumentsProvider),
               ),
+              IconButton(
+                icon: const Icon(Icons.add),
+                tooltip: "New Document",
+                onPressed: company == null
+                    ? null
+                    : () => showDocumentEditor(context, ref),
+              ),
             ],
             bottom: TabBar(
               controller: _tabController,
@@ -175,6 +183,8 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
               final int companyId = company.id;
 
               return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   // --- FILTER BAR ---
                   Container(
@@ -379,37 +389,54 @@ class _DocumentTable extends StatelessWidget {
               DataCell(Text(formatDate(d.dateCreated))),
               DataCell(Text(formatDate(d.dateUpdated))),
               DataCell(
-                // Delete only — Add/Edit deferred
                 Consumer(
-                  builder: (context, ref, _) => IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red, size: 18),
-                    tooltip: "Delete",
-                    onPressed: () async {
-                      final confirm = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: const Text("Delete Document"),
-                          content: Text("Delete document '${d.number}'?"),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.of(ctx).pop(false),
-                              child: const Text("Cancel"),
-                            ),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.red),
-                              onPressed: () => Navigator.of(ctx).pop(true),
-                              child: const Text("Delete",
-                                  style: TextStyle(color: Colors.white)),
-                            ),
-                          ],
+                  builder: (context, ref, _) => Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Edit
+                      IconButton(
+                        icon: const Icon(Icons.edit,
+                            color: Colors.blueGrey, size: 18),
+                        tooltip: "Edit",
+                        onPressed: () => showDocumentEditor(
+                          context,
+                          ref,
+                          existingDocument: d,
                         ),
-                      );
-                      if (confirm == true && context.mounted) {
-                        await _delete(context, ref, d.id, companyId);
-                        onRefresh();
-                      }
-                    },
+                      ),
+                      // Delete
+                      IconButton(
+                        icon: const Icon(Icons.delete,
+                            color: Colors.red, size: 18),
+                        tooltip: "Delete",
+                        onPressed: () async {
+                          final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text("Delete Document"),
+                              content: Text("Delete document '${d.number}'?"),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.of(ctx).pop(false),
+                                  child: const Text("Cancel"),
+                                ),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.red),
+                                  onPressed: () => Navigator.of(ctx).pop(true),
+                                  child: const Text("Delete",
+                                      style: TextStyle(color: Colors.white)),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (confirm == true && context.mounted) {
+                            await _delete(context, ref, d.id, companyId);
+                            onRefresh();
+                          }
+                        },
+                      ),
+                    ],
                   ),
                 ),
               ),
