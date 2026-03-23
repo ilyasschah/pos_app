@@ -114,11 +114,19 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
       _discountType = d.discountType;
       _discountApplyRule = d.discountApplyRule;
       _serviceType = d.serviceType;
+
       try {
         _date = DateTime.parse(d.date);
       } catch (_) {}
       try {
-        _stockDate = DateTime.parse(d.stockDate);
+        if (d.stockDate != null && d.stockDate!.isNotEmpty) {
+          _stockDate = DateTime.parse(d.stockDate!);
+        }
+      } catch (_) {}
+      try {
+        if (d.dueDate != null && d.dueDate!.isNotEmpty) {
+          _dueDate = DateTime.parse(d.dueDate!);
+        }
       } catch (_) {}
     }
   }
@@ -145,25 +153,14 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
 
   String _isoDate(DateTime dt) => dt.toIso8601String();
 
-  // Core Math Logic: Recalculate Document Total based on Items + Document Discount
-  Future<void> _syncDocumentTotal() async {
+  // FIX: This now takes the exact subtotal calculated by the UI table, guaranteeing they match.
+  Future<void> _syncDocumentTotal(double itemsSubtotal) async {
     if (_savedDocumentId == null) return;
     try {
       final dio = createDio();
       final companyId = ref.read(selectedCompanyProvider)?.id ?? 0;
 
-      final resp =
-          await dio.get('/DocumentItems/GetByDocumentId', queryParameters: {
-        'documentId': _savedDocumentId,
-        'companyId': companyId,
-      });
-      final itemsList =
-          (resp.data as List).map((j) => DocumentItem.fromJson(j)).toList();
-
-      // Calculate Base Items Total
-      double itemsSubtotal = itemsList.fold<double>(0, (s, i) => s + i.total);
-
-      // Apply Parent Document Discount
+      // Apply Parent Document Discount mathematically
       double finalTotal = itemsSubtotal;
       if (_discountType == 1) {
         // Fixed
@@ -174,7 +171,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
       }
       if (finalTotal < 0) finalTotal = 0;
 
-      // Update Document
+      // Update Document directly with the UI's number
       await dio.patch('/Document/Update', queryParameters: {
         'companyId': companyId
       }, data: {
@@ -225,7 +222,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
           'date': _isoDate(_date),
           'stockDate': _isoDate(_stockDate),
           'dueDate': _isoDate(_dueDate),
-          'total': 0, // Starts at 0, synced later
+          'total': 0, // Starts at 0, synced automatically when items are added
           'isClockedOut': true,
           'documentTypeId': _selectedDocTypeId,
           'warehouseId': _selectedWarehouseId,
@@ -281,8 +278,8 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
         await dio.patch('/Document/Update',
             queryParameters: {'companyId': company.id}, data: payload);
 
-        // Important: Recalculate totals just in case the parent discount was changed!
-        await _syncDocumentTotal();
+        // This forces the UI provider to refresh, which automatically triggers _syncDocumentTotal safely!
+        ref.invalidate(documentItemsByDocIdProvider(_savedDocumentId!));
 
         setState(() {
           _isLoading = false;
@@ -437,8 +434,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
                       _ItemsView(
                         documentId: _savedDocumentId!,
                         companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
-                        onItemsChanged:
-                            _syncDocumentTotal, // Syncs parent when children change
+                        onItemsChanged: _syncDocumentTotal,
                       ),
                     ]
                   ],
@@ -577,6 +573,7 @@ class _HeaderForm extends ConsumerWidget {
   final VoidCallback onSave;
 
   const _HeaderForm({
+    super.key,
     required this.isEditing,
     required this.selectedDocTypeName,
     required this.selectedCustomerId,
@@ -856,16 +853,29 @@ class _HeaderForm extends ConsumerWidget {
 class _ItemsView extends ConsumerWidget {
   final int documentId;
   final int companyId;
-  final VoidCallback
-      onItemsChanged; // Tells parent to resync final document total
+  final ValueChanged<double>
+      onItemsChanged; // Passes calculated total up to parent
 
   const _ItemsView(
-      {required this.documentId,
+      {super.key,
+      required this.documentId,
       required this.companyId,
       required this.onItemsChanged});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // This is the magic fix! It listens to the exact same data the UI table uses.
+    // When the UI gets new items, it automatically triggers the PATCH sync with the real subtotal.
+    ref.listen<AsyncValue<List<DocumentItem>>>(
+      documentItemsByDocIdProvider(documentId),
+      (previous, next) {
+        next.whenData((items) {
+          final subtotal = items.fold<double>(0, (s, i) => s + i.total);
+          onItemsChanged(subtotal);
+        });
+      },
+    );
+
     final asyncItems = ref.watch(documentItemsByDocIdProvider(documentId));
 
     return Column(
@@ -886,7 +896,6 @@ class _ItemsView extends ConsumerWidget {
                     builder: (_) => _AddItemDialog(
                         documentId: documentId, companyId: companyId));
                 ref.invalidate(documentItemsByDocIdProvider(documentId));
-                onItemsChanged(); // Triggers the math sync in the parent
               },
             ),
           ],
@@ -944,7 +953,6 @@ class _ItemsView extends ConsumerWidget {
                                       ref.invalidate(
                                           documentItemsByDocIdProvider(
                                               documentId));
-                                      onItemsChanged();
                                     }),
                                 IconButton(
                                     icon: const Icon(Icons.delete,
@@ -959,7 +967,6 @@ class _ItemsView extends ConsumerWidget {
                                       ref.invalidate(
                                           documentItemsByDocIdProvider(
                                               documentId));
-                                      onItemsChanged();
                                     }),
                               ],
                             )),
