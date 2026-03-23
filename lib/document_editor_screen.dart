@@ -4,13 +4,9 @@ import 'package:dio/dio.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'document_model.dart';
-import 'customer_model.dart';
 import 'customer_provider.dart';
 import 'auth_provider.dart';
-import 'user_model.dart';
-import 'warehouse_model.dart';
 import 'warehouse_provider.dart';
-import 'product_model.dart';
 import 'product_provider.dart';
 import 'documents_screen.dart';
 
@@ -20,7 +16,7 @@ final documentCategoriesProvider =
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return [];
   final dio = createDio();
-  final response = await dio.get('/DocumentCategory/GetAll',
+  final response = await dio.get('/DocumentCategory/GettAll',
       queryParameters: {'companyId': company.id});
   return (response.data as List)
       .map((j) => DocumentCategory.fromJson(j))
@@ -65,6 +61,7 @@ class _DocumentEditorDialog extends ConsumerStatefulWidget {
 class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
   bool _headerSaved = false;
   int? _savedDocumentId;
+  Document? _savedDocument; // <-- holds the doc after POST
 
   int? _selectedDocTypeId;
   String? _selectedDocTypeName;
@@ -100,6 +97,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
     if (_isEditing) {
       final d = widget.existingDocument!;
       _savedDocumentId = d.id;
+      _savedDocument = d;
       _headerSaved = true;
       _selectedDocTypeId = d.documentTypeId;
       _selectedDocTypeName = d.documentTypeName;
@@ -146,38 +144,32 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
         .toUpperCase()
         .replaceAll(' ', '_')
         .substring(0, docTypeName.length.clamp(0, 6));
-    final datePart =
-        "${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}";
-    return "$prefix-$datePart";
+    final yy = now.year.toString().substring(2);
+    final mm = now.month.toString().padLeft(2, '0');
+    final dd = now.day.toString().padLeft(2, '0');
+    final hh = now.hour.toString().padLeft(2, '0');
+    final min = now.minute.toString().padLeft(2, '0');
+    final ss = now.second.toString().padLeft(2, '0');
+    return "$prefix-$yy$mm$dd$hh$min$ss";
   }
 
-  String _isoDate(DateTime dt) => dt.toIso8601String();
+  String _isoDate(DateTime dt) => dt.toIso8601String().split('.')[0];
 
-  // FIX: This now takes the exact subtotal calculated by the UI table, guaranteeing they match.
   Future<void> _syncDocumentTotal(double itemsSubtotal) async {
     if (_savedDocumentId == null) return;
     try {
       final dio = createDio();
       final companyId = ref.read(selectedCompanyProvider)?.id ?? 0;
-
-      // Apply Parent Document Discount mathematically
       double finalTotal = itemsSubtotal;
       if (_discountType == 1) {
-        // Fixed
         finalTotal -= _discount;
       } else if (_discountType == 0) {
-        // Percentage
         finalTotal -= finalTotal * (_discount / 100);
       }
       if (finalTotal < 0) finalTotal = 0;
-
-      // Update Document directly with the UI's number
-      await dio.patch('/Document/Update', queryParameters: {
-        'companyId': companyId
-      }, data: {
-        'id': _savedDocumentId,
-        'total': finalTotal,
-      });
+      await dio.patch('/Document/Update',
+          queryParameters: {'companyId': companyId},
+          data: {'id': _savedDocumentId, 'total': finalTotal});
       ref.invalidate(allDocumentsProvider);
     } catch (e) {
       debugPrint("Sync failed: $e");
@@ -213,7 +205,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
       final dio = createDio();
 
       if (!_headerSaved) {
-        // CREATE (POST)
+        // --- CREATE (POST) ---
         final payload = {
           'number': _numberCtrl.text.trim(),
           'userId': _selectedUserId,
@@ -222,7 +214,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
           'date': _isoDate(_date),
           'stockDate': _isoDate(_stockDate),
           'dueDate': _isoDate(_dueDate),
-          'total': 0, // Starts at 0, synced automatically when items are added
+          'total': 0,
           'isClockedOut': true,
           'documentTypeId': _selectedDocTypeId,
           'warehouseId': _selectedWarehouseId,
@@ -248,16 +240,37 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
           newId = data.toInt();
         }
 
-        if (newId == null || newId == 0)
+        if (newId == null || newId == 0) {
           throw Exception("Invalid Document ID returned.");
+        }
+
+        // Build a Document object from form state so _ItemsView can display it
+        final createdDoc = Document(
+          id: newId,
+          number: _numberCtrl.text.trim(),
+          userId: _selectedUserId ?? 0,
+          customerId: _selectedCustomerId ?? 0,
+          companyId: company.id,
+          documentTypeId: _selectedDocTypeId ?? 0,
+          documentTypeName: _selectedDocTypeName,
+          warehouseId: _selectedWarehouseId ?? 0,
+          date: _isoDate(_date),
+          total: 0,
+          discount: _discount,
+          discountType: _discountType,
+          discountApplyRule: _discountApplyRule,
+          internalNote: _internalNoteCtrl.text.trim(),
+          note: _noteCtrl.text.trim(),
+        );
 
         setState(() {
           _savedDocumentId = newId;
+          _savedDocument = createdDoc; // <-- KEY FIX
           _headerSaved = true;
           _isLoading = false;
         });
       } else {
-        // UPDATE (PATCH)
+        // --- UPDATE (PATCH) ---
         final payload = {
           'id': _savedDocumentId,
           'number': _numberCtrl.text.trim(),
@@ -278,12 +291,10 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
         await dio.patch('/Document/Update',
             queryParameters: {'companyId': company.id}, data: payload);
 
-        // This forces the UI provider to refresh, which automatically triggers _syncDocumentTotal safely!
         ref.invalidate(documentItemsByDocIdProvider(_savedDocumentId!));
 
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
               content: Text("Document updated!"),
@@ -319,7 +330,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
         ),
         child: Column(
           children: [
-            // Top Bar
+            // Title bar
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               color: Colors.blueGrey[800],
@@ -331,7 +342,9 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
                     child: Text(
                       _isEditing
                           ? "Edit Document — ${_numberCtrl.text}"
-                          : "New Document",
+                          : _headerSaved
+                              ? "Document — ${_numberCtrl.text} (Add Items)"
+                              : "New Document",
                       style: const TextStyle(
                           color: Colors.white,
                           fontSize: 16,
@@ -346,13 +359,13 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
               ),
             ),
 
-            // Scrollable Content Split into Header & Items
+            // Body
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   children: [
-                    // HEADER FORM
+                    // Header form — always visible
                     _HeaderForm(
                       isEditing: _headerSaved,
                       selectedDocTypeName: _selectedDocTypeName,
@@ -382,9 +395,10 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
                             _selectedDocTypeName =
                                 "${result.code} - ${result.name}";
                             _selectedWarehouseId = result.warehouseId;
-                            if (_numberCtrl.text.isEmpty)
+                            if (_numberCtrl.text.isEmpty) {
                               _numberCtrl.text =
                                   _generateOrderNumber(result.name);
+                            }
                           });
                         }
                       },
@@ -425,8 +439,10 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
                       onSave: _saveOrUpdateHeader,
                     ),
 
-                    // ITEMS TABLE
-                    if (_headerSaved && _savedDocumentId != null) ...[
+                    // Items section — only shown after header is saved
+                    if (_headerSaved &&
+                        _savedDocumentId != null &&
+                        _savedDocument != null) ...[
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 24),
                         child: Divider(thickness: 2),
@@ -436,7 +452,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
                         companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
                         onItemsChanged: _syncDocumentTotal,
                       ),
-                    ]
+                    ],
                   ],
                 ),
               ),
@@ -451,6 +467,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
 // --- DOCUMENT TYPE SELECTOR ---
 class _SelectDocumentTypeDialog extends ConsumerStatefulWidget {
   const _SelectDocumentTypeDialog();
+
   @override
   ConsumerState<_SelectDocumentTypeDialog> createState() =>
       _SelectDocumentTypeDialogState();
@@ -479,8 +496,9 @@ class _SelectDocumentTypeDialogState
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text("Error: $e")),
             data: (types) {
-              if (_selectedCategoryId == null && categories.isNotEmpty)
+              if (_selectedCategoryId == null && categories.isNotEmpty) {
                 _selectedCategoryId = categories.first.id;
+              }
               final filteredTypes = types
                   .where((t) => t.documentCategoryId == _selectedCategoryId)
                   .toList();
@@ -647,11 +665,12 @@ class _HeaderForm extends ConsumerWidget {
         Row(
           children: [
             Expanded(
-                flex: 2,
-                child: TextFormField(
-                    controller: numberCtrl,
-                    decoration: const InputDecoration(
-                        labelText: "Number", border: OutlineInputBorder()))),
+              flex: 2,
+              child: TextFormField(
+                  controller: numberCtrl,
+                  decoration: const InputDecoration(
+                      labelText: "Number", border: OutlineInputBorder())),
+            ),
             const SizedBox(width: 12),
             Expanded(
                 flex: 2, child: _datePicker("Date", date, onDatePick, _fmt)),
@@ -669,6 +688,7 @@ class _HeaderForm extends ConsumerWidget {
         const SizedBox(height: 16),
         Row(
           children: [
+            // Customer / Supplier
             Expanded(
               flex: 3,
               child: asyncCustomers.when(
@@ -695,6 +715,7 @@ class _HeaderForm extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 12),
+            // User
             Expanded(
               flex: 3,
               child: asyncUsers.when(
@@ -717,6 +738,7 @@ class _HeaderForm extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 12),
+            // Warehouse
             Expanded(
               flex: 3,
               child: asyncWarehouses.when(
@@ -744,71 +766,86 @@ class _HeaderForm extends ConsumerWidget {
         Row(
           children: [
             Expanded(
-                flex: 3,
-                child: TextFormField(
-                    controller: refDocCtrl,
-                    decoration: const InputDecoration(
-                        labelText: "Reference Document",
-                        border: OutlineInputBorder()))),
-            const SizedBox(width: 12),
-            Expanded(
-                flex: 2,
-                child: TextFormField(
-                  initialValue: discount.toString(),
+              flex: 3,
+              child: TextFormField(
+                  controller: refDocCtrl,
                   decoration: const InputDecoration(
-                      labelText: "Document Discount",
-                      border: OutlineInputBorder()),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  onChanged: (v) => onDiscountChanged(double.tryParse(v) ?? 0),
-                )),
+                      labelText: "Reference Document",
+                      border: OutlineInputBorder())),
+            ),
             const SizedBox(width: 12),
             Expanded(
-                flex: 2,
-                child: DropdownButtonFormField<int>(
-                  value: discountType,
-                  decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12)),
-                  items: const [
-                    DropdownMenuItem(value: 0, child: Text("%")),
-                    DropdownMenuItem(value: 1, child: Text("Fixed"))
-                  ],
-                  onChanged: (v) => onDiscountTypeChanged(v ?? 0),
-                )),
+              flex: 2,
+              child: TextFormField(
+                initialValue: discount.toString(),
+                decoration: const InputDecoration(
+                    labelText: "Document Discount",
+                    border: OutlineInputBorder()),
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (v) => onDiscountChanged(double.tryParse(v) ?? 0),
+              ),
+            ),
             const SizedBox(width: 12),
             Expanded(
-                flex: 3,
-                child: Row(children: [
-                  Checkbox(
-                      value: discountApplyRule,
-                      onChanged: (v) => onDiscountApplyRuleChanged(v ?? true)),
-                  const Text("Apply after tax")
-                ])),
+              flex: 2,
+              child: DropdownButtonFormField<int>(
+                value: discountType,
+                decoration: const InputDecoration(
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12)),
+                items: const [
+                  DropdownMenuItem(value: 0, child: Text("%")),
+                  DropdownMenuItem(value: 1, child: Text("Fixed")),
+                ],
+                onChanged: (v) => onDiscountTypeChanged(v ?? 0),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 3,
+              child: Row(children: [
+                Checkbox(
+                    value: discountApplyRule,
+                    onChanged: (v) => onDiscountApplyRuleChanged(v ?? true)),
+                const Text("Apply after tax"),
+              ]),
+            ),
           ],
         ),
         const SizedBox(height: 16),
         Row(
           children: [
             Expanded(
-                child: TextFormField(
-                    controller: internalNoteCtrl,
-                    maxLines: 2,
-                    decoration: const InputDecoration(
-                        labelText: "Internal Note",
-                        border: OutlineInputBorder()))),
+              child: TextFormField(
+                  controller: internalNoteCtrl,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                      labelText: "Internal Note",
+                      border: OutlineInputBorder())),
+            ),
             const SizedBox(width: 16),
             Expanded(
-                child: TextFormField(
-                    controller: noteCtrl,
-                    maxLines: 2,
-                    decoration: const InputDecoration(
-                        labelText: "Note", border: OutlineInputBorder()))),
+              child: TextFormField(
+                  controller: noteCtrl,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                      labelText: "Note", border: OutlineInputBorder())),
+            ),
           ],
         ),
         if (errorMessage != null) ...[
           const SizedBox(height: 12),
-          Text(errorMessage!, style: const TextStyle(color: Colors.red)),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.red[50],
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.red),
+            ),
+            child:
+                Text(errorMessage!, style: const TextStyle(color: Colors.red)),
+          ),
         ],
         const SizedBox(height: 24),
         Row(
@@ -853,19 +890,17 @@ class _HeaderForm extends ConsumerWidget {
 class _ItemsView extends ConsumerWidget {
   final int documentId;
   final int companyId;
-  final ValueChanged<double>
-      onItemsChanged; // Passes calculated total up to parent
+  final ValueChanged<double> onItemsChanged;
 
-  const _ItemsView(
-      {super.key,
-      required this.documentId,
-      required this.companyId,
-      required this.onItemsChanged});
+  const _ItemsView({
+    super.key,
+    required this.documentId,
+    required this.companyId,
+    required this.onItemsChanged,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // This is the magic fix! It listens to the exact same data the UI table uses.
-    // When the UI gets new items, it automatically triggers the PATCH sync with the real subtotal.
     ref.listen<AsyncValue<List<DocumentItem>>>(
       documentItemsByDocIdProvider(documentId),
       (previous, next) {
@@ -903,75 +938,114 @@ class _ItemsView extends ConsumerWidget {
         const SizedBox(height: 16),
         asyncItems.when(
           loading: () => const CircularProgressIndicator(),
-          error: (e, _) => Text("Error: $e"),
+          error: (e, _) =>
+              Text("Error: $e", style: const TextStyle(color: Colors.red)),
           data: (items) {
-            if (items.isEmpty)
-              return const Text("No items added yet.",
-                  style: TextStyle(color: Colors.grey));
-            final totalBeforeTax = items.fold<double>(
-                0, (s, i) => s + i.priceBeforeTaxAfterDiscount);
+            if (items.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Text("No items added yet.",
+                    style: TextStyle(color: Colors.grey)),
+              );
+            }
+
             final total = items.fold<double>(0, (s, i) => s + i.total);
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                DataTable(
-                  headingRowColor: WidgetStateProperty.all(Colors.blueGrey[50]),
-                  columns: const [
-                    DataColumn(label: Text("Product")),
-                    DataColumn(label: Text("Qty")),
-                    DataColumn(label: Text("Price")),
-                    DataColumn(label: Text("Item Disc.")),
-                    DataColumn(label: Text("Subtotal")),
-                    DataColumn(label: Text("Total")),
-                    DataColumn(label: Text("Actions")),
-                  ],
-                  rows: items
-                      .map((item) => DataRow(cells: [
-                            DataCell(Text(item.productName ?? '-')),
-                            DataCell(Text(item.quantity.toStringAsFixed(
-                                item.quantity % 1 == 0 ? 0 : 2))),
-                            DataCell(Text(item.price.toStringAsFixed(2))),
-                            DataCell(Text(
-                                "${item.discount.toStringAsFixed(0)}${item.discountType == 0 ? '%' : ''}")),
-                            DataCell(Text(item.priceBeforeTaxAfterDiscount
-                                .toStringAsFixed(2))),
-                            DataCell(Text(item.total.toStringAsFixed(2),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    headingRowColor:
+                        WidgetStateProperty.all(Colors.blueGrey[50]),
+                    columns: const [
+                      DataColumn(label: Text("Product")),
+                      DataColumn(label: Text("Qty"), numeric: true),
+                      DataColumn(label: Text("Price"), numeric: true),
+                      DataColumn(label: Text("Item Disc."), numeric: true),
+                      DataColumn(label: Text("Subtotal"), numeric: true),
+                      DataColumn(label: Text("Total"), numeric: true),
+                      DataColumn(label: Text("Actions")),
+                    ],
+                    rows: items
+                        .map((item) => DataRow(cells: [
+                              DataCell(Text(item.productName ?? '-')),
+                              DataCell(Text(item.quantity.toStringAsFixed(
+                                  item.quantity % 1 == 0 ? 0 : 2))),
+                              DataCell(Text(item.price.toStringAsFixed(2))),
+                              DataCell(Text(
+                                  "${item.discount.toStringAsFixed(0)}${item.discountType == 0 ? '%' : ''}")),
+                              DataCell(Text(item.priceBeforeTaxAfterDiscount
+                                  .toStringAsFixed(2))),
+                              DataCell(Text(
+                                item.total.toStringAsFixed(2),
                                 style: const TextStyle(
-                                    fontWeight: FontWeight.bold))),
-                            DataCell(Row(
-                              children: [
-                                IconButton(
-                                    icon: const Icon(Icons.edit,
-                                        color: Colors.blueGrey, size: 18),
-                                    onPressed: () async {
-                                      await showDialog(
+                                    fontWeight: FontWeight.bold),
+                              )),
+                              DataCell(Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                      icon: const Icon(Icons.edit,
+                                          color: Colors.blueGrey, size: 18),
+                                      onPressed: () async {
+                                        await showDialog(
+                                            context: context,
+                                            builder: (_) => _EditItemDialog(
+                                                item: item,
+                                                companyId: companyId));
+                                        ref.invalidate(
+                                            documentItemsByDocIdProvider(
+                                                documentId));
+                                      }),
+                                  IconButton(
+                                      icon: const Icon(Icons.delete,
+                                          color: Colors.red, size: 18),
+                                      onPressed: () async {
+                                        final confirm = await showDialog<bool>(
                                           context: context,
-                                          builder: (_) => _EditItemDialog(
-                                              item: item,
-                                              companyId: companyId));
-                                      ref.invalidate(
-                                          documentItemsByDocIdProvider(
-                                              documentId));
-                                    }),
-                                IconButton(
-                                    icon: const Icon(Icons.delete,
-                                        color: Colors.red, size: 18),
-                                    onPressed: () async {
-                                      final dio = createDio();
-                                      await dio.delete('/DocumentItems/Delete',
-                                          queryParameters: {
-                                            'id': item.id,
-                                            'companyId': companyId
-                                          });
-                                      ref.invalidate(
-                                          documentItemsByDocIdProvider(
-                                              documentId));
-                                    }),
-                              ],
-                            )),
-                          ]))
-                      .toList(),
+                                          builder: (ctx) => AlertDialog(
+                                            title: const Text("Delete Item"),
+                                            content: Text(
+                                                "Delete '${item.productName}'?"),
+                                            actions: [
+                                              TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.of(ctx)
+                                                          .pop(false),
+                                                  child: const Text("Cancel")),
+                                              ElevatedButton(
+                                                style: ElevatedButton.styleFrom(
+                                                    backgroundColor:
+                                                        Colors.red),
+                                                onPressed: () =>
+                                                    Navigator.of(ctx).pop(true),
+                                                child: const Text("Delete",
+                                                    style: TextStyle(
+                                                        color: Colors.white)),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                        if (confirm == true) {
+                                          final dio = createDio();
+                                          await dio.delete(
+                                              '/DocumentItems/Delete',
+                                              queryParameters: {
+                                                'id': item.id,
+                                                'companyId': companyId
+                                              });
+                                          ref.invalidate(
+                                              documentItemsByDocIdProvider(
+                                                  documentId));
+                                        }
+                                      }),
+                                ],
+                              )),
+                            ]))
+                        .toList(),
+                  ),
                 ),
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -980,7 +1054,7 @@ class _ItemsView extends ConsumerWidget {
                   child: Text("Items Base Total: \$${total.toStringAsFixed(2)}",
                       style: const TextStyle(
                           fontWeight: FontWeight.bold, fontSize: 16)),
-                )
+                ),
               ],
             );
           },
@@ -995,6 +1069,7 @@ class _AddItemDialog extends ConsumerStatefulWidget {
   final int documentId;
   final int companyId;
   const _AddItemDialog({required this.documentId, required this.companyId});
+
   @override
   ConsumerState<_AddItemDialog> createState() => _AddItemDialogState();
 }
@@ -1007,23 +1082,50 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
   final _discountCtrl = TextEditingController(text: '0');
   int _discountType = 0;
   bool _discountApplyRule = true;
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  @override
+  void dispose() {
+    _qtyCtrl.dispose();
+    _priceCtrl.dispose();
+    _priceBeforeTaxCtrl.dispose();
+    _discountCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _submit() async {
-    final dio = createDio();
-    await dio.post('/DocumentItems/Add', queryParameters: {
-      'companyId': widget.companyId
-    }, data: {
-      'documentId': widget.documentId,
-      'productId': _selectedProductId,
-      'quantity': double.tryParse(_qtyCtrl.text) ?? 1,
-      'expectedQuantity': double.tryParse(_qtyCtrl.text) ?? 1,
-      'priceBeforeTax': double.tryParse(_priceBeforeTaxCtrl.text) ?? 0,
-      'price': double.tryParse(_priceCtrl.text) ?? 0,
-      'discount': double.tryParse(_discountCtrl.text) ?? 0,
-      'discountType': _discountType,
-      'discountApplyRule': _discountApplyRule,
+    if (_selectedProductId == null) {
+      setState(() => _errorMessage = "Please select a product.");
+      return;
+    }
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
     });
-    if (mounted) Navigator.of(context).pop();
+    try {
+      final dio = createDio();
+      await dio.post('/DocumentItems/Add', queryParameters: {
+        'companyId': widget.companyId
+      }, data: {
+        'documentId': widget.documentId,
+        'productId': _selectedProductId,
+        'quantity': double.tryParse(_qtyCtrl.text) ?? 1,
+        'expectedQuantity': double.tryParse(_qtyCtrl.text) ?? 1,
+        'priceBeforeTax': double.tryParse(_priceBeforeTaxCtrl.text) ?? 0,
+        'price': double.tryParse(_priceCtrl.text) ?? 0,
+        'discount': double.tryParse(_discountCtrl.text) ?? 0,
+        'discountType': _discountType,
+        'discountApplyRule': _discountApplyRule,
+      });
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } on DioException catch (e) {
+      setState(() {
+        _errorMessage = e.response?.data?.toString() ?? "Failed to add item.";
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -1032,7 +1134,7 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
     return AlertDialog(
       title: const Text("Add Product"),
       content: SizedBox(
-        width: 400,
+        width: 420,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1044,8 +1146,12 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
                 decoration: const InputDecoration(
                     labelText: "Product *", border: OutlineInputBorder()),
                 items: products
-                    .map((p) =>
-                        DropdownMenuItem(value: p.id, child: Text(p.name)))
+                    .map((p) => DropdownMenuItem(
+                        value: p.id,
+                        child: Text(
+                          "${p.name}${p.code != null ? ' (${p.code})' : ''}",
+                          overflow: TextOverflow.ellipsis,
+                        )))
                     .toList(),
                 onChanged: (v) {
                   final p = products.firstWhere((prod) => prod.id == v);
@@ -1087,11 +1193,16 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
                 decoration: const InputDecoration(border: OutlineInputBorder()),
                 items: const [
                   DropdownMenuItem(value: 0, child: Text("%")),
-                  DropdownMenuItem(value: 1, child: Text("Fixed"))
+                  DropdownMenuItem(value: 1, child: Text("Fixed")),
                 ],
                 onChanged: (v) => setState(() => _discountType = v ?? 0),
               )),
             ]),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Text(_errorMessage!,
+                  style: const TextStyle(color: Colors.red, fontSize: 13)),
+            ],
           ],
         ),
       ),
@@ -1099,7 +1210,19 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
         TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text("Cancel")),
-        ElevatedButton(onPressed: _submit, child: const Text("Add")),
+        if (_isLoading)
+          const Padding(
+            padding: EdgeInsets.all(8),
+            child: CircularProgressIndicator(),
+          )
+        else
+          ElevatedButton.icon(
+            icon: const Icon(Icons.add),
+            label: const Text("Add"),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+            onPressed: _submit,
+          ),
       ],
     );
   }
@@ -1110,6 +1233,7 @@ class _EditItemDialog extends ConsumerStatefulWidget {
   final DocumentItem item;
   final int companyId;
   const _EditItemDialog({required this.item, required this.companyId});
+
   @override
   ConsumerState<_EditItemDialog> createState() => _EditItemDialogState();
 }
@@ -1119,6 +1243,8 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
   late final TextEditingController _priceCtrl;
   late final TextEditingController _discountCtrl;
   late int _discountType;
+  bool _isLoading = false;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -1130,26 +1256,51 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
     _discountType = widget.item.discountType;
   }
 
+  @override
+  void dispose() {
+    _qtyCtrl.dispose();
+    _priceCtrl.dispose();
+    _discountCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _submit() async {
-    final dio = createDio();
-    await dio.patch('/DocumentItems/Update', queryParameters: {
-      'companyId': widget.companyId
-    }, data: {
-      'id': widget.item.id,
-      'documentId': widget.item.documentId,
-      'productId': widget.item.productId,
-      'quantity': double.tryParse(_qtyCtrl.text) ?? widget.item.quantity,
-      'price': double.tryParse(_priceCtrl.text) ?? widget.item.price,
-      'discount': double.tryParse(_discountCtrl.text) ?? widget.item.discount,
-      'discountType': _discountType,
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
     });
-    if (mounted) Navigator.of(context).pop();
+    try {
+      final dio = createDio();
+      await dio.patch('/DocumentItems/Update', queryParameters: {
+        'companyId': widget.companyId
+      }, data: {
+        'id': widget.item.id,
+        'documentId': widget.item.documentId,
+        'productId': widget.item.productId,
+        'quantity': double.tryParse(_qtyCtrl.text) ?? widget.item.quantity,
+        'expectedQuantity':
+            double.tryParse(_qtyCtrl.text) ?? widget.item.quantity,
+        'priceBeforeTax': widget.item.priceBeforeTax,
+        'price': double.tryParse(_priceCtrl.text) ?? widget.item.price,
+        'discount': double.tryParse(_discountCtrl.text) ?? widget.item.discount,
+        'discountType': _discountType,
+        'productCost': widget.item.productCost,
+        'discountApplyRule': widget.item.discountApplyRule,
+      });
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } on DioException catch (e) {
+      setState(() {
+        _errorMessage = e.response?.data?.toString() ?? "Update failed.";
+        _isLoading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text("Edit ${widget.item.productName}"),
+      title: Text("Edit — ${widget.item.productName ?? ''}"),
       content: SizedBox(
         width: 400,
         child: Column(
@@ -1184,11 +1335,16 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                 decoration: const InputDecoration(border: OutlineInputBorder()),
                 items: const [
                   DropdownMenuItem(value: 0, child: Text("%")),
-                  DropdownMenuItem(value: 1, child: Text("Fixed"))
+                  DropdownMenuItem(value: 1, child: Text("Fixed")),
                 ],
                 onChanged: (v) => setState(() => _discountType = v ?? 0),
               )),
             ]),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 12),
+              Text(_errorMessage!,
+                  style: const TextStyle(color: Colors.red, fontSize: 13)),
+            ],
           ],
         ),
       ),
@@ -1196,7 +1352,19 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
         TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text("Cancel")),
-        ElevatedButton(onPressed: _submit, child: const Text("Update")),
+        if (_isLoading)
+          const Padding(
+            padding: EdgeInsets.all(8),
+            child: CircularProgressIndicator(),
+          )
+        else
+          ElevatedButton.icon(
+            icon: const Icon(Icons.save),
+            label: const Text("Update"),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+            onPressed: _submit,
+          ),
       ],
     );
   }
