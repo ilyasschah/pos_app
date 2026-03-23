@@ -21,7 +21,7 @@ final documentCategoriesProvider =
   if (company == null) return [];
   final dio = createDio();
   final response = await dio.get(
-    '/DocumentCategory/GetAll', // Fixed typo from GettAll
+    '/DocumentCategory/GetAll',
     queryParameters: {'companyId': company.id},
   );
   return (response.data as List)
@@ -323,12 +323,20 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
         data: payload,
       );
 
-      final newId = (response.data is Map<String, dynamic>)
-          ? (response.data['id'] as num?)?.toInt()
-          : null;
+      // --- DART TRAP FIXED ---
+      int? newId;
+      final data = response.data;
+
+      if (data is Map) {
+        // Safely extract the ID regardless of capitalization
+        newId = (data['id'] as num?)?.toInt() ?? (data['Id'] as num?)?.toInt();
+      } else if (data is num) {
+        newId = data.toInt();
+      }
 
       if (newId == null || newId == 0) {
-        throw Exception("Server did not return a valid Document ID.");
+        throw Exception(
+            "Server did not return a valid Document ID. Response: $data");
       }
 
       setState(() {
@@ -340,6 +348,11 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
       setState(() {
         _errorMessage =
             e.response?.data?.toString() ?? "Failed to save document.";
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = e.toString();
         _isLoading = false;
       });
     }
@@ -865,6 +878,17 @@ class _ItemsViewState extends ConsumerState<_ItemsView> {
         'total': newTotal,
       });
       ref.invalidate(allDocumentsProvider);
+    } on DioException catch (e) {
+      debugPrint(
+          "Failed to sync document total. Server returned: ${e.response?.data}");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Failed to update total: ${e.response?.data}"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } catch (e) {
       debugPrint("Failed to sync document total: $e");
     }
