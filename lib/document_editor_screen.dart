@@ -16,7 +16,7 @@ final documentCategoriesProvider =
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return [];
   final dio = createDio();
-  final response = await dio.get('/DocumentCategory/GettAll',
+  final response = await dio.get('/DocumentCategory/GetAll',
       queryParameters: {'companyId': company.id});
   return (response.data as List)
       .map((j) => DocumentCategory.fromJson(j))
@@ -233,18 +233,27 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
 
         int? newId;
         final data = response.data;
-        if (data is Map) {
-          newId =
-              (data['id'] as num?)?.toInt() ?? (data['Id'] as num?)?.toInt();
-        } else if (data is num) {
-          newId = data.toInt();
+
+        if (data != null) {
+          if (data is Map) {
+            newId = int.tryParse(
+                data['id']?.toString() ?? data['Id']?.toString() ?? '');
+          } else if (data is int || data is num) {
+            newId = (data as num).toInt();
+          }
         }
 
-        if (newId == null || newId == 0) {
-          throw Exception("Invalid Document ID returned.");
+        if (newId == null || newId <= 0) {
+          throw Exception(
+              "Server saved the document but returned an unreadable ID: $data");
         }
 
-        // Build a Document object from form state so _ItemsView can display it
+        setState(() {
+          _savedDocumentId = newId;
+          _headerSaved = true;
+          _isLoading = false;
+        });
+
         final createdDoc = Document(
           id: newId,
           number: _numberCtrl.text.trim(),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'package:pos_app/settings_provider.dart';
 import 'company_provider.dart';
 import 'api_client.dart';
 import 'user_model.dart';
@@ -34,7 +35,9 @@ class CompanySelectionScreen extends ConsumerWidget {
                       final company = list[i];
                       ref.read(selectedCompanyProvider.notifier).state =
                           company;
-
+                      ref
+                          .read(defaultCompanyIdProvider.notifier)
+                          .setDefaultCompany(company.id);
                       // Check if this company has any users
                       final dio = createDio();
                       List<User> users = [];

@@ -493,177 +493,7 @@ class CartSection extends ConsumerStatefulWidget {
 }
 
 class _CartSectionState extends ConsumerState<CartSection> {
-  late final ProviderSubscription<AsyncValue<List<Customer>>> _customersSub;
-
-  Future<void> _processCheckout(BuildContext context) async {
-    final cartItems = ref.read(cartProvider);
-    if (cartItems.isEmpty) return;
-    final parentContext = context;
-
-    await showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text("Select Payment Method"),
-          content: Consumer(
-            builder: (context, ref, _) {
-              final asyncTypes = ref.watch(paymentTypesProvider);
-              return asyncTypes.when(
-                loading: () => const SizedBox(
-                    height: 100,
-                    child: Center(child: CircularProgressIndicator())),
-                error: (err, _) => Text("Error: $err"),
-                data: (paymentTypes) {
-                  if (paymentTypes.isEmpty) {
-                    return const Text("No payment methods found.");
-                  }
-                  return SizedBox(
-                    width: 300,
-                    child: ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: paymentTypes.length,
-                      separatorBuilder: (_, __) => const Divider(),
-                      itemBuilder: (itemCtx, index) {
-                        final type = paymentTypes[index];
-                        return ListTile(
-                          leading: const Icon(Icons.payment),
-                          title: Text(type.name),
-                          onTap: () {
-                            Navigator.of(ctx).pop();
-                            // _submitOrderChain(parentContext, type);
-                          },
-                        );
-                      },
-                    ),
-                  );
-                },
-              );
-            },
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text("Cancel")),
-          ],
-        );
-      },
-    );
-  }
-
-  // Future<void> _submitOrderChain(
-  //     BuildContext context, PaymentType paymentType) async {
-  //   final dio = createDio();
-  //   final cartItems = ref.read(cartProvider);
-  //   final total = ref.read(cartTotalProvider);
-  //   final currentUser = ref.read(currentUserProvider);
-  //   final currentCustomer = ref.read(currentCustomerProvider);
-  //   final selectedCompany = ref.read(selectedCompanyProvider);
-
-  //   if (cartItems.isEmpty) return;
-
-  //   if (currentUser == null || currentUser.id == 0) {
-  //     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-  //         content: Text("Error: Valid User Required"),
-  //         backgroundColor: Colors.red));
-  //     return;
-  //   }
-
-  //   final int customerIdToSend = currentCustomer?.id ?? 4;
-  //   final int companyIdToSend = selectedCompany?.id ?? 2;
-  //   final navigator = Navigator.of(context, rootNavigator: true);
-  //   bool spinnerShown = false;
-
-  //   try {
-  //     spinnerShown = true;
-  //     showDialog(
-  //       context: context,
-  //       barrierDismissible: false,
-  //       builder: (_) => const Center(child: CircularProgressIndicator()),
-  //     );
-
-  //     final nowIso = DateTime.now().toIso8601String();
-  //     final docNumber = "REC-${DateTime.now().millisecondsSinceEpoch}";
-
-  //     final docPayload = Document(
-  //       number: docNumber,
-  //       userId: currentUser.id,
-  //       customerId: customerIdToSend,
-  //       date: nowIso,
-  //       total: total,
-  //       companyId: companyIdToSend,
-  //     ).toJson();
-
-  //     final docResponse = await dio.post(
-  //       'https://localhost:7002/api/Document/Add',
-  //       data: docPayload,
-  //     );
-
-  //     final docData = docResponse.data;
-  //     final int? newDocId = (docData is Map<String, dynamic>)
-  //         ? (docData['id'] as num?)?.toInt()
-  //         : null;
-
-  //     if (newDocId == null || newDocId == 0) {
-  //       throw Exception("Server did not return a valid Document ID.");
-  //     }
-
-  //     for (final item in cartItems) {
-  //       final itemPayload = DocumentItemDto(
-  //         documentId: newDocId,
-  //         productId: item.product.id,
-  //         quantity: item.quantity.toDouble(),
-  //         price: item.product.price,
-  //         total: item.total,
-  //       ).toJson();
-
-  //       await dio.post(
-  //         'https://localhost:7002/api/DocumentItem/Create',
-  //         data: itemPayload,
-  //       );
-  //     }
-
-  //     final paymentPayload = <String, dynamic>{
-  //       "DocumentId": newDocId,
-  //       "PaymentTypeId": paymentType.id,
-  //       "Amount": total,
-  //       "UserId": currentUser.id,
-  //       "Date": nowIso,
-  //     };
-
-  //     final paymentResponse = await dio.post(
-  //       'https://localhost:7002/api/Payments/Add',
-  //       data: paymentPayload,
-  //     );
-
-  //     final status = paymentResponse.statusCode ?? 0;
-  //     if (status < 200 || status >= 300) {
-  //       throw Exception("Payment failed (HTTP $status).");
-  //     }
-  //   } catch (e) {
-  //     if (!context.mounted) return;
-  //     final message = (e is DioException && e.response?.data != null)
-  //         ? "Server: ${e.response?.data}"
-  //         : "Checkout Failed";
-  //     ScaffoldMessenger.of(context).showSnackBar(
-  //       SnackBar(content: Text(message), backgroundColor: Colors.red),
-  //     );
-  //     return;
-  //   } finally {
-  //     if (spinnerShown && context.mounted && navigator.canPop()) {
-  //       navigator.pop();
-  //     }
-  //   }
-
-  //   if (!context.mounted) return;
-  //   ref.read(cartProvider.notifier).clearCart();
-  //   ScaffoldMessenger.of(context).showSnackBar(
-  //     const SnackBar(
-  //       content: Text("Sale Finalized"),
-  //       backgroundColor: Colors.green,
-  //       duration: Duration(seconds: 2),
-  //     ),
-  //   );
-  // }
+  // Removed the initState and dispose methods completely!
 
   void _showCustomerDialog(
       BuildContext context, WidgetRef ref, List<Customer> customers) {
@@ -696,26 +526,19 @@ class _CartSectionState extends ConsumerState<CartSection> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    _customersSub = ref.listenManual(allCustomersProvider, (previous, next) {
+  Widget build(BuildContext context) {
+    ref.listen<AsyncValue<List<Customer>>>(allCustomersProvider,
+        (previous, next) {
       final customers = next.value;
       if (customers != null &&
           customers.isNotEmpty &&
           ref.read(currentCustomerProvider) == null) {
-        ref.read(currentCustomerProvider.notifier).setDefault(customers);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(currentCustomerProvider.notifier).setDefault(customers);
+        });
       }
     });
-  }
 
-  @override
-  void dispose() {
-    _customersSub.close();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
     final cartItems = ref.watch(cartProvider);
     final total = ref.watch(cartTotalProvider);
     final currentCustomer = ref.watch(currentCustomerProvider);
@@ -725,7 +548,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
       children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          color: Colors.blueGrey[50],
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           width: double.infinity,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -780,12 +603,10 @@ class _CartSectionState extends ConsumerState<CartSection> {
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: Colors.white,
-            boxShadow: [
+            color: Theme.of(context).cardColor,
+            boxShadow: const [
               BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 10,
-                  offset: const Offset(0, -4))
+                  color: Colors.black12, blurRadius: 10, offset: Offset(0, -4))
             ],
           ),
           child: Row(
@@ -798,7 +619,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                       color: Colors.green)),
               ElevatedButton(
                 onPressed:
-                    cartItems.isEmpty ? null : () => _processCheckout(context),
+                    cartItems.isEmpty ? null : () {/* Trigger Checkout */},
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                 child: const Text("PAY", style: TextStyle(color: Colors.white)),
               )

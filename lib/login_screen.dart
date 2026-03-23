@@ -1,17 +1,69 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'auth_provider.dart';
-import 'menu_screen.dart'; // We will navigate here after login
+import 'company_provider.dart';
+import 'company_model.dart';
+import 'settings_provider.dart';
+import 'menu_screen.dart';
 
-class LoginScreen extends ConsumerWidget {
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends ConsumerState<LoginScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Bypassing the company screen means we MUST set a default company
+    // before the UI tries to fetch users, otherwise the API throws an error.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final selectedCo = ref.read(selectedCompanyProvider);
+      final defaultCoId = ref.read(defaultCompanyIdProvider);
+
+      if (selectedCo == null) {
+        // Fallback to Company ID 2 (or whatever default you want)
+        final fallbackId = defaultCoId ?? 2;
+        ref.read(selectedCompanyProvider.notifier).state = Company(
+            id: fallbackId, name: "Default Branch", countrySubentity: "DEF");
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Only watch users AFTER ensuring a company is selected
+    final selectedCo = ref.watch(selectedCompanyProvider);
+    if (selectedCo == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     final asyncUsers = ref.watch(allUsersProvider);
 
     return Scaffold(
-      backgroundColor: Colors.blueGrey[900], // Dark background for Login
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      appBar: AppBar(
+        title: const Text("POS Login"),
+        actions: [
+          // Quick Settings Toggle on Login Screen
+          IconButton(
+            icon: Icon(ref.watch(themeModeProvider) == ThemeMode.dark
+                ? Icons.light_mode
+                : Icons.dark_mode),
+            onPressed: () {
+              // Simply call our new built-in function to toggle and save!
+              ref.read(themeModeProvider.notifier).toggleTheme();
+            },
+          ),
+          TextButton.icon(
+            icon: const Icon(Icons.business),
+            label: Text(selectedCo.name),
+            onPressed: () => Navigator.pushNamed(context, '/select-company'),
+          )
+        ],
+      ),
       body: Center(
         child: Container(
           constraints: const BoxConstraints(maxWidth: 800),
@@ -19,31 +71,20 @@ class LoginScreen extends ConsumerWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text(
-                "Select User",
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold),
-              ),
+              const Text("Select User",
+                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
               const SizedBox(height: 40),
-
-              // THE USER GRID
               Expanded(
                 child: asyncUsers.when(
                   loading: () =>
                       const Center(child: CircularProgressIndicator()),
                   error: (err, stack) => Center(
-                    child: Text("Error loading users: $err",
-                        style: const TextStyle(color: Colors.red)),
-                  ),
+                      child: Text("Error loading users: $err",
+                          style: const TextStyle(color: Colors.red))),
                   data: (users) {
-                    if (users.isEmpty) {
+                    if (users.isEmpty)
                       return const Center(
-                          child: Text("No enabled users found.",
-                              style: TextStyle(color: Colors.white)));
-                    }
-
+                          child: Text("No enabled users found."));
                     return GridView.builder(
                       gridDelegate:
                           const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -53,10 +94,8 @@ class LoginScreen extends ConsumerWidget {
                         mainAxisSpacing: 20,
                       ),
                       itemCount: users.length,
-                      itemBuilder: (context, index) {
-                        final user = users[index];
-                        return _buildUserCard(context, ref, user);
-                      },
+                      itemBuilder: (context, index) =>
+                          _buildUserCard(context, ref, users[index]),
                     );
                   },
                 ),
@@ -71,25 +110,16 @@ class LoginScreen extends ConsumerWidget {
   Widget _buildUserCard(BuildContext context, WidgetRef ref, var user) {
     return InkWell(
       onTap: () {
-        // 1. Set the global Current User
         ref.read(currentUserProvider.notifier).state = user;
-
-        // 2. Navigate to POS Menu
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (context) => const MenuScreen()),
-        );
+            MaterialPageRoute(builder: (context) => const MenuScreen()));
       },
       child: Card(
         elevation: 4,
-        color: Colors.blueGrey[800],
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: Colors.blueGrey[600]!, width: 1),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // User Icon (You can check accessLevel here to change icon color)
             CircleAvatar(
               radius: 30,
               backgroundColor:
@@ -97,19 +127,13 @@ class LoginScreen extends ConsumerWidget {
               child: const Icon(Icons.person, size: 35, color: Colors.white),
             ),
             const SizedBox(height: 16),
-            Text(
-              user.displayName,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold),
-            ),
+            Text(user.displayName,
+                textAlign: TextAlign.center,
+                style:
+                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            Text(
-              user.accessLevel >= 9 ? "Admin" : "Staff",
-              style: TextStyle(color: Colors.grey[400], fontSize: 12),
-            ),
+            Text(user.accessLevel >= 9 ? "Admin" : "Staff",
+                style: const TextStyle(color: Colors.grey, fontSize: 12)),
           ],
         ),
       ),
