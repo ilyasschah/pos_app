@@ -1,0 +1,4 @@
+$kind: http-request
+url: https://localhost:7002/api/ProductGroups/GetRoots
+method: GET
+order: 5000

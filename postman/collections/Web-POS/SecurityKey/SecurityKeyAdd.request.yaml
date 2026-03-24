@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{url}}/api/SecurityKey/AddSecurityKey"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"name\": \"string\",\r
+
+    \  \"level\": 0\r
+
+    }"
+order: 2000

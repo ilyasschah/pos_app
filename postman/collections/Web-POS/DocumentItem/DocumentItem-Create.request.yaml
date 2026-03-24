@@ -1,0 +1,30 @@
+$kind: http-request
+name: DocumentItem/Create
+url: https://localhost:7002/api/DocumentItem/Create
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"DocumentId\": 6,\r
+
+    \  \"ProductId\": 17,\r
+
+    \  \"Quantity\": 1,\r
+
+    \  \"Price\": 10,\r
+
+    \  \"Total\": 10,\r
+
+    \  \"Discount\": 0,\r
+
+    \  \"DiscountType\": 0,\r
+
+    \  \"ProductCost\": 0,\r
+
+    \  \"TaxRate\": 0\r
+
+    }"
+auth:
+  type: noauth
+order: 1000

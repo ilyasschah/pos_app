@@ -1,0 +1,5 @@
+$kind: collection
+description: Stable Postman collection for WarehousesController
+variables:
+  baseUrl: https://localhost:7002
+  companyId: "2"

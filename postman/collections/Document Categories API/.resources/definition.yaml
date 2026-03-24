@@ -1,0 +1,4 @@
+$kind: collection
+description: Postman collection for testing DocumentCategoryController endpoints
+variables:
+  baseUrl: https://localhost:5001

@@ -1,0 +1,4 @@
+$kind: http-request
+url: https://localhost:7004/api/StartingCash/GetAll
+method: GET
+order: 1000

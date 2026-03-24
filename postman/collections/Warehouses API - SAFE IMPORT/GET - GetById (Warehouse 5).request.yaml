@@ -1,0 +1,7 @@
+$kind: http-request
+url: https://localhost:7002/api/Warehouses/GetById?id=5&companyId={{companyId}}
+method: GET
+queryParams:
+  id: "5"
+  companyId: "{{companyId}}"
+order: 2000

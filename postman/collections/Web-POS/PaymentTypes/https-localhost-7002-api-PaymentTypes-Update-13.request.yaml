@@ -1,0 +1,38 @@
+$kind: http-request
+name: https://localhost:7002/api/PaymentTypes/Update/13
+url: https://localhost:7002/api/PaymentTypes/Update/13?companyId=55
+method: PUT
+queryParams:
+  companyId: "55"
+body:
+  type: json
+  content: "{\r
+
+    \  \"name\": \"Visa Gold\",\r
+
+    \  \"code\": \"VISA-G\",\r
+
+    \  \"isCustomerRequired\": false,\r
+
+    \  \"isFiscal\": true,\r
+
+    \  \"isSlipRequired\": true,\r
+
+    \  \"isChangeAllowed\": false,\r
+
+    \  \"ordinal\": 2,\r
+
+    \  \"isEnabled\": true,\r
+
+    \  \"isQuickPayment\": false,\r
+
+    \  \"openCashDrawer\": false,\r
+
+    \  \"shortcutKey\": \"V\",\r
+
+    \  \"markAsPaid\": true\r
+
+    }"
+auth:
+  type: noauth
+order: 3000

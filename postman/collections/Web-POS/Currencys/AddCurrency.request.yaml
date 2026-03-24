@@ -1,0 +1,13 @@
+$kind: http-request
+url: https://localhost:7002/api/Currencies/AddCurrencycommand
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"name\": \"test\",\r
+
+    \  \"code\": \"$w\"\r
+
+    }"
+order: 2000

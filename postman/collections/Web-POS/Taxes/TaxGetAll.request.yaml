@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{ProductsURL}}/api/Taxes/GetAllTaxes"
+method: GET
+order: 1000

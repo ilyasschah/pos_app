@@ -1,0 +1,18 @@
+$kind: http-request
+name: https://localhost:7002/api/Barcodes/Add
+url: https://localhost:7002/api/Barcodes/Add?companyId=2
+method: POST
+queryParams:
+  companyId: "2"
+body:
+  type: json
+  content: "{\r
+
+    \  \"value\": \"123456789\",\r
+
+    \  \"productId\": 5 \r
+
+    }"
+auth:
+  type: noauth
+order: 5000

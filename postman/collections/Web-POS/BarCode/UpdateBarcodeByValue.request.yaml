@@ -1,0 +1,10 @@
+$kind: http-request
+url: https://localhost:7004/api/Barcode/Update?Id=null&NewBarcodeValue=2222222
+method: POST
+queryParams:
+  Id: "null"
+  NewBarcodeValue: "2222222"
+body:
+  type: json
+  content: ""
+order: 3000

@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{SalesURL}}/api/CustomerDiscount/GetAllCustomerDiscounts"
+method: GET
+order: 2000

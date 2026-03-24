@@ -1,0 +1,4 @@
+$kind: http-request
+url: localhost:7006/api/ApplicationProperties/Update/{originalName}
+method: PUT
+order: 4000

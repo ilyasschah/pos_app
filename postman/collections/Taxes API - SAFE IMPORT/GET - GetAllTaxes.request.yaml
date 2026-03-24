@@ -1,0 +1,6 @@
+$kind: http-request
+url: https://localhost:7002/api/Taxes/GetAllTaxes?companyId={{companyId}}
+method: GET
+queryParams:
+  companyId: "{{companyId}}"
+order: 1000

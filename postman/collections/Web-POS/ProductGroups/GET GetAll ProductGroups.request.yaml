@@ -1,0 +1,4 @@
+$kind: http-request
+url: https://localhost:7002/api/ProductGroups/GetAll
+method: GET
+order: 1000

@@ -1,0 +1,9 @@
+$kind: http-request
+name: https://localhost:7002/api/Country/Delete/6
+url: https://localhost:7002/api/Country/Delete/6?companyId=2
+method: DELETE
+queryParams:
+  companyId: "2"
+auth:
+  type: noauth
+order: 5000

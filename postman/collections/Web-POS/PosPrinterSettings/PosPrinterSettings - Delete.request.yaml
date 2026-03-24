@@ -1,0 +1,4 @@
+$kind: http-request
+url: localhost:7006/api/PosPrinterSettings/Delete/{id}
+method: DELETE
+order: 6000

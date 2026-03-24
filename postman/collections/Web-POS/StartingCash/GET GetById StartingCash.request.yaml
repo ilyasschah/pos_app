@@ -1,0 +1,6 @@
+$kind: http-request
+url: https://localhost:7004/api/StartingCash/GetById/:id
+method: GET
+pathVariables:
+  id: ""
+order: 2000

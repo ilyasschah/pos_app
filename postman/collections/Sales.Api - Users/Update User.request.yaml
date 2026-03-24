@@ -1,0 +1,15 @@
+$kind: http-request
+url: https://localhost:7004/api/Users/Update
+method: PUT
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "id": 1,
+      "username": "updateduser",
+      "password": "654321",
+      "role": "Cashier"
+    }
+order: 5000

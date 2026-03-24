@@ -1,0 +1,5 @@
+$kind: collection
+description: Collection to test PaymentTypesController endpoints
+variables:
+  baseUrl: https://localhost:7002/api/PaymentTypes
+  companyId: "1"

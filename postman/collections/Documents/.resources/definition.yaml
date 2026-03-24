@@ -1,0 +1,4 @@
+$kind: collection
+description: Document API endpoints - companyId=2
+variables:
+  baseUrl: https://localhost:7002

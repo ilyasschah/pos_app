@@ -1,0 +1,15 @@
+$kind: http-request
+name: https://localhost:7002/api/PaymentTypes/Add
+url: https://localhost:7002/api/PaymentTypes/Add?companyId=2
+method: POST
+queryParams:
+  companyId: "2"
+body:
+  type: json
+  content: "{\"name\":\"Apple Pay\",\r
+
+    \    \"type\":1,\"isEnabled\":true,\"isCash\":false,\"isChangeAllowed\":fal\
+    se,\"ordinal\":1,\"Code\":\"PAP\"}"
+auth:
+  type: noauth
+order: 1000

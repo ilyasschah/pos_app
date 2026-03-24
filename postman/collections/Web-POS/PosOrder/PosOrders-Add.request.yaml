@@ -1,0 +1,28 @@
+$kind: http-request
+name: PosOrders/Add
+url: https://localhost:7002/api/PosOrders/Add
+method: POST
+queryParams:
+  - key: Content-Type
+    value: application/json
+    disabled: true
+body:
+  type: json
+  content: "{\r
+
+    \    \"userId\": 5,\r
+
+    \    \"number\": \"ORD-2025-00243\",\r
+
+    \    \"discount\": 0,\r
+
+    \    \"discountType\": 0,\r
+
+    \    \"total\": 150.75,\r
+
+    \    \"customerId\": 4\r
+
+    }\r\n"
+auth:
+  type: noauth
+order: 1000

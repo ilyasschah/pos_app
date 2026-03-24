@@ -1,0 +1,14 @@
+$kind: http-request
+url: https://localhost:7004/api/Users/Add
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "username": "newuser",
+      "password": "123456",
+      "role": "Admin"
+    }
+order: 4000

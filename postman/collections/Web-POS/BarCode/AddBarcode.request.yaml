@@ -1,0 +1,13 @@
+$kind: http-request
+url: https://localhost:7002/api/Barcode/AddBarCode
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"value\": \"12356\",\r
+
+    \  \"productId\": 4\r
+
+    }"
+order: 2000

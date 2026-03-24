@@ -1,0 +1,6 @@
+$kind: http-request
+url: https://localhost:7002/api/ProductGroups/GetChildrenByParentId/:parentGroupId
+method: GET
+pathVariables:
+  parentGroupId: ""
+order: 4000

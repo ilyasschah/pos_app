@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{StockURL}}/api/Stocks/GetAllStocks"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"quantity\": 0,\r
+
+    \  \"warehouseName\": \"string\",\r
+
+    \  \"productName\": \"string\"\r
+
+    }"
+order: 2000

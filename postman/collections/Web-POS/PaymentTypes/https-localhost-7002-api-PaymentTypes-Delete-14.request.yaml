@@ -1,0 +1,9 @@
+$kind: http-request
+name: https://localhost:7002/api/PaymentTypes/Delete/14
+url: https://localhost:7002/api/PaymentTypes/Delete/14?companyId=2
+method: DELETE
+queryParams:
+  companyId: "2"
+auth:
+  type: noauth
+order: 2000

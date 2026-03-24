@@ -1,0 +1,4 @@
+$kind: http-request
+url: https://localhost:7004/api/StartingCash/Add
+method: POST
+order: 4000

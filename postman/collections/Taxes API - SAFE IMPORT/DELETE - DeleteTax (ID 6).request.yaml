@@ -1,0 +1,7 @@
+$kind: http-request
+url: https://localhost:7002/api/Taxes/DeleteTax?id=6&companyId={{companyId}}
+method: DELETE
+queryParams:
+  id: "6"
+  companyId: "{{companyId}}"
+order: 6000

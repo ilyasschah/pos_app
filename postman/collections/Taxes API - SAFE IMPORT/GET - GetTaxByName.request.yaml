@@ -1,0 +1,7 @@
+$kind: http-request
+url: https://localhost:7002/api/Taxes/GetTaxByName?name=TVA&companyId={{companyId}}
+method: GET
+queryParams:
+  name: TVA
+  companyId: "{{companyId}}"
+order: 3000

@@ -1,0 +1,25 @@
+# Use this workspace to collaborate
+workspace:
+  id: 608fe7fd-a706-421a-86ea-fe83a69f36e6
+
+localResources:
+  collections:
+    - ..\postman.json
+
+# Each entry here maps a local resource to one or more corresponding objects in Postman Cloud
+cloudResources:
+  collections:
+    ..\postman\collections\Warehouses API - SAFE IMPORT: 41814350-1bb971e1-1600-44ff-81be-18678404f3b6
+    ..\postman\collections\Document Types API: 41814350-27b61632-566e-43a2-bfd8-74ddba9bed8a
+    ..\postman\collections\Document Categories API: 41814350-2b823257-246b-4c7b-b768-86945f924046
+    ..\postman\collections\Web-POS: 41814350-493bd3e7-8f35-4457-8a0d-479fbf224a6f
+    ..\postman\collections\POS - ProductGroups Controller: 41814350-635a91c6-7656-4bfe-9f56-3bb83819a3c1
+    ..\postman\collections\POS - DocumentItems Controller: 41814350-6ec9300b-4500-45f2-ae6a-727a043fa5ae
+    ..\postman\collections\Taxes API - SAFE IMPORT: 41814350-7d41b7f8-0e6b-448e-a656-934273866882
+    ..\postman\collections\Customer API - Web POS: 41814350-8eece70d-31ed-4fae-8b03-653b804773cc
+    ..\postman\collections\PaymentTypes API - Web POS: 41814350-a6ecf566-8243-4a0d-8437-b1848dcc854f
+    ..\postman\collections\Stocks API: 41814350-c3a81e84-f018-42c3-b889-196d7de2b2ba
+    ..\postman\collections\Sales.Api - Users: 41814350-d01d2454-3841-4795-9e94-eb7acbad9db3
+    ..\postman\collections\Documents: 41814350-fe9212ba-c021-4022-9515-da26fc9f004c
+  environments:
+    ..\postman\environments\Web-Pos.environment.yaml: 41814350-0c4499b8-6c5d-4ff3-9473-2794f7e0dc56

@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{SalesURL}}/api/CustomerDiscount/AddCustomerDiscount"
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"CustomerId\": 6,\r
+
+    \  \"Type\": 1,\r
+
+    \  \"Uid\": 17,\r
+
+    \  \"Value\": 99.95\r
+
+    }"
+order: 3000

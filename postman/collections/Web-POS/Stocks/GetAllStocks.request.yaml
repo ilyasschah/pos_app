@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{StockURL}}/api/Stocks/GetAllStocks"
+method: GET
+order: 1000

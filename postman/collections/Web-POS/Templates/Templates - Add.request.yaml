@@ -1,0 +1,4 @@
+$kind: http-request
+url: localhost:7006/api/Templates/Add
+method: POST
+order: 4000

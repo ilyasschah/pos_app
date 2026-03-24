@@ -1,0 +1,4 @@
+$kind: collection
+description: Testing DocumentTypeController endpoints
+variables:
+  baseUrl: https://localhost:7002

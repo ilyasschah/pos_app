@@ -1,0 +1,4 @@
+$kind: collection
+description: Product Groups API endpoints - companyId=2
+variables:
+  baseUrl: https://localhost:7002
