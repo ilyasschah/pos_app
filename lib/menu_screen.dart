@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'api_client.dart';
 import 'product_model.dart';
@@ -9,7 +8,6 @@ import 'auth_provider.dart';
 import 'customer_provider.dart';
 import 'customer_model.dart';
 import 'group_model.dart';
-import 'document_model.dart';
 import 'documents_screen.dart';
 import 'company_provider.dart';
 import 'my_company_screen.dart';
@@ -21,16 +19,18 @@ import 'payment_type_model.dart';
 import 'warehouses_screen.dart';
 import 'tax_rates_screen.dart';
 import 'stock_screen.dart';
+import 'product_groups_screen.dart';
 // --- PROVIDERS ---
 
 // 1. Current Folder State (Null = Root)
-class CurrentGroupNotifier extends Notifier<Group?> {
+class CurrentGroupNotifier extends Notifier<ProductGroup?> {
   @override
-  Group? build() => null;
+  ProductGroup? build() => null;
 }
 
-final currentGroupProvider = NotifierProvider<CurrentGroupNotifier, Group?>(
-    () => CurrentGroupNotifier());
+final currentGroupProvider =
+    NotifierProvider<CurrentGroupNotifier, ProductGroup?>(
+        () => CurrentGroupNotifier());
 
 // 2. Search Query State
 class SearchQueryNotifier extends Notifier<String> {
@@ -42,7 +42,7 @@ final searchQueryProvider =
     NotifierProvider<SearchQueryNotifier, String>(() => SearchQueryNotifier());
 
 // 3. Fetch ALL Groups — filtered by selected company
-final groupsProvider = FutureProvider<List<Group>>((ref) async {
+final groupsProvider = FutureProvider<List<ProductGroup>>((ref) async {
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return [];
   final dio = createDio();
@@ -51,7 +51,7 @@ final groupsProvider = FutureProvider<List<Group>>((ref) async {
     queryParameters: {'companyId': company.id},
   );
   final data = response.data as List;
-  return data.map((json) => Group.fromJson(json)).toList();
+  return data.map((json) => ProductGroup.fromJson(json)).toList();
 });
 
 // 4. Fetch ALL Products — filtered by selected company
@@ -193,6 +193,18 @@ class MenuScreen extends ConsumerWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const WarehousesScreen()),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.folder_special),
+              title: const Text("Product Groups"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const ProductGroupsScreen()),
                 );
               },
             ),
@@ -417,7 +429,7 @@ class BrowserSection extends ConsumerWidget {
                   itemCount: itemsToDisplay.length,
                   itemBuilder: (context, index) {
                     final item = itemsToDisplay[index];
-                    if (item is Group) return _buildGroupCard(ref, item);
+                    if (item is ProductGroup) return _buildGroupCard(ref, item);
                     if (item is Product) return _buildProductCard(ref, item);
                     return const SizedBox();
                   },
@@ -427,7 +439,7 @@ class BrowserSection extends ConsumerWidget {
     );
   }
 
-  Widget _buildGroupCard(WidgetRef ref, Group group) {
+  Widget _buildGroupCard(WidgetRef ref, ProductGroup group) {
     return InkWell(
       onTap: () {
         ref.read(currentGroupProvider.notifier).state = group;

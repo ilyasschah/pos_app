@@ -31,12 +31,13 @@ class ProductGroup {
     );
   }
 
+  // Helper to parse the hex color from the database into a Flutter Color
   Color get flutterColor {
     if (color.startsWith('#') && color.length == 7) {
       try {
         return Color(int.parse(color.substring(1, 7), radix: 16) + 0xFF000000);
       } catch (_) {}
     }
-    return Colors.blueGrey;
+    return Colors.blueGrey; // Default fallback
   }
 }

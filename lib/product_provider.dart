@@ -29,8 +29,6 @@ final productByIdProvider =
   return Product.fromJson(response.data as Map<String, dynamic>);
 });
 
-// Cache of all products as a map: productId -> Product
-// Used by stock screen to enrich stock items without N+1 individual watchers
 final productMapProvider =
     FutureProvider.autoDispose<Map<int, Product>>((ref) async {
   final products = await ref.watch(allProductsListProvider.future);
