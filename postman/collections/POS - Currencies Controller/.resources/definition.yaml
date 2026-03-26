@@ -1,0 +1,4 @@
+$kind: collection
+description: Static Currencies API endpoints
+variables:
+  baseUrl: https://localhost:7002

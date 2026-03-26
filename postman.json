@@ -1,114 +1,166 @@
 {
   "info": {
-    "name": "POS - ProductGroups Controller",
-    "_postman_id": "b3c4d5e6-7f8a-9b0c-1d2e-productgroups-controller",
-    "description": "Product Groups API endpoints - companyId=2",
+    "name": "POS - Currencies Controller",
+    "_postman_id": "c1d2e3f4-a5b6-7c8d-9e0f-currencies-controller",
+    "description": "Static Currencies API endpoints",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     {
       "key": "baseUrl",
-      "value": "https://localhost:7002"
+      "value": "https://localhost:7002",
+      "type": "string"
     }
   ],
   "item": [
     {
-      "name": "Get All Product Groups",
+      "name": "Get All Currencies",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/ProductGroups/GetAll?companyId=2",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "ProductGroups", "GetAll"],
-          "query": [
-            { "key": "companyId", "value": "2" }
+          "raw": "{{baseUrl}}/api/Currencies/GetAll",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Currencies",
+            "GetAll"
           ]
         }
       }
     },
     {
-      "name": "Get Product Group By Id (13)",
+      "name": "Get Currency By Id (1 - USD)",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/ProductGroups/GetById?id=13&companyId=2",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "ProductGroups", "GetById"],
+          "raw": "{{baseUrl}}/api/Currencies/GetById?id=1",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Currencies",
+            "GetById"
+          ],
           "query": [
-            { "key": "id", "value": "13" },
-            { "key": "companyId", "value": "2" }
+            {
+              "key": "id",
+              "value": "1"
+            }
           ]
         }
       }
     },
     {
-      "name": "Get Product Group Children (Parent 9)",
+      "name": "Get Currency By Name (Euro)",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/ProductGroups/GetChildren?parentId=9&companyId=2",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "ProductGroups", "GetChildren"],
+          "raw": "{{baseUrl}}/api/Currencies/GetByName?name=Euro",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Currencies",
+            "GetByName"
+          ],
           "query": [
-            { "key": "parentId", "value": "9" },
-            { "key": "companyId", "value": "2" }
+            {
+              "key": "name",
+              "value": "Euro"
+            }
           ]
         }
       }
     },
     {
-      "name": "Add Product Group (Child of 9)",
+      "name": "Add Currency (New Zealand Dollar)",
       "request": {
         "method": "POST",
         "header": [
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
         ],
-        "url": {
-          "raw": "{{baseUrl}}/api/ProductGroups/Add?companyId=2",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "ProductGroups", "Add"],
-          "query": [
-            { "key": "companyId", "value": "2" }
-          ]
-        },
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"Green Tea\",\n  \"parentGroupId\": 9,\n  \"color\": \"#00FF00\",\n  \"rank\": 1\n}"
+          "raw": "{\n  \"name\": \"New Zealand Dollar\",\n  \"code\": \"NZD\",\n  \"countryId\": 1\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/Currencies/Add?companyId=2",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Currencies",
+            "Add"
+          ],
+          "query": [
+            {
+              "key": "companyId",
+              "value": "2"
+            }
+          ]
         }
       }
     },
     {
-      "name": "Update Product Group (Move 10 under 11)",
+      "name": "Update Currency (ID 11)",
       "request": {
         "method": "PATCH",
         "header": [
-          { "key": "Content-Type", "value": "application/json" }
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
         ],
-        "url": {
-          "raw": "{{baseUrl}}/api/ProductGroups/Update?companyId=2",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "ProductGroups", "Update"],
-          "query": [
-            { "key": "companyId", "value": "2" }
-          ]
-        },
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"id\": 10,\n  \"name\": \"Black Tea\",\n  \"parentGroupId\": 11,\n  \"color\": \"#000000\",\n  \"rank\": 2\n}"
+          "raw": "{\n  \"name\": \"New Zealand Dollar Updated\",\n  \"code\": \"NZD\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/Currencies/Update?id=11",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Currencies",
+            "Update"
+          ],
+          "query": [
+            {
+              "key": "id",
+              "value": "11"
+            }
+          ]
         }
       }
     },
     {
-      "name": "Delete Product Group (12)",
+      "name": "Delete Currency (ID 11)",
       "request": {
         "method": "DELETE",
         "url": {
-          "raw": "{{baseUrl}}/api/ProductGroups/Delete?id=12&companyId=2",
-          "host": ["{{baseUrl}}"],
-          "path": ["api", "ProductGroups", "Delete"],
+          "raw": "{{baseUrl}}/api/Currencies/Delete?id=11",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Currencies",
+            "Delete"
+          ],
           "query": [
-            { "key": "id", "value": "12" },
-            { "key": "companyId", "value": "2" }
+            {
+              "key": "id",
+              "value": "11"
+            }
           ]
         }
       }

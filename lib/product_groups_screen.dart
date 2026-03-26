@@ -162,7 +162,6 @@ class ProductGroupsScreen extends ConsumerWidget {
                     style: TextStyle(color: Colors.grey, fontSize: 16)));
           }
 
-          // --- BEAUTIFUL GRID VIEW ---
           return GridView.builder(
             padding: const EdgeInsets.all(16),
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -182,7 +181,7 @@ class ProductGroupsScreen extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // TOP HALF: Image or Colored Folder Icon
+                    // --- TOP HALF: Updated to show Name inside the Box ---
                     Expanded(
                       flex: 3,
                       child: Container(
@@ -191,12 +190,34 @@ class ProductGroupsScreen extends ConsumerWidget {
                             : Colors.grey[200],
                         child: group.imageBytes != null
                             ? Image.memory(group.imageBytes!, fit: BoxFit.cover)
-                            : Icon(
-                                group.parentGroupId == null
-                                    ? Icons.folder
-                                    : Icons.subdirectory_arrow_right,
-                                size: 64,
-                                color: group.flutterColor),
+                            : Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                      group.parentGroupId == null
+                                          ? Icons.folder
+                                          : Icons.subdirectory_arrow_right,
+                                      size: 45,
+                                      color: group.flutterColor),
+                                  const SizedBox(height: 8),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8.0),
+                                    child: Text(
+                                      group.name,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                        color:
+                                            group.flutterColor.withOpacity(0.9),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                       ),
                     ),
                     // BOTTOM HALF: Details & Actions
@@ -293,7 +314,7 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
 
   String _selectedHexColor = '#607D8B';
   int? _selectedParentId;
-  String? _selectedImageBase64; // Holds the image
+  String? _selectedImageBase64;
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -343,10 +364,8 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
     super.dispose();
   }
 
-  // --- IMAGE PICKER LOGIC ---
   Future<void> _pickImage() async {
     final picker = ImagePicker();
-    // Compressing slightly to ensure fast database saves
     final xFile = await picker.pickImage(
         source: ImageSource.gallery,
         maxWidth: 600,
@@ -377,7 +396,8 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
         'name': _nameCtrl.text.trim(),
         'parentGroupId': _selectedParentId,
         'color': _selectedHexColor,
-        'image': _selectedImageBase64, // Send the image to the backend!
+        // CRITICAL FIX: If image is null, send an empty string ("") to clear it in the database
+        'image': _selectedImageBase64 ?? "",
         'rank': int.tryParse(_rankCtrl.text.trim()) ?? 0,
       };
 
@@ -424,7 +444,6 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
                       v == null || v.trim().isEmpty ? "Required" : null,
                 ),
                 const SizedBox(height: 16),
-
                 Row(
                   children: [
                     Expanded(
@@ -469,8 +488,6 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
                   ],
                 ),
                 const SizedBox(height: 20),
-
-                // --- IMAGE UPLOADER UI ---
                 const Text("Group Image",
                     style: TextStyle(
                         fontWeight: FontWeight.bold, color: Colors.grey)),
@@ -485,7 +502,8 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: Colors.grey[400]!),
                       ),
-                      child: _selectedImageBase64 != null
+                      child: _selectedImageBase64 != null &&
+                              _selectedImageBase64!.isNotEmpty
                           ? ClipRRect(
                               borderRadius: BorderRadius.circular(8),
                               child: Image.memory(
@@ -501,7 +519,8 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
                       label: const Text("Choose Image"),
                       onPressed: _pickImage,
                     ),
-                    if (_selectedImageBase64 != null) ...[
+                    if (_selectedImageBase64 != null &&
+                        _selectedImageBase64!.isNotEmpty) ...[
                       const SizedBox(width: 8),
                       TextButton(
                         onPressed: () =>
@@ -513,8 +532,6 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
                   ],
                 ),
                 const SizedBox(height: 20),
-
-                // --- COLOR PALETTE UI ---
                 const Text("Fallback Folder Color",
                     style: TextStyle(
                         fontWeight: FontWeight.bold, color: Colors.grey)),
@@ -558,7 +575,6 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
                     );
                   }).toList(),
                 ),
-
                 if (_errorMessage != null) ...[
                   const SizedBox(height: 20),
                   Container(
