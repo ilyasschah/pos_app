@@ -1,13 +1,19 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'product_model.dart';
 
-// Fetch ALL products for the selected company
+final selectedProductGroupIdProvider = StateProvider<int?>((ref) => null);
+
+// --- PROVIDERS ---
+
 final allProductsListProvider =
     FutureProvider.autoDispose<List<Product>>((ref) async {
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return [];
+
   final dio = createDio();
   final response = await dio.get(
     '/Products/GetAll',
@@ -16,11 +22,37 @@ final allProductsListProvider =
   return (response.data as List).map((j) => Product.fromJson(j)).toList();
 });
 
-// Fetch a single product by ID — keyed by productId
+final productsByGroupProvider =
+    FutureProvider.autoDispose<List<Product>>((ref) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  final groupId = ref.watch(selectedProductGroupIdProvider);
+
+  if (companyId == null) return [];
+
+  final dio = createDio();
+  try {
+    if (groupId == null) {
+      final res = await dio
+          .get('/Products/GetAll', queryParameters: {'companyId': companyId});
+      return (res.data as List).map((x) => Product.fromJson(x)).toList();
+    } else {
+      final res = await dio.get('/Products/GetByProductGroup',
+          queryParameters: {'productGroupId': groupId, 'companyId': companyId});
+      return (res.data as List).map((x) => Product.fromJson(x)).toList();
+    }
+  } on DioException catch (e) {
+    if (e.response?.statusCode == 404) {
+      return [];
+    }
+    rethrow;
+  }
+});
+
 final productByIdProvider =
     FutureProvider.autoDispose.family<Product?, int>((ref, productId) async {
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return null;
+
   final dio = createDio();
   final response = await dio.get(
     '/Products/GetById',

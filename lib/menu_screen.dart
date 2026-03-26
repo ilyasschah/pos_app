@@ -21,6 +21,7 @@ import 'tax_rates_screen.dart';
 import 'stock_screen.dart';
 import 'product_groups_screen.dart';
 import 'currencies_screen.dart';
+import 'products_screen.dart';
 // --- PROVIDERS ---
 
 // 1. Current Folder State (Null = Root)
@@ -205,6 +206,17 @@ class MenuScreen extends ConsumerWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const WarehousesScreen()),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.fastfood), // Or Icons.inventory
+              title: const Text("Products"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ProductsScreen()),
                 );
               },
             ),

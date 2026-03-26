@@ -4,18 +4,7 @@ import 'package:dio/dio.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'tax_model.dart';
-
-// --- PROVIDER ---
-final allTaxesProvider = FutureProvider.autoDispose<List<Tax>>((ref) async {
-  final company = ref.watch(selectedCompanyProvider);
-  if (company == null) return [];
-  final dio = createDio();
-  final response = await dio.get(
-    '/Taxes/GetAllTaxes',
-    queryParameters: {'companyId': company.id},
-  );
-  return (response.data as List).map((j) => Tax.fromJson(j)).toList();
-});
+import 'tax_provider.dart';
 
 // --- SCREEN ---
 class TaxRatesScreen extends ConsumerWidget {
