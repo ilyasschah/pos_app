@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'package:image_picker/image_picker.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'product_group_model.dart';
@@ -19,28 +21,17 @@ final allProductGroupsProvider =
 });
 
 // --- HELPER: CLEAN ERROR PARSER ---
-// This prevents the "Big Red Screen" by extracting only the clean, readable message from the C# backend
 String _parseApiError(dynamic e) {
-  if (e is DioException) {
-    if (e.response?.data != null) {
-      final data = e.response!.data;
-      if (data is Map) {
-        if (data.containsKey('message')) return data['message'].toString();
-        if (data.containsKey('Message')) return data['Message'].toString();
-        if (data.containsKey('title')) return data['title'].toString();
-        if (data.containsKey('detail')) return data['detail'].toString();
-      }
-      if (data is String) {
-        // If it's a massive HTML error page, hide it and show a simple message
-        if (data.contains('<html') || data.length > 150) {
-          return "A server error occurred. Please check your inputs.";
-        }
-        return data; // Otherwise, return the safe, short string
-      }
+  if (e is DioException && e.response?.data != null) {
+    final data = e.response!.data;
+    if (data is Map) {
+      if (data.containsKey('message')) return data['message'].toString();
+      if (data.containsKey('title')) return data['title'].toString();
     }
-    return e.message ?? "Network error occurred.";
+    if (data is String && !data.contains('<html') && data.length < 150)
+      return data;
   }
-  return e.toString();
+  return "A server error occurred. Please check your inputs.";
 }
 
 // --- MAIN SCREEN ---
@@ -49,20 +40,16 @@ class ProductGroupsScreen extends ConsumerWidget {
 
   Future<void> _attemptDeleteGroup(
       BuildContext context, WidgetRef ref, ProductGroup group) async {
-    // 1. Show a quick loading spinner
     showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(child: CircularProgressIndicator()));
 
     try {
       final dio = createDio();
-
       List children = [];
       List products = [];
 
-      // 2. Safely check for children (If endpoint fails, it won't crash)
       try {
         final childRes = await dio.get('/ProductGroups/GetChildren',
             queryParameters: {
@@ -72,7 +59,6 @@ class ProductGroupsScreen extends ConsumerWidget {
         children = childRes.data as List;
       } catch (_) {}
 
-      // 3. Safely check for products (If endpoint fails, it won't crash)
       try {
         final prodRes = await dio.get('/Products/GetByProductGroup',
             queryParameters: {
@@ -82,48 +68,34 @@ class ProductGroupsScreen extends ConsumerWidget {
         products = prodRes.data as List;
       } catch (_) {}
 
-      // Close the loading spinner
       if (context.mounted) Navigator.pop(context);
 
-      // 4. Exact Custom Messages based on your rules
       if (children.isNotEmpty || products.isNotEmpty) {
-        String msg = "";
-
-        if (children.isNotEmpty && products.isNotEmpty) {
-          msg =
-              "This group has a child group and products, it can't be deleted.";
-        } else if (children.isNotEmpty) {
-          msg = "This group has a child group, it can't be deleted.";
-        } else if (products.isNotEmpty) {
-          msg = "This group has products, it can't be deleted.";
-        }
-
+        String msg =
+            "This group has products or sub-groups, it can't be deleted.";
         if (context.mounted) {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
-              title: const Row(
-                children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.orange),
-                  SizedBox(width: 8),
-                  Text("Cannot Delete"),
-                ],
-              ),
+              title: const Row(children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                SizedBox(width: 8),
+                Text("Cannot Delete")
+              ]),
               content: Text(msg, style: const TextStyle(fontSize: 16)),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(ctx),
-                    child: const Text("Understood")),
+                    child: const Text("Understood"))
               ],
             ),
           );
         }
-        return; // Stop the delete process!
+        return;
       }
 
-      // 5. If it's completely empty, ask for final confirmation
       if (context.mounted) {
         final confirm = await showDialog<bool>(
           context: context,
@@ -135,11 +107,10 @@ class ProductGroupsScreen extends ConsumerWidget {
                   onPressed: () => Navigator.pop(ctx, false),
                   child: const Text("Cancel")),
               ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                onPressed: () => Navigator.pop(ctx, true),
-                child:
-                    const Text("Delete", style: TextStyle(color: Colors.white)),
-              ),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text("Delete",
+                      style: TextStyle(color: Colors.white))),
             ],
           ),
         );
@@ -155,12 +126,10 @@ class ProductGroupsScreen extends ConsumerWidget {
         }
       }
     } catch (e) {
+      if (context.mounted) Navigator.pop(context);
       if (context.mounted)
-        Navigator.pop(context); // Ensure loading spinner is closed on error
-      if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(_parseApiError(e)), backgroundColor: Colors.red));
-      }
     }
   }
 
@@ -178,9 +147,8 @@ class ProductGroupsScreen extends ConsumerWidget {
         icon: const Icon(Icons.create_new_folder),
         label: const Text("New Group"),
         onPressed: () => showDialog(
-          context: context,
-          builder: (_) => const _GroupEditorDialog(),
-        ).then((_) => ref.invalidate(allProductGroupsProvider)),
+                context: context, builder: (_) => const _GroupEditorDialog())
+            .then((_) => ref.invalidate(allProductGroupsProvider)),
       ),
       body: asyncGroups.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -194,73 +162,111 @@ class ProductGroupsScreen extends ConsumerWidget {
                     style: TextStyle(color: Colors.grey, fontSize: 16)));
           }
 
-          return ListView.separated(
+          // --- BEAUTIFUL GRID VIEW ---
+          return GridView.builder(
             padding: const EdgeInsets.all(16),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 260,
+              childAspectRatio: 0.85,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+            ),
             itemCount: groups.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
               final group = groups[index];
               return Card(
-                elevation: 2,
+                clipBehavior: Clip.antiAlias,
+                elevation: 3,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
-                child: ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: CircleAvatar(
-                    backgroundColor: group.flutterColor.withOpacity(0.2),
-                    child: Icon(
-                        group.parentGroupId == null
-                            ? Icons.folder
-                            : Icons.subdirectory_arrow_right,
-                        color: group.flutterColor),
-                  ),
-                  title: Text(group.name,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16)),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 4.0),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                              color: Colors.blueGrey[100],
-                              borderRadius: BorderRadius.circular(12)),
-                          child: Text("Rank: ${group.rank}",
-                              style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black87)),
-                        ),
-                        if (group.parentGroupName != null) ...[
-                          const SizedBox(width: 8),
-                          Text("Parent: ${group.parentGroupName}",
-                              style: const TextStyle(
-                                  color: Colors.grey, fontSize: 13)),
-                        ]
-                      ],
+                    borderRadius: BorderRadius.circular(16)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // TOP HALF: Image or Colored Folder Icon
+                    Expanded(
+                      flex: 3,
+                      child: Container(
+                        color: group.imageBytes == null
+                            ? group.flutterColor.withOpacity(0.15)
+                            : Colors.grey[200],
+                        child: group.imageBytes != null
+                            ? Image.memory(group.imageBytes!, fit: BoxFit.cover)
+                            : Icon(
+                                group.parentGroupId == null
+                                    ? Icons.folder
+                                    : Icons.subdirectory_arrow_right,
+                                size: 64,
+                                color: group.flutterColor),
+                      ),
                     ),
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit, color: Colors.blueGrey),
-                        onPressed: () => showDialog(
-                          context: context,
-                          builder: (_) =>
-                              _GroupEditorDialog(existingGroup: group),
-                        ).then((_) => ref.invalidate(allProductGroupsProvider)),
+                    // BOTTOM HALF: Details & Actions
+                    Expanded(
+                      flex: 2,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(group.name,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 16),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                      color: Colors.blueGrey[50],
+                                      borderRadius: BorderRadius.circular(4)),
+                                  child: Text("Rank: ${group.rank}",
+                                      style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.black87)),
+                                ),
+                                if (group.parentGroupName != null) ...[
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                      child: Text("• ${group.parentGroupName}",
+                                          style: const TextStyle(
+                                              color: Colors.grey, fontSize: 12),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis)),
+                                ]
+                              ],
+                            ),
+                            const Spacer(),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.edit,
+                                      color: Colors.blueGrey, size: 20),
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () => showDialog(
+                                      context: context,
+                                      builder: (_) => _GroupEditorDialog(
+                                          existingGroup: group)).then((_) =>
+                                      ref.invalidate(allProductGroupsProvider)),
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  icon: const Icon(Icons.delete,
+                                      color: Colors.redAccent, size: 20),
+                                  visualDensity: VisualDensity.compact,
+                                  onPressed: () =>
+                                      _attemptDeleteGroup(context, ref, group),
+                                ),
+                              ],
+                            )
+                          ],
+                        ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.redAccent),
-                        onPressed: () =>
-                            _attemptDeleteGroup(context, ref, group),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               );
             },
@@ -283,32 +289,75 @@ class _GroupEditorDialog extends ConsumerStatefulWidget {
 class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
-  final _colorCtrl = TextEditingController(text: '#000000');
   final _rankCtrl = TextEditingController(text: '0');
+
+  String _selectedHexColor = '#607D8B';
   int? _selectedParentId;
+  String? _selectedImageBase64; // Holds the image
 
   bool _isLoading = false;
   String? _errorMessage;
 
   bool get _isEditing => widget.existingGroup != null;
 
+  final List<Color> _colorPalette = [
+    Colors.blueGrey,
+    Colors.red,
+    Colors.pink,
+    Colors.purple,
+    Colors.deepPurple,
+    Colors.indigo,
+    Colors.blue,
+    Colors.lightBlue,
+    Colors.cyan,
+    Colors.teal,
+    Colors.green,
+    Colors.lightGreen,
+    Colors.lime,
+    Colors.amber,
+    Colors.orange,
+    Colors.deepOrange,
+    Colors.brown,
+    Colors.grey,
+  ];
+
+  String _colorToHex(Color color) =>
+      '#${color.value.toRadixString(16).substring(2).toUpperCase()}';
+
   @override
   void initState() {
     super.initState();
     if (_isEditing) {
       _nameCtrl.text = widget.existingGroup!.name;
-      _colorCtrl.text = widget.existingGroup!.color;
+      _selectedHexColor = widget.existingGroup!.color;
       _rankCtrl.text = widget.existingGroup!.rank.toString();
       _selectedParentId = widget.existingGroup!.parentGroupId;
+      _selectedImageBase64 = widget.existingGroup!.image;
     }
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
-    _colorCtrl.dispose();
     _rankCtrl.dispose();
     super.dispose();
+  }
+
+  // --- IMAGE PICKER LOGIC ---
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    // Compressing slightly to ensure fast database saves
+    final xFile = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 600,
+        maxHeight: 600,
+        imageQuality: 85);
+    if (xFile != null) {
+      final bytes = await xFile.readAsBytes();
+      setState(() {
+        _selectedImageBase64 = base64Encode(bytes);
+      });
+    }
   }
 
   Future<void> _submit() async {
@@ -327,7 +376,8 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
       final payload = {
         'name': _nameCtrl.text.trim(),
         'parentGroupId': _selectedParentId,
-        'color': _colorCtrl.text.trim(),
+        'color': _selectedHexColor,
+        'image': _selectedImageBase64, // Send the image to the backend!
         'rank': int.tryParse(_rankCtrl.text.trim()) ?? 0,
       };
 
@@ -358,88 +408,180 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
       title: Text(_isEditing ? "Edit Group" : "New Product Group",
           style: const TextStyle(fontWeight: FontWeight.bold)),
       content: SizedBox(
-        width: 400,
+        width: 450,
         child: Form(
           key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: _nameCtrl,
-                decoration: const InputDecoration(
-                    labelText: "Name *", border: OutlineInputBorder()),
-                validator: (v) =>
-                    v == null || v.trim().isEmpty ? "Required" : null,
-              ),
-              const SizedBox(height: 16),
-              allGroupsAsync.when(
-                  loading: () => const LinearProgressIndicator(),
-                  error: (_, __) => const Text("Failed to load parents"),
-                  data: (groups) {
-                    final validParents = groups
-                        .where((g) =>
-                            !_isEditing || g.id != widget.existingGroup!.id)
-                        .toList();
-
-                    return DropdownButtonFormField<int?>(
-                      value: _selectedParentId,
-                      decoration: const InputDecoration(
-                          labelText: "Parent Group (Optional)",
-                          border: OutlineInputBorder()),
-                      items: [
-                        const DropdownMenuItem(
-                            value: null, child: Text("None (Root Folder)")),
-                        ...validParents.map((g) =>
-                            DropdownMenuItem(value: g.id, child: Text(g.name))),
-                      ],
-                      onChanged: (v) => setState(() => _selectedParentId = v),
-                    );
-                  }),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _colorCtrl,
-                      decoration: const InputDecoration(
-                          labelText: "Color Hex (e.g. #FF0000)",
-                          border: OutlineInputBorder()),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _rankCtrl,
-                      decoration: const InputDecoration(
-                          labelText: "Display Rank",
-                          border: OutlineInputBorder()),
-                      keyboardType: TextInputType.number,
-                    ),
-                  ),
-                ],
-              ),
-              if (_errorMessage != null) ...[
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextFormField(
+                  controller: _nameCtrl,
+                  decoration: const InputDecoration(
+                      labelText: "Folder Name *", border: OutlineInputBorder()),
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty ? "Required" : null,
+                ),
                 const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                      color: Colors.red[50],
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.red.shade300)),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.error_outline,
-                          color: Colors.red, size: 20),
+
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: allGroupsAsync.when(
+                          loading: () => const LinearProgressIndicator(),
+                          error: (_, __) =>
+                              const Text("Failed to load parents"),
+                          data: (groups) {
+                            final validParents = groups
+                                .where((g) =>
+                                    !_isEditing ||
+                                    g.id != widget.existingGroup!.id)
+                                .toList();
+                            return DropdownButtonFormField<int?>(
+                              value: _selectedParentId,
+                              decoration: const InputDecoration(
+                                  labelText: "Parent Folder",
+                                  border: OutlineInputBorder()),
+                              items: [
+                                const DropdownMenuItem(
+                                    value: null,
+                                    child: Text("None (Root Folder)")),
+                                ...validParents.map((g) => DropdownMenuItem(
+                                    value: g.id, child: Text(g.name))),
+                              ],
+                              onChanged: (v) =>
+                                  setState(() => _selectedParentId = v),
+                            );
+                          }),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 1,
+                      child: TextFormField(
+                        controller: _rankCtrl,
+                        decoration: const InputDecoration(
+                            labelText: "Rank", border: OutlineInputBorder()),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // --- IMAGE UPLOADER UI ---
+                const Text("Group Image",
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[400]!),
+                      ),
+                      child: _selectedImageBase64 != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.memory(
+                                  base64Decode(_selectedImageBase64!),
+                                  fit: BoxFit.cover),
+                            )
+                          : const Icon(Icons.image,
+                              color: Colors.grey, size: 30),
+                    ),
+                    const SizedBox(width: 16),
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.upload),
+                      label: const Text("Choose Image"),
+                      onPressed: _pickImage,
+                    ),
+                    if (_selectedImageBase64 != null) ...[
                       const SizedBox(width: 8),
-                      Expanded(
-                          child: Text(_errorMessage!,
-                              style: const TextStyle(
-                                  color: Colors.red, fontSize: 13))),
-                    ],
-                  ),
-                )
-              ]
-            ],
+                      TextButton(
+                        onPressed: () =>
+                            setState(() => _selectedImageBase64 = null),
+                        child: const Text("Remove",
+                            style: TextStyle(color: Colors.red)),
+                      ),
+                    ]
+                  ],
+                ),
+                const SizedBox(height: 20),
+
+                // --- COLOR PALETTE UI ---
+                const Text("Fallback Folder Color",
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: _colorPalette.map((color) {
+                    final hex = _colorToHex(color);
+                    final isSelected =
+                        _selectedHexColor.toUpperCase() == hex.toUpperCase();
+
+                    return InkWell(
+                      onTap: () => setState(() => _selectedHexColor = hex),
+                      borderRadius: BorderRadius.circular(20),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                            border: isSelected
+                                ? Border.all(
+                                    color:
+                                        Theme.of(context).colorScheme.primary,
+                                    width: 3)
+                                : null,
+                            boxShadow: [
+                              if (isSelected)
+                                BoxShadow(
+                                    color: color.withOpacity(0.4),
+                                    blurRadius: 8,
+                                    spreadRadius: 2)
+                            ]),
+                        child: isSelected
+                            ? const Icon(Icons.check,
+                                color: Colors.white, size: 20)
+                            : null,
+                      ),
+                    );
+                  }).toList(),
+                ),
+
+                if (_errorMessage != null) ...[
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                        color: Colors.red[50],
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.red.shade300)),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline,
+                            color: Colors.red, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                            child: Text(_errorMessage!,
+                                style: const TextStyle(
+                                    color: Colors.red, fontSize: 13))),
+                      ],
+                    ),
+                  )
+                ]
+              ],
+            ),
           ),
         ),
       ),

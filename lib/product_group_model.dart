@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 class ProductGroup {
@@ -7,6 +9,7 @@ class ProductGroup {
   final int? parentGroupId;
   final String? parentGroupName;
   final String color;
+  final String? image; // The raw base64 string from DB
   final int rank;
 
   ProductGroup({
@@ -16,6 +19,7 @@ class ProductGroup {
     this.parentGroupId,
     this.parentGroupName,
     required this.color,
+    this.image,
     required this.rank,
   });
 
@@ -27,17 +31,28 @@ class ProductGroup {
       parentGroupId: json['parentGroupId'],
       parentGroupName: json['parentGroupName'],
       color: json['color'] ?? 'Transparent',
+      image: json['image'], // Map the image from JSON
       rank: json['rank'] ?? 0,
     );
   }
 
-  // Helper to parse the hex color from the database into a Flutter Color
+  // Parses the hex string into a Flutter Color
   Color get flutterColor {
     if (color.startsWith('#') && color.length == 7) {
       try {
         return Color(int.parse(color.substring(1, 7), radix: 16) + 0xFF000000);
       } catch (_) {}
     }
-    return Colors.blueGrey; // Default fallback
+    return Colors.blueGrey;
+  }
+
+  // Decodes the base64 string into readable Image Bytes
+  Uint8List? get imageBytes {
+    if (image == null || image!.isEmpty) return null;
+    try {
+      return base64Decode(image!);
+    } catch (_) {
+      return null;
+    }
   }
 }
