@@ -20,6 +20,7 @@ import 'warehouses_screen.dart';
 import 'tax_rates_screen.dart';
 import 'stock_screen.dart';
 import 'product_groups_screen.dart';
+import 'currencies_screen.dart';
 // --- PROVIDERS ---
 
 // 1. Current Folder State (Null = Root)
@@ -170,6 +171,17 @@ class MenuScreen extends ConsumerWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const StockScreen()),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.currency_exchange),
+              title: const Text("Currencies"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CurrenciesScreen()),
                 );
               },
             ),
