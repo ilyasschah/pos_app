@@ -1,8 +1,8 @@
 {
   "info": {
-    "name": "POS - Currencies Controller",
-    "_postman_id": "c1d2e3f4-a5b6-7c8d-9e0f-currencies-controller",
-    "description": "Static Currencies API endpoints",
+    "name": "POS - Products Controller",
+    "_postman_id": "e4f5g6h7-b8c9-0d1a-2b3c-products-controller",
+    "description": "Product management API endpoints",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -14,70 +14,84 @@
   ],
   "item": [
     {
-      "name": "Get All Currencies",
+      "name": "Get All Products",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/Currencies/GetAll",
+          "raw": "{{baseUrl}}/api/Products/GetAll?companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "Currencies",
+            "Products",
             "GetAll"
+          ],
+          "query": [
+            {
+              "key": "companyId",
+              "value": "2"
+            }
           ]
         }
       }
     },
     {
-      "name": "Get Currency By Id (1 - USD)",
+      "name": "Get Product By Id (1)",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/Currencies/GetById?id=1",
+          "raw": "{{baseUrl}}/api/Products/GetById?id=1&companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "Currencies",
+            "Products",
             "GetById"
           ],
           "query": [
             {
               "key": "id",
               "value": "1"
+            },
+            {
+              "key": "companyId",
+              "value": "2"
             }
           ]
         }
       }
     },
     {
-      "name": "Get Currency By Name (Euro)",
+      "name": "Get Products By Group Id (9)",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/Currencies/GetByName?name=Euro",
+          "raw": "{{baseUrl}}/api/Products/GetByProductGroup?productGroupId=9&companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "Currencies",
-            "GetByName"
+            "Products",
+            "GetByProductGroup"
           ],
           "query": [
             {
-              "key": "name",
-              "value": "Euro"
+              "key": "productGroupId",
+              "value": "9"
+            },
+            {
+              "key": "companyId",
+              "value": "2"
             }
           ]
         }
       }
     },
     {
-      "name": "Add Currency (New Zealand Dollar)",
+      "name": "Add Product (Group 9, Currency 7)",
       "request": {
         "method": "POST",
         "header": [
@@ -88,16 +102,16 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"New Zealand Dollar\",\n  \"code\": \"NZD\",\n  \"countryId\": 1\n}"
+          "raw": "{\n  \"name\": \"Premium Coffee Blend\",\n  \"code\": \"COF-001\",\n  \"productGroupId\": 9,\n  \"price\": 45.00,\n  \"isTaxInclusivePrice\": true,\n  \"currencyId\": 7,\n  \"cost\": 15.00,\n  \"isEnabled\": true,\n  \"color\": \"#795548\",\n  \"isService\": false,\n  \"isUsingDefaultQuantity\": true\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/api/Currencies/Add?companyId=2",
+          "raw": "{{baseUrl}}/api/Products/Add?companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "Currencies",
+            "Products",
             "Add"
           ],
           "query": [
@@ -110,7 +124,7 @@
       }
     },
     {
-      "name": "Update Currency (ID 11)",
+      "name": "Update Product (ID 1)",
       "request": {
         "method": "PATCH",
         "header": [
@@ -121,45 +135,49 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"New Zealand Dollar Updated\",\n  \"code\": \"NZD\"\n}"
+          "raw": "{\n  \"id\": 1,\n  \"name\": \"Premium Coffee Blend (Large)\",\n  \"code\": \"COF-002\",\n  \"productGroupId\": 9,\n  \"price\": 55.00,\n  \"currencyId\": 7,\n  \"color\": \"#3E2723\"\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/api/Currencies/Update?id=11",
+          "raw": "{{baseUrl}}/api/Products/Update?companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "Currencies",
+            "Products",
             "Update"
           ],
           "query": [
             {
-              "key": "id",
-              "value": "11"
+              "key": "companyId",
+              "value": "2"
             }
           ]
         }
       }
     },
     {
-      "name": "Delete Currency (ID 11)",
+      "name": "Delete Product (ID 1)",
       "request": {
         "method": "DELETE",
         "url": {
-          "raw": "{{baseUrl}}/api/Currencies/Delete?id=11",
+          "raw": "{{baseUrl}}/api/Products/Delete?id=1&companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "Currencies",
+            "Products",
             "Delete"
           ],
           "query": [
             {
               "key": "id",
-              "value": "11"
+              "value": "1"
+            },
+            {
+              "key": "companyId",
+              "value": "2"
             }
           ]
         }

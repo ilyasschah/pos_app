@@ -8,8 +8,7 @@ body:
   type: text
   content: |-
     {
-      "name": "New Zealand Dollar",
-      "code": "NZD",
-      "countryId": 1
+      "name": "N2w Zealand Dollar",
+      "code": "2ZD"
     }
 order: 4000
