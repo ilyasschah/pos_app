@@ -1,8 +1,8 @@
 {
   "info": {
-    "name": "POS - Products Controller",
-    "_postman_id": "e4f5g6h7-b8c9-0d1a-2b3c-products-controller",
-    "description": "Product management API endpoints",
+    "name": "POS - Product Taxes",
+    "_postman_id": "a1b2c3d4-e5f6-7890-1234-producttaxes5678",
+    "description": "Endpoints for managing the Many-to-Many junction table between Products and Taxes.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -14,17 +14,17 @@
   ],
   "item": [
     {
-      "name": "Get All Products",
+      "name": "Get All Product Taxes",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/Products/GetAll?companyId=2",
+          "raw": "{{baseUrl}}/api/ProductTaxes/GetAll?companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "Products",
+            "ProductTaxes",
             "GetAll"
           ],
           "query": [
@@ -37,22 +37,22 @@
       }
     },
     {
-      "name": "Get Product By Id (1)",
+      "name": "Get Taxes By Product ID",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/Products/GetById?id=1&companyId=2",
+          "raw": "{{baseUrl}}/api/ProductTaxes/GetByProductId?productId=1&companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "Products",
-            "GetById"
+            "ProductTaxes",
+            "GetByProductId"
           ],
           "query": [
             {
-              "key": "id",
+              "key": "productId",
               "value": "1"
             },
             {
@@ -64,23 +64,23 @@
       }
     },
     {
-      "name": "Get Products By Group Id (9)",
+      "name": "Get Products By Tax ID",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/Products/GetByProductGroup?productGroupId=9&companyId=2",
+          "raw": "{{baseUrl}}/api/ProductTaxes/GetByTaxId?taxId=7&companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "Products",
-            "GetByProductGroup"
+            "ProductTaxes",
+            "GetByTaxId"
           ],
           "query": [
             {
-              "key": "productGroupId",
-              "value": "9"
+              "key": "taxId",
+              "value": "7"
             },
             {
               "key": "companyId",
@@ -91,7 +91,7 @@
       }
     },
     {
-      "name": "Add Product (Group 9, Currency 7)",
+      "name": "Link Tax to Product (Add)",
       "request": {
         "method": "POST",
         "header": [
@@ -102,16 +102,16 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"name\": \"Premium Coffee Blend\",\n  \"code\": \"COF-001\",\n  \"productGroupId\": 9,\n  \"price\": 45.00,\n  \"isTaxInclusivePrice\": true,\n  \"currencyId\": 7,\n  \"cost\": 15.00,\n  \"isEnabled\": true,\n  \"color\": \"#795548\",\n  \"isService\": false,\n  \"isUsingDefaultQuantity\": true\n}"
+          "raw": "{\n  \"productId\": 1,\n  \"taxId\": 7\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/api/Products/Add?companyId=2",
+          "raw": "{{baseUrl}}/api/ProductTaxes/Add?companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "Products",
+            "ProductTaxes",
             "Add"
           ],
           "query": [
@@ -124,56 +124,27 @@
       }
     },
     {
-      "name": "Update Product (ID 1)",
-      "request": {
-        "method": "PATCH",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"id\": 1,\n  \"name\": \"Premium Coffee Blend (Large)\",\n  \"code\": \"COF-002\",\n  \"productGroupId\": 9,\n  \"price\": 55.00,\n  \"currencyId\": 7,\n  \"color\": \"#3E2723\"\n}"
-        },
-        "url": {
-          "raw": "{{baseUrl}}/api/Products/Update?companyId=2",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "Products",
-            "Update"
-          ],
-          "query": [
-            {
-              "key": "companyId",
-              "value": "2"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "Delete Product (ID 1)",
+      "name": "Unlink Tax from Product (Delete)",
       "request": {
         "method": "DELETE",
         "url": {
-          "raw": "{{baseUrl}}/api/Products/Delete?id=1&companyId=2",
+          "raw": "{{baseUrl}}/api/ProductTaxes/Delete?productId=1&taxId=7&companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "Products",
+            "ProductTaxes",
             "Delete"
           ],
           "query": [
             {
-              "key": "id",
+              "key": "productId",
               "value": "1"
+            },
+            {
+              "key": "taxId",
+              "value": "7"
             },
             {
               "key": "companyId",

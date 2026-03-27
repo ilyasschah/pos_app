@@ -1,0 +1,5 @@
+$kind: collection
+description: Endpoints for managing the Many-to-Many junction table between
+  Products and Taxes.
+variables:
+  baseUrl: https://localhost:7002

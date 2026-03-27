@@ -574,7 +574,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
         title: Text(_isEditing ? "Edit Product" : "New Product",
             style: const TextStyle(fontWeight: FontWeight.bold)),
         content: SizedBox(
-          width: 950, // Expanded width to fit the 2-column layout beautifully
+          width: 950,
           height: 650,
           child: Column(
             children: [
