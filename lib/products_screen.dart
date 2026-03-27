@@ -8,9 +8,8 @@ import 'api_client.dart';
 import 'company_provider.dart';
 import 'product_model.dart';
 import 'product_group_model.dart';
-import 'product_groups_screen.dart'; // To reuse allProductGroupsProvider
+import 'product_groups_screen.dart';
 import 'product_provider.dart';
-import 'tax_model.dart';
 import 'tax_provider.dart';
 
 // --- HELPER ---
@@ -376,6 +375,7 @@ class _ProductListContent extends ConsumerWidget {
 }
 
 // --- ADD/EDIT TABBED DIALOG ---
+// --- ADD/EDIT TABBED DIALOG ---
 class _ProductEditorDialog extends ConsumerStatefulWidget {
   final Product? existingProduct;
   const _ProductEditorDialog({this.existingProduct});
@@ -407,10 +407,11 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   bool _isUsingDefaultQuantity = true;
   bool _isEnabled = true;
 
-  // Other State
+  // State
   int? _selectedGroupId;
   String? _selectedImageBase64;
   int? _selectedTaxId;
+  int? _originalTaxId;
   String _selectedHexColor = '#000000';
 
   bool _isLoading = false;
@@ -467,9 +468,30 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
       _selectedGroupId = p.productGroupId;
       _selectedImageBase64 = p.image;
       _selectedHexColor = p.color.isNotEmpty ? p.color : '#000000';
+
+      _fetchAssignedTax(p.id);
     } else {
       _selectedGroupId = ref.read(selectedProductGroupIdProvider);
     }
+  }
+
+  Future<void> _fetchAssignedTax(int productId) async {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    if (companyId == null) return;
+
+    try {
+      final dio = createDio();
+      final res = await dio.get('/ProductTaxes/GetByProductId',
+          queryParameters: {'productId': productId, 'companyId': companyId});
+
+      final List taxes = res.data;
+      if (taxes.isNotEmpty && mounted) {
+        setState(() {
+          _selectedTaxId = taxes.first['taxId'];
+          _originalTaxId = _selectedTaxId;
+        });
+      }
+    } catch (_) {}
   }
 
   @override
@@ -501,7 +523,12 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      setState(() => _errorMessage = "Please enter a Product Name.");
+      return;
+    }
+    if (_formKey.currentState?.validate() == false) return;
+
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
 
@@ -512,7 +539,6 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
 
     try {
       final dio = createDio();
-
       final payload = {
         'name': _nameCtrl.text.trim(),
         'productGroupId': _selectedGroupId,
@@ -540,19 +566,57 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
       };
 
       if (_isEditing) {
-        payload['id'] = widget.existingProduct!.id;
+        // --- EDIT MODE ---
+        final savedProductId = widget.existingProduct!.id;
+        payload['id'] = savedProductId;
         await dio.patch('/Products/Update',
-            queryParameters: {
-              'id': widget.existingProduct!.id,
-              'companyId': companyId
-            },
+            queryParameters: {'id': savedProductId, 'companyId': companyId},
             data: payload);
-      } else {
-        await dio.post('/Products/Add',
-            queryParameters: {'companyId': companyId}, data: payload);
-      }
 
-      if (mounted) Navigator.of(context).pop();
+        // Handle Taxes
+        if (_originalTaxId != null && _originalTaxId != _selectedTaxId) {
+          await dio.delete('/ProductTaxes/Delete', queryParameters: {
+            'productId': savedProductId,
+            'taxId': _originalTaxId,
+            'companyId': companyId
+          });
+        }
+        if (_selectedTaxId != null && _selectedTaxId != _originalTaxId) {
+          await dio.post('/ProductTaxes/Add',
+              queryParameters: {'companyId': companyId},
+              data: {'productId': savedProductId, 'taxId': _selectedTaxId});
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text("Product updated successfully!"),
+              backgroundColor: Colors.green));
+          Navigator.of(context).pop();
+        }
+      } else {
+        // --- CREATE MODE ---
+        final res = await dio.post('/Products/Add',
+            queryParameters: {'companyId': companyId}, data: payload);
+
+        // Grab the newly created product from the API response
+        final responseData = res.data['data'] ?? res.data;
+        final newProduct = Product.fromJson(responseData);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text(
+                  "Product created! Opening editor to assign taxes/stock..."),
+              backgroundColor: Colors.indigo));
+          Navigator.of(context).pop(); // Close the "Create" window
+
+          // Instantly pop up the new "Edit" window with the new product!
+          showDialog(
+                  context: context,
+                  builder: (_) =>
+                      _ProductEditorDialog(existingProduct: newProduct))
+              .then((_) => ref.invalidate(productsByGroupProvider));
+        }
+      }
     } catch (e) {
       setState(() {
         _errorMessage = _parseApiError(e);
@@ -566,470 +630,381 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
     final allGroupsAsync = ref.watch(allProductGroupsProvider);
     final allTaxesAsync = ref.watch(allTaxesProvider);
 
+    // DYNAMIC TABS: Only show 'General' when creating. Show all when editing!
+    final List<Widget> dialogTabs = [
+      const Tab(text: "General"),
+      if (_isEditing) ...[
+        const Tab(text: "Taxes"),
+        const Tab(text: "Stock Control"),
+        const Tab(text: "Barcodes"),
+        const Tab(text: "Comments"),
+      ]
+    ];
+
+    // DYNAMIC TAB VIEWS: Matches the tabs above!
+    final List<Widget> dialogTabViews = [
+      // 1. GENERAL INFO
+      SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                          child: TextFormField(
+                              controller: _nameCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: "Product Name *",
+                                  border: OutlineInputBorder()))),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: allGroupsAsync.when(
+                          loading: () => const LinearProgressIndicator(),
+                          error: (_, __) => const Text("Error loading groups"),
+                          data: (groups) => DropdownButtonFormField<int?>(
+                            value: _selectedGroupId,
+                            decoration: const InputDecoration(
+                                labelText: "Category / Group",
+                                border: OutlineInputBorder()),
+                            items: [
+                              const DropdownMenuItem(
+                                  value: null,
+                                  child: Text("None (Uncategorized)")),
+                              ...groups.map((g) => DropdownMenuItem(
+                                  value: g.id, child: Text(g.name))),
+                            ],
+                            onChanged: (v) =>
+                                setState(() => _selectedGroupId = v),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                          child: TextFormField(
+                              controller: _codeCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: "Product Code / SKU",
+                                  border: OutlineInputBorder()))),
+                      const SizedBox(width: 16),
+                      Expanded(
+                          child: TextFormField(
+                              controller: _pluCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: "PLU",
+                                  border: OutlineInputBorder()),
+                              keyboardType: TextInputType.number)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                          child: TextFormField(
+                              controller: _measurementUnitCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: "Measurement Unit",
+                                  border: OutlineInputBorder(),
+                                  hintText: "e.g. kg, pcs"))),
+                      const SizedBox(width: 16),
+                      Expanded(
+                          child: TextFormField(
+                              controller: _ageRestrictionCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: "Age Restriction",
+                                  border: OutlineInputBorder(),
+                                  hintText: "e.g. 18"),
+                              keyboardType: TextInputType.number)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                          child: TextFormField(
+                              controller: _priceCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: "Selling Price *",
+                                  border: OutlineInputBorder(),
+                                  prefixText: "\$"),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true))),
+                      const SizedBox(width: 16),
+                      Expanded(
+                          child: TextFormField(
+                              controller: _costCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: "Purchase Cost",
+                                  border: OutlineInputBorder(),
+                                  prefixText: "\$"),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true))),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                          child: TextFormField(
+                              controller: _markupCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: "Margin / Markup (%)",
+                                  border: OutlineInputBorder(),
+                                  suffixText: "%"),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true))),
+                      const SizedBox(width: 16),
+                      Expanded(
+                          child: TextFormField(
+                              controller: _rankCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: "Rank (Display Order)",
+                                  border: OutlineInputBorder()),
+                              keyboardType: TextInputType.number)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _descriptionCtrl,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                        labelText: "Description",
+                        border: OutlineInputBorder(),
+                        alignLabelWithHint: true),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 32),
+            Expanded(
+              flex: 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey[300]!),
+                        borderRadius: BorderRadius.circular(8)),
+                    child: Column(
+                      children: [
+                        SwitchListTile(
+                            title: const Text("Product Price is Tax Inclusive"),
+                            value: _isTaxInclusive,
+                            onChanged: (v) =>
+                                setState(() => _isTaxInclusive = v),
+                            visualDensity: VisualDensity.compact),
+                        SwitchListTile(
+                            title: const Text("Is Service (Not physical)"),
+                            value: _isService,
+                            onChanged: (v) => setState(() => _isService = v),
+                            visualDensity: VisualDensity.compact),
+                        SwitchListTile(
+                            title: const Text("Change Price Allowed"),
+                            value: _isPriceChangeAllowed,
+                            onChanged: (v) =>
+                                setState(() => _isPriceChangeAllowed = v),
+                            visualDensity: VisualDensity.compact),
+                        SwitchListTile(
+                            title: const Text("Is Using Default Quantity"),
+                            value: _isUsingDefaultQuantity,
+                            onChanged: (v) =>
+                                setState(() => _isUsingDefaultQuantity = v),
+                            visualDensity: VisualDensity.compact),
+                        SwitchListTile(
+                            title: const Text("Is Enabled (Visible)"),
+                            value: _isEnabled,
+                            activeColor: Colors.green,
+                            onChanged: (v) => setState(() => _isEnabled = v),
+                            visualDensity: VisualDensity.compact),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text("Product Color Marker",
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _colorPalette.map((color) {
+                      final hex = _colorToHex(color);
+                      final isSelected =
+                          _selectedHexColor.toUpperCase() == hex.toUpperCase();
+                      return InkWell(
+                        onTap: () => setState(() => _selectedHexColor = hex),
+                        borderRadius: BorderRadius.circular(20),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              border: isSelected
+                                  ? Border.all(
+                                      color:
+                                          Theme.of(context).colorScheme.primary,
+                                      width: 3)
+                                  : null,
+                              boxShadow: [
+                                if (isSelected)
+                                  BoxShadow(
+                                      color: color.withOpacity(0.4),
+                                      blurRadius: 6,
+                                      spreadRadius: 1)
+                              ]),
+                          child: isSelected
+                              ? const Icon(Icons.check,
+                                  color: Colors.white, size: 16)
+                              : null,
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text("Product Image",
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                            color: Colors.grey[200],
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey[400]!)),
+                        child: _selectedImageBase64 != null &&
+                                _selectedImageBase64!.isNotEmpty
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: Image.memory(
+                                    base64Decode(_selectedImageBase64!),
+                                    fit: BoxFit.cover))
+                            : const Icon(Icons.image,
+                                color: Colors.grey, size: 30),
+                      ),
+                      const SizedBox(width: 16),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ElevatedButton.icon(
+                              icon: const Icon(Icons.upload, size: 18),
+                              label: const Text("Upload"),
+                              onPressed: _pickImage),
+                          if (_selectedImageBase64 != null &&
+                              _selectedImageBase64!.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            TextButton(
+                                onPressed: () =>
+                                    setState(() => _selectedImageBase64 = null),
+                                child: const Text("Remove Image",
+                                    style: TextStyle(color: Colors.red))),
+                          ]
+                        ],
+                      )
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+
+      if (_isEditing) ...[
+        // 2. TAXES
+        Padding(
+          padding: const EdgeInsets.all(32.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text("Apply Taxes",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              allTaxesAsync.when(
+                  loading: () => const CircularProgressIndicator(),
+                  error: (_, __) => const Text("Failed to load taxes"),
+                  data: (taxes) {
+                    return DropdownButtonFormField<int?>(
+                      value: _selectedTaxId,
+                      decoration: const InputDecoration(
+                          labelText: "Primary Tax Rate",
+                          border: OutlineInputBorder()),
+                      items: [
+                        const DropdownMenuItem(
+                            value: null, child: Text("No Tax")),
+                        ...taxes.map((t) => DropdownMenuItem(
+                            value: t.id,
+                            child: Text("${t.name} (${t.rate}%)"))),
+                      ],
+                      onChanged: (v) => setState(() => _selectedTaxId = v),
+                    );
+                  }),
+            ],
+          ),
+        ),
+
+        // PLACEHOLDERS
+        const Center(
+            child: Text("Coming in Phase 2...",
+                style: TextStyle(color: Colors.grey))),
+        const Center(
+            child: Text("Coming in Phase 2...",
+                style: TextStyle(color: Colors.grey))),
+        const Center(
+            child: Text("Coming in Phase 2...",
+                style: TextStyle(color: Colors.grey))),
+      ]
+    ];
+
     return DefaultTabController(
-      length: 5,
+      length: dialogTabs.length, // Perfectly adapts to Edit vs Create
       child: AlertDialog(
         contentPadding: EdgeInsets.zero,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: Text(_isEditing ? "Edit Product" : "New Product",
             style: const TextStyle(fontWeight: FontWeight.bold)),
-        content: SizedBox(
-          width: 950,
-          height: 650,
-          child: Column(
-            children: [
-              const TabBar(
-                labelColor: Colors.indigo,
-                unselectedLabelColor: Colors.grey,
-                indicatorColor: Colors.indigo,
-                tabs: [
-                  Tab(text: "General"),
-                  Tab(text: "Taxes"),
-                  Tab(text: "Stock Control"),
-                  Tab(text: "Barcodes"),
-                  Tab(text: "Comments"),
-                ],
-              ),
-              Expanded(
-                child: TabBarView(
-                  children: [
-                    // --- TAB 1: GENERAL INFO (FULLY MAPPED TO YOUR SCREENSHOTS) ---
-                    SingleChildScrollView(
-                      padding: const EdgeInsets.all(24),
-                      child: Form(
-                        key: _formKey,
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // LEFT COLUMN: Text Fields
-                            Expanded(
-                              flex: 3,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: TextFormField(
-                                          controller: _nameCtrl,
-                                          decoration: const InputDecoration(
-                                              labelText: "Product Name *",
-                                              border: OutlineInputBorder()),
-                                          validator: (v) =>
-                                              v == null || v.isEmpty
-                                                  ? "Required"
-                                                  : null,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: allGroupsAsync.when(
-                                          loading: () =>
-                                              const LinearProgressIndicator(),
-                                          error: (_, __) => const Text(
-                                              "Error loading groups"),
-                                          data: (groups) =>
-                                              DropdownButtonFormField<int?>(
-                                            value: _selectedGroupId,
-                                            decoration: const InputDecoration(
-                                                labelText: "Parent Group",
-                                                border: OutlineInputBorder()),
-                                            items: [
-                                              const DropdownMenuItem(
-                                                  value: null,
-                                                  child: Text(
-                                                      "None (Uncategorized)")),
-                                              ...groups.map((g) =>
-                                                  DropdownMenuItem(
-                                                      value: g.id,
-                                                      child: Text(g.name))),
-                                            ],
-                                            onChanged: (v) => setState(
-                                                () => _selectedGroupId = v),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                          child: TextFormField(
-                                              controller: _codeCtrl,
-                                              decoration: const InputDecoration(
-                                                  labelText:
-                                                      "Product Code / SKU",
-                                                  border:
-                                                      OutlineInputBorder()))),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                          child: TextFormField(
-                                              controller: _pluCtrl,
-                                              decoration: const InputDecoration(
-                                                  labelText: "PLU",
-                                                  border: OutlineInputBorder()),
-                                              keyboardType:
-                                                  TextInputType.number)),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                          child: TextFormField(
-                                              controller: _measurementUnitCtrl,
-                                              decoration: const InputDecoration(
-                                                  labelText: "Measurement Unit",
-                                                  border: OutlineInputBorder(),
-                                                  hintText: "e.g. kg, pcs"))),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                          child: TextFormField(
-                                              controller: _ageRestrictionCtrl,
-                                              decoration: const InputDecoration(
-                                                  labelText: "Age Restriction",
-                                                  border: OutlineInputBorder(),
-                                                  hintText: "e.g. 18"),
-                                              keyboardType:
-                                                  TextInputType.number)),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                          child: TextFormField(
-                                              controller: _priceCtrl,
-                                              decoration: const InputDecoration(
-                                                  labelText: "Selling Price *",
-                                                  border: OutlineInputBorder(),
-                                                  prefixText: "\$"),
-                                              keyboardType: const TextInputType
-                                                  .numberWithOptions(
-                                                  decimal: true))),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                          child: TextFormField(
-                                              controller: _costCtrl,
-                                              decoration: const InputDecoration(
-                                                  labelText: "Purchase Cost",
-                                                  border: OutlineInputBorder(),
-                                                  prefixText: "\$"),
-                                              keyboardType: const TextInputType
-                                                  .numberWithOptions(
-                                                  decimal: true))),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                          child: TextFormField(
-                                              controller: _markupCtrl,
-                                              decoration: const InputDecoration(
-                                                  labelText:
-                                                      "Margin / Markup (%)",
-                                                  border: OutlineInputBorder(),
-                                                  suffixText: "%"),
-                                              keyboardType: const TextInputType
-                                                  .numberWithOptions(
-                                                  decimal: true))),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                          child: TextFormField(
-                                              controller: _rankCtrl,
-                                              decoration: const InputDecoration(
-                                                  labelText:
-                                                      "Rank (Display Order)",
-                                                  border: OutlineInputBorder()),
-                                              keyboardType:
-                                                  TextInputType.number)),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 16),
-                                  TextFormField(
-                                    controller: _descriptionCtrl,
-                                    maxLines: 3,
-                                    decoration: const InputDecoration(
-                                        labelText: "Description",
-                                        border: OutlineInputBorder(),
-                                        alignLabelWithHint: true),
-                                  ),
-                                ],
-                              ),
-                            ),
-
-                            const SizedBox(width: 32),
-
-                            // RIGHT COLUMN: Toggles, Colors, and Images
-                            Expanded(
-                              flex: 2,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Boolean Toggles Box
-                                  Container(
-                                    decoration: BoxDecoration(
-                                        border: Border.all(
-                                            color: Colors.grey[300]!),
-                                        borderRadius: BorderRadius.circular(8)),
-                                    child: Column(
-                                      children: [
-                                        SwitchListTile(
-                                            title: const Text(
-                                                "Product Price is Tax Inclusive"),
-                                            value: _isTaxInclusive,
-                                            onChanged: (v) => setState(
-                                                () => _isTaxInclusive = v),
-                                            visualDensity:
-                                                VisualDensity.compact),
-                                        SwitchListTile(
-                                            title: const Text(
-                                                "Is Service (Not physical)"),
-                                            value: _isService,
-                                            onChanged: (v) =>
-                                                setState(() => _isService = v),
-                                            visualDensity:
-                                                VisualDensity.compact),
-                                        SwitchListTile(
-                                            title: const Text(
-                                                "Change Price Allowed"),
-                                            value: _isPriceChangeAllowed,
-                                            onChanged: (v) => setState(() =>
-                                                _isPriceChangeAllowed = v),
-                                            visualDensity:
-                                                VisualDensity.compact),
-                                        SwitchListTile(
-                                            title: const Text(
-                                                "Is Using Default Quantity"),
-                                            value: _isUsingDefaultQuantity,
-                                            onChanged: (v) => setState(() =>
-                                                _isUsingDefaultQuantity = v),
-                                            visualDensity:
-                                                VisualDensity.compact),
-                                        SwitchListTile(
-                                            title: const Text(
-                                                "Is Enabled (Visible)"),
-                                            value: _isEnabled,
-                                            activeColor: Colors.green,
-                                            onChanged: (v) =>
-                                                setState(() => _isEnabled = v),
-                                            visualDensity:
-                                                VisualDensity.compact),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 24),
-
-                                  // Color Picker
-                                  const Text("Product Color Marker",
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.grey)),
-                                  const SizedBox(height: 8),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: _colorPalette.map((color) {
-                                      final hex = _colorToHex(color);
-                                      final isSelected =
-                                          _selectedHexColor.toUpperCase() ==
-                                              hex.toUpperCase();
-                                      return InkWell(
-                                        onTap: () => setState(
-                                            () => _selectedHexColor = hex),
-                                        borderRadius: BorderRadius.circular(20),
-                                        child: AnimatedContainer(
-                                          duration:
-                                              const Duration(milliseconds: 200),
-                                          width: 30,
-                                          height: 30,
-                                          decoration: BoxDecoration(
-                                              color: color,
-                                              shape: BoxShape.circle,
-                                              border: isSelected
-                                                  ? Border.all(
-                                                      color: Theme.of(context)
-                                                          .colorScheme
-                                                          .primary,
-                                                      width: 3)
-                                                  : null,
-                                              boxShadow: [
-                                                if (isSelected)
-                                                  BoxShadow(
-                                                      color: color
-                                                          .withOpacity(0.4),
-                                                      blurRadius: 6,
-                                                      spreadRadius: 1)
-                                              ]),
-                                          child: isSelected
-                                              ? const Icon(Icons.check,
-                                                  color: Colors.white, size: 16)
-                                              : null,
-                                        ),
-                                      );
-                                    }).toList(),
-                                  ),
-                                  const SizedBox(height: 24),
-
-                                  // Image Uploader
-                                  const Text("Product Image",
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.grey)),
-                                  const SizedBox(height: 8),
-                                  Row(
-                                    children: [
-                                      Container(
-                                        width: 100,
-                                        height: 100,
-                                        decoration: BoxDecoration(
-                                            color: Colors.grey[200],
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                            border: Border.all(
-                                                color: Colors.grey[400]!)),
-                                        child: _selectedImageBase64 != null &&
-                                                _selectedImageBase64!.isNotEmpty
-                                            ? ClipRRect(
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
-                                                child: Image.memory(
-                                                    base64Decode(
-                                                        _selectedImageBase64!),
-                                                    fit: BoxFit.cover))
-                                            : const Icon(Icons.image,
-                                                color: Colors.grey, size: 30),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          ElevatedButton.icon(
-                                              icon: const Icon(Icons.upload,
-                                                  size: 18),
-                                              label: const Text("Upload"),
-                                              onPressed: _pickImage),
-                                          if (_selectedImageBase64 != null &&
-                                              _selectedImageBase64!
-                                                  .isNotEmpty) ...[
-                                            const SizedBox(height: 8),
-                                            TextButton(
-                                                onPressed: () => setState(() =>
-                                                    _selectedImageBase64 =
-                                                        null),
-                                                child: const Text(
-                                                    "Remove Image",
-                                                    style: TextStyle(
-                                                        color: Colors.red))),
-                                          ]
-                                        ],
-                                      )
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // --- TAB 2: TAXES ---
-                    Padding(
-                      padding: const EdgeInsets.all(32.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text("Apply Taxes",
-                              style: TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 16),
-                          allTaxesAsync.when(
-                              loading: () => const CircularProgressIndicator(),
-                              error: (_, __) =>
-                                  const Text("Failed to load taxes"),
-                              data: (taxes) {
-                                return DropdownButtonFormField<int?>(
-                                  value: _selectedTaxId,
-                                  decoration: const InputDecoration(
-                                      labelText: "Primary Tax Rate",
-                                      border: OutlineInputBorder()),
-                                  items: [
-                                    const DropdownMenuItem(
-                                        value: null, child: Text("No Tax")),
-                                    ...taxes.map((t) => DropdownMenuItem(
-                                        value: t.id,
-                                        child: Text("${t.name} (${t.rate}%)"))),
-                                  ],
-                                  onChanged: (v) =>
-                                      setState(() => _selectedTaxId = v),
-                                );
-                              }),
-                        ],
-                      ),
-                    ),
-
-                    // --- TAB 3: STOCK CONTROL (Placeholder) ---
-                    const Center(
-                        child:
-                            Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.inventory, size: 64, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text("Stock Control Integration",
-                          style: TextStyle(
-                              fontSize: 18,
-                              color: Colors.grey,
-                              fontWeight: FontWeight.bold)),
-                      Text("Coming in Phase 2...",
-                          style: TextStyle(color: Colors.grey)),
-                    ])),
-
-                    // --- TAB 4: BARCODES (Placeholder) ---
-                    const Center(
-                        child:
-                            Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.qr_code_scanner, size: 64, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text("Barcode Management",
-                          style: TextStyle(
-                              fontSize: 18,
-                              color: Colors.grey,
-                              fontWeight: FontWeight.bold)),
-                      Text("Coming in Phase 2...",
-                          style: TextStyle(color: Colors.grey)),
-                    ])),
-
-                    // --- TAB 5: COMMENTS (Placeholder) ---
-                    const Center(
-                        child:
-                            Column(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.comment, size: 64, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text("Product Modifiers & Comments",
-                          style: TextStyle(
-                              fontSize: 18,
-                              color: Colors.grey,
-                              fontWeight: FontWeight.bold)),
-                      Text("Coming in Phase 2...",
-                          style: TextStyle(color: Colors.grey)),
-                    ])),
-                  ],
+        content: Form(
+          key: _formKey,
+          child: SizedBox(
+            width: 950,
+            height: 650,
+            child: Column(
+              children: [
+                TabBar(
+                  labelColor: Colors.indigo,
+                  unselectedLabelColor: Colors.grey,
+                  indicatorColor: Colors.indigo,
+                  tabs: dialogTabs,
                 ),
-              ),
-
-              // Error Display
-              if (_errorMessage != null)
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                  child: Text(_errorMessage!,
-                      style: const TextStyle(
-                          color: Colors.red, fontWeight: FontWeight.bold)),
-                )
-            ],
+                Expanded(
+                  child: TabBarView(children: dialogTabViews),
+                ),
+                if (_errorMessage != null)
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                    child: Text(_errorMessage!,
+                        style: const TextStyle(
+                            color: Colors.red, fontWeight: FontWeight.bold)),
+                  )
+              ],
+            ),
           ),
         ),
         actions: [
