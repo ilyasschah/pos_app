@@ -41,10 +41,27 @@ class ProductsScreen extends ConsumerWidget {
             label: const Text("Add Product"),
             style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.indigo, foregroundColor: Colors.white),
-            onPressed: () => showDialog(
-                    context: context,
-                    builder: (_) => const _ProductEditorDialog())
-                .then((_) => ref.invalidate(productsByGroupProvider)),
+
+            // --- TWO-PHASE CREATION FLOW ---
+            onPressed: () async {
+              // PHASE 1: General Info
+              final result = await showDialog(
+                context: context,
+                builder: (_) =>
+                    const _ProductEditorDialog(isPostCreation: false),
+              );
+
+              ref.invalidate(productsByGroupProvider);
+
+              // PHASE 2: Taxes & Stock (Only triggers if Phase 1 succeeded and returned the Product)
+              if (result is Product && context.mounted) {
+                showDialog(
+                  context: context,
+                  builder: (_) => _ProductEditorDialog(
+                      existingProduct: result, isPostCreation: true),
+                ).then((_) => ref.invalidate(productsByGroupProvider));
+              }
+            },
           ),
           const SizedBox(width: 16),
         ],
@@ -72,9 +89,7 @@ class ProductsScreen extends ConsumerWidget {
               ],
             ),
           ),
-
           const VerticalDivider(width: 1, thickness: 1),
-
           // RIGHT AREA
           const Expanded(child: _ProductListContent()),
         ],
@@ -147,7 +162,6 @@ class _TreeNodeState extends State<_TreeNode> {
         .where((g) => g.parentGroupId == widget.group.id)
         .toList()
       ..sort((a, b) => a.rank.compareTo(b.rank));
-
     final hasChildren = children.isNotEmpty;
     final isSelected =
         widget.ref.watch(selectedProductGroupIdProvider) == widget.group.id;
@@ -194,14 +208,12 @@ class _TreeNodeState extends State<_TreeNode> {
                     size: 20),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    widget.group.name,
-                    style: TextStyle(
-                        fontWeight:
-                            isSelected ? FontWeight.bold : FontWeight.normal,
-                        color: isSelected ? Colors.blue[900] : Colors.black87,
-                        fontSize: 14),
-                  ),
+                  child: Text(widget.group.name,
+                      style: TextStyle(
+                          fontWeight:
+                              isSelected ? FontWeight.bold : FontWeight.normal,
+                          color: isSelected ? Colors.blue[900] : Colors.black87,
+                          fontSize: 14)),
                 ),
               ],
             ),
@@ -300,9 +312,8 @@ class _ProductListContent extends ConsumerWidget {
                       '-';
 
                   return DataRow(
-                      color: WidgetStateProperty.all(p.isEnabled
-                          ? Colors.transparent
-                          : Colors.grey[200]), // Grays out disabled products
+                      color: WidgetStateProperty.all(
+                          p.isEnabled ? Colors.transparent : Colors.grey[200]),
                       cells: [
                         DataCell(Container(
                           width: 45,
@@ -375,10 +386,12 @@ class _ProductListContent extends ConsumerWidget {
 }
 
 // --- ADD/EDIT TABBED DIALOG ---
-// --- ADD/EDIT TABBED DIALOG ---
 class _ProductEditorDialog extends ConsumerStatefulWidget {
   final Product? existingProduct;
-  const _ProductEditorDialog({this.existingProduct});
+  final bool isPostCreation; // Determines if we are in "Phase 2" of creation
+
+  const _ProductEditorDialog(
+      {this.existingProduct, this.isPostCreation = false});
 
   @override
   ConsumerState<_ProductEditorDialog> createState() =>
@@ -393,10 +406,10 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   final _codeCtrl = TextEditingController();
   final _pluCtrl = TextEditingController();
   final _measurementUnitCtrl = TextEditingController();
-  final _priceCtrl = TextEditingController(text: '0.00');
-  final _costCtrl = TextEditingController(text: '0.00');
+  final _priceCtrl = TextEditingController(text: '');
+  final _costCtrl = TextEditingController(text: '');
   final _markupCtrl = TextEditingController();
-  final _rankCtrl = TextEditingController(text: '0');
+  final _rankCtrl = TextEditingController(text: '');
   final _ageRestrictionCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
 
@@ -417,7 +430,8 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   bool _isLoading = false;
   String? _errorMessage;
 
-  bool get _isEditing => widget.existingProduct != null;
+  bool get _isEditing =>
+      widget.existingProduct != null && !widget.isPostCreation;
 
   final List<Color> _colorPalette = [
     Colors.blueGrey,
@@ -446,7 +460,8 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   @override
   void initState() {
     super.initState();
-    if (_isEditing) {
+
+    if (widget.existingProduct != null) {
       final p = widget.existingProduct!;
       _nameCtrl.text = p.name;
       _codeCtrl.text = p.code ?? '';
@@ -478,12 +493,10 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   Future<void> _fetchAssignedTax(int productId) async {
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
-
     try {
       final dio = createDio();
       final res = await dio.get('/ProductTaxes/GetByProductId',
           queryParameters: {'productId': productId, 'companyId': companyId});
-
       final List taxes = res.data;
       if (taxes.isNotEmpty && mounted) {
         setState(() {
@@ -492,21 +505,6 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
         });
       }
     } catch (_) {}
-  }
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _codeCtrl.dispose();
-    _pluCtrl.dispose();
-    _measurementUnitCtrl.dispose();
-    _priceCtrl.dispose();
-    _costCtrl.dispose();
-    _markupCtrl.dispose();
-    _rankCtrl.dispose();
-    _ageRestrictionCtrl.dispose();
-    _descriptionCtrl.dispose();
-    super.dispose();
   }
 
   Future<void> _pickImage() async {
@@ -523,99 +521,136 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   }
 
   Future<void> _submit() async {
-    if (_nameCtrl.text.trim().isEmpty) {
-      setState(() => _errorMessage = "Please enter a Product Name.");
-      return;
-    }
-    if (_formKey.currentState?.validate() == false) return;
-
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    // SCENARIO 1: We are in "Phase 1" of creation (Only General Tab)
+    if (widget.existingProduct == null && !widget.isPostCreation) {
+      if (_nameCtrl.text.trim().isEmpty) {
+        setState(() => _errorMessage = "Please enter a Product Name.");
+        return;
+      }
+      if (_formKey.currentState?.validate() == false) return;
 
-    try {
-      final dio = createDio();
-      final payload = {
-        'name': _nameCtrl.text.trim(),
-        'productGroupId': _selectedGroupId,
-        'code': _codeCtrl.text.trim().isEmpty ? null : _codeCtrl.text.trim(),
-        'plu': int.tryParse(_pluCtrl.text.trim()),
-        'measurementUnit': _measurementUnitCtrl.text.trim().isEmpty
-            ? null
-            : _measurementUnitCtrl.text.trim(),
-        'price': double.tryParse(_priceCtrl.text) ?? 0,
-        'cost': double.tryParse(_costCtrl.text) ?? 0,
-        'markup': double.tryParse(_markupCtrl.text.trim()),
-        'rank': int.tryParse(_rankCtrl.text.trim()) ?? 0,
-        'ageRestriction': int.tryParse(_ageRestrictionCtrl.text.trim()),
-        'description': _descriptionCtrl.text.trim().isEmpty
-            ? null
-            : _descriptionCtrl.text.trim(),
-        'isTaxInclusivePrice': _isTaxInclusive,
-        'isService': _isService,
-        'isPriceChangeAllowed': _isPriceChangeAllowed,
-        'isUsingDefaultQuantity': _isUsingDefaultQuantity,
-        'isEnabled': _isEnabled,
-        'imageBase64': _selectedImageBase64 ?? "",
-        'color':
-            _selectedHexColor == 'Transparent' ? '#000000' : _selectedHexColor,
-      };
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+      try {
+        final dio = createDio();
+        final payload = {
+          'name': _nameCtrl.text.trim(),
+          'productGroupId': _selectedGroupId,
+          'code': _codeCtrl.text.trim().isEmpty ? null : _codeCtrl.text.trim(),
+          'plu': int.tryParse(_pluCtrl.text.trim()),
+          'measurementUnit': _measurementUnitCtrl.text.trim().isEmpty
+              ? null
+              : _measurementUnitCtrl.text.trim(),
+          'price': double.tryParse(_priceCtrl.text) ?? 0,
+          'cost': double.tryParse(_costCtrl.text) ?? 0,
+          'markup': double.tryParse(_markupCtrl.text.trim()),
+          'rank': int.tryParse(_rankCtrl.text.trim()) ?? 0,
+          'ageRestriction': int.tryParse(_ageRestrictionCtrl.text.trim()),
+          'description': _descriptionCtrl.text.trim().isEmpty
+              ? null
+              : _descriptionCtrl.text.trim(),
+          'isTaxInclusivePrice': _isTaxInclusive,
+          'isService': _isService,
+          'isPriceChangeAllowed': _isPriceChangeAllowed,
+          'isUsingDefaultQuantity': _isUsingDefaultQuantity,
+          'isEnabled': _isEnabled,
+          'imageBase64': _selectedImageBase64 ?? "",
+          'color': _selectedHexColor == 'Transparent'
+              ? '#000000'
+              : _selectedHexColor,
+        };
 
-      if (_isEditing) {
-        // --- EDIT MODE ---
-        final savedProductId = widget.existingProduct!.id;
-        payload['id'] = savedProductId;
-        await dio.patch('/Products/Update',
-            queryParameters: {'id': savedProductId, 'companyId': companyId},
-            data: payload);
-
-        // Handle Taxes
-        if (_originalTaxId != null && _originalTaxId != _selectedTaxId) {
-          await dio.delete('/ProductTaxes/Delete', queryParameters: {
-            'productId': savedProductId,
-            'taxId': _originalTaxId,
-            'companyId': companyId
-          });
-        }
-        if (_selectedTaxId != null && _selectedTaxId != _originalTaxId) {
-          await dio.post('/ProductTaxes/Add',
-              queryParameters: {'companyId': companyId},
-              data: {'productId': savedProductId, 'taxId': _selectedTaxId});
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text("Product updated successfully!"),
-              backgroundColor: Colors.green));
-          Navigator.of(context).pop();
-        }
-      } else {
-        // --- CREATE MODE ---
         final res = await dio.post('/Products/Add',
             queryParameters: {'companyId': companyId}, data: payload);
-
-        // Grab the newly created product from the API response
         final responseData = res.data['data'] ?? res.data;
         final newProduct = Product.fromJson(responseData);
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text(
-                  "Product created! Opening editor to assign taxes/stock..."),
-              backgroundColor: Colors.indigo));
-          Navigator.of(context).pop(); // Close the "Create" window
-
-          // Instantly pop up the new "Edit" window with the new product!
-          showDialog(
-                  context: context,
-                  builder: (_) =>
-                      _ProductEditorDialog(existingProduct: newProduct))
-              .then((_) => ref.invalidate(productsByGroupProvider));
+          // Send the new product back to the main screen to launch Phase 2!
+          Navigator.of(context).pop(newProduct);
         }
+      } catch (e) {
+        setState(() {
+          _errorMessage = _parseApiError(e);
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
+    // SCENARIO 2 & 3: We are in "Phase 2" of creation, OR normal Editing
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final dio = createDio();
+      final savedProductId = widget.existingProduct!.id;
+
+      // Only update the General properties if we are in normal Edit mode
+      if (_isEditing) {
+        if (_formKey.currentState?.validate() == false) {
+          setState(() => _isLoading = false);
+          return;
+        }
+        final payload = {
+          'id': savedProductId,
+          'name': _nameCtrl.text.trim(),
+          'productGroupId': _selectedGroupId,
+          'code': _codeCtrl.text.trim().isEmpty ? null : _codeCtrl.text.trim(),
+          'plu': int.tryParse(_pluCtrl.text.trim()),
+          'measurementUnit': _measurementUnitCtrl.text.trim().isEmpty
+              ? null
+              : _measurementUnitCtrl.text.trim(),
+          'price': double.tryParse(_priceCtrl.text) ?? 0,
+          'cost': double.tryParse(_costCtrl.text) ?? 0,
+          'markup': double.tryParse(_markupCtrl.text.trim()),
+          'rank': int.tryParse(_rankCtrl.text.trim()) ?? 0,
+          'ageRestriction': int.tryParse(_ageRestrictionCtrl.text.trim()),
+          'description': _descriptionCtrl.text.trim().isEmpty
+              ? null
+              : _descriptionCtrl.text.trim(),
+          'isTaxInclusivePrice': _isTaxInclusive,
+          'isService': _isService,
+          'isPriceChangeAllowed': _isPriceChangeAllowed,
+          'isUsingDefaultQuantity': _isUsingDefaultQuantity,
+          'isEnabled': _isEnabled,
+          'imageBase64': _selectedImageBase64 ?? "",
+          'color': _selectedHexColor == 'Transparent'
+              ? '#000000'
+              : _selectedHexColor,
+        };
+        await dio.patch('/Products/Update',
+            queryParameters: {'id': savedProductId, 'companyId': companyId},
+            data: payload);
+      }
+
+      // Handle Taxes (Applies to both Edit and Phase 2 Creation)
+      if (_originalTaxId != null && _originalTaxId != _selectedTaxId) {
+        await dio.delete('/ProductTaxes/Delete', queryParameters: {
+          'productId': savedProductId,
+          'taxId': _originalTaxId,
+          'companyId': companyId
+        });
+      }
+      if (_selectedTaxId != null && _selectedTaxId != _originalTaxId) {
+        await dio.post('/ProductTaxes/Add',
+            queryParameters: {'companyId': companyId},
+            data: {'productId': savedProductId, 'taxId': _selectedTaxId});
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(widget.isPostCreation
+                ? "Setup Complete!"
+                : "Product updated successfully!"),
+            backgroundColor: Colors.green));
+        Navigator.of(context).pop();
       }
     } catch (e) {
       setState(() {
@@ -627,339 +662,38 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final allGroupsAsync = ref.watch(allProductGroupsProvider);
-    final allTaxesAsync = ref.watch(allTaxesProvider);
+    // 1. Determine Dialog Title and Button Text
+    String title = "New Product";
+    String buttonText = "Next: Taxes & Stock";
 
-    // DYNAMIC TABS: Only show 'General' when creating. Show all when editing!
-    final List<Widget> dialogTabs = [
-      const Tab(text: "General"),
-      if (_isEditing) ...[
+    if (_isEditing) {
+      title = "Edit Product";
+      buttonText = "Save Changes";
+    } else if (widget.isPostCreation) {
+      title = "Set Taxes & Inventory: ${widget.existingProduct?.name}";
+      buttonText = "Finish Setup";
+    }
+
+    // 2. Build Tabs Based on Current Mode
+    final List<Widget> dialogTabs = [];
+    final List<Widget> dialogTabViews = [];
+
+    // Add General Tab (If creating Phase 1, OR if normal editing)
+    if (!widget.isPostCreation) {
+      dialogTabs.add(const Tab(text: "General"));
+      dialogTabViews.add(_buildGeneralTab());
+    }
+
+    // Add Advanced Tabs (If creating Phase 2, OR if normal editing)
+    if (_isEditing || widget.isPostCreation) {
+      dialogTabs.addAll([
         const Tab(text: "Taxes"),
         const Tab(text: "Stock Control"),
         const Tab(text: "Barcodes"),
         const Tab(text: "Comments"),
-      ]
-    ];
-
-    // DYNAMIC TAB VIEWS: Matches the tabs above!
-    final List<Widget> dialogTabViews = [
-      // 1. GENERAL INFO
-      SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 3,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                          child: TextFormField(
-                              controller: _nameCtrl,
-                              decoration: const InputDecoration(
-                                  labelText: "Product Name *",
-                                  border: OutlineInputBorder()))),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: allGroupsAsync.when(
-                          loading: () => const LinearProgressIndicator(),
-                          error: (_, __) => const Text("Error loading groups"),
-                          data: (groups) => DropdownButtonFormField<int?>(
-                            value: _selectedGroupId,
-                            decoration: const InputDecoration(
-                                labelText: "Category / Group",
-                                border: OutlineInputBorder()),
-                            items: [
-                              const DropdownMenuItem(
-                                  value: null,
-                                  child: Text("None (Uncategorized)")),
-                              ...groups.map((g) => DropdownMenuItem(
-                                  value: g.id, child: Text(g.name))),
-                            ],
-                            onChanged: (v) =>
-                                setState(() => _selectedGroupId = v),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                          child: TextFormField(
-                              controller: _codeCtrl,
-                              decoration: const InputDecoration(
-                                  labelText: "Product Code / SKU",
-                                  border: OutlineInputBorder()))),
-                      const SizedBox(width: 16),
-                      Expanded(
-                          child: TextFormField(
-                              controller: _pluCtrl,
-                              decoration: const InputDecoration(
-                                  labelText: "PLU",
-                                  border: OutlineInputBorder()),
-                              keyboardType: TextInputType.number)),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                          child: TextFormField(
-                              controller: _measurementUnitCtrl,
-                              decoration: const InputDecoration(
-                                  labelText: "Measurement Unit",
-                                  border: OutlineInputBorder(),
-                                  hintText: "e.g. kg, pcs"))),
-                      const SizedBox(width: 16),
-                      Expanded(
-                          child: TextFormField(
-                              controller: _ageRestrictionCtrl,
-                              decoration: const InputDecoration(
-                                  labelText: "Age Restriction",
-                                  border: OutlineInputBorder(),
-                                  hintText: "e.g. 18"),
-                              keyboardType: TextInputType.number)),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                          child: TextFormField(
-                              controller: _priceCtrl,
-                              decoration: const InputDecoration(
-                                  labelText: "Selling Price *",
-                                  border: OutlineInputBorder(),
-                                  prefixText: "\$"),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true))),
-                      const SizedBox(width: 16),
-                      Expanded(
-                          child: TextFormField(
-                              controller: _costCtrl,
-                              decoration: const InputDecoration(
-                                  labelText: "Purchase Cost",
-                                  border: OutlineInputBorder(),
-                                  prefixText: "\$"),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true))),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                          child: TextFormField(
-                              controller: _markupCtrl,
-                              decoration: const InputDecoration(
-                                  labelText: "Margin / Markup (%)",
-                                  border: OutlineInputBorder(),
-                                  suffixText: "%"),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true))),
-                      const SizedBox(width: 16),
-                      Expanded(
-                          child: TextFormField(
-                              controller: _rankCtrl,
-                              decoration: const InputDecoration(
-                                  labelText: "Rank (Display Order)",
-                                  border: OutlineInputBorder()),
-                              keyboardType: TextInputType.number)),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _descriptionCtrl,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                        labelText: "Description",
-                        border: OutlineInputBorder(),
-                        alignLabelWithHint: true),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 32),
-            Expanded(
-              flex: 2,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey[300]!),
-                        borderRadius: BorderRadius.circular(8)),
-                    child: Column(
-                      children: [
-                        SwitchListTile(
-                            title: const Text("Product Price is Tax Inclusive"),
-                            value: _isTaxInclusive,
-                            onChanged: (v) =>
-                                setState(() => _isTaxInclusive = v),
-                            visualDensity: VisualDensity.compact),
-                        SwitchListTile(
-                            title: const Text("Is Service (Not physical)"),
-                            value: _isService,
-                            onChanged: (v) => setState(() => _isService = v),
-                            visualDensity: VisualDensity.compact),
-                        SwitchListTile(
-                            title: const Text("Change Price Allowed"),
-                            value: _isPriceChangeAllowed,
-                            onChanged: (v) =>
-                                setState(() => _isPriceChangeAllowed = v),
-                            visualDensity: VisualDensity.compact),
-                        SwitchListTile(
-                            title: const Text("Is Using Default Quantity"),
-                            value: _isUsingDefaultQuantity,
-                            onChanged: (v) =>
-                                setState(() => _isUsingDefaultQuantity = v),
-                            visualDensity: VisualDensity.compact),
-                        SwitchListTile(
-                            title: const Text("Is Enabled (Visible)"),
-                            value: _isEnabled,
-                            activeColor: Colors.green,
-                            onChanged: (v) => setState(() => _isEnabled = v),
-                            visualDensity: VisualDensity.compact),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text("Product Color Marker",
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold, color: Colors.grey)),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _colorPalette.map((color) {
-                      final hex = _colorToHex(color);
-                      final isSelected =
-                          _selectedHexColor.toUpperCase() == hex.toUpperCase();
-                      return InkWell(
-                        onTap: () => setState(() => _selectedHexColor = hex),
-                        borderRadius: BorderRadius.circular(20),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          width: 30,
-                          height: 30,
-                          decoration: BoxDecoration(
-                              color: color,
-                              shape: BoxShape.circle,
-                              border: isSelected
-                                  ? Border.all(
-                                      color:
-                                          Theme.of(context).colorScheme.primary,
-                                      width: 3)
-                                  : null,
-                              boxShadow: [
-                                if (isSelected)
-                                  BoxShadow(
-                                      color: color.withOpacity(0.4),
-                                      blurRadius: 6,
-                                      spreadRadius: 1)
-                              ]),
-                          child: isSelected
-                              ? const Icon(Icons.check,
-                                  color: Colors.white, size: 16)
-                              : null,
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text("Product Image",
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold, color: Colors.grey)),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Container(
-                        width: 100,
-                        height: 100,
-                        decoration: BoxDecoration(
-                            color: Colors.grey[200],
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey[400]!)),
-                        child: _selectedImageBase64 != null &&
-                                _selectedImageBase64!.isNotEmpty
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Image.memory(
-                                    base64Decode(_selectedImageBase64!),
-                                    fit: BoxFit.cover))
-                            : const Icon(Icons.image,
-                                color: Colors.grey, size: 30),
-                      ),
-                      const SizedBox(width: 16),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          ElevatedButton.icon(
-                              icon: const Icon(Icons.upload, size: 18),
-                              label: const Text("Upload"),
-                              onPressed: _pickImage),
-                          if (_selectedImageBase64 != null &&
-                              _selectedImageBase64!.isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            TextButton(
-                                onPressed: () =>
-                                    setState(() => _selectedImageBase64 = null),
-                                child: const Text("Remove Image",
-                                    style: TextStyle(color: Colors.red))),
-                          ]
-                        ],
-                      )
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-
-      if (_isEditing) ...[
-        // 2. TAXES
-        Padding(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text("Apply Taxes",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              allTaxesAsync.when(
-                  loading: () => const CircularProgressIndicator(),
-                  error: (_, __) => const Text("Failed to load taxes"),
-                  data: (taxes) {
-                    return DropdownButtonFormField<int?>(
-                      value: _selectedTaxId,
-                      decoration: const InputDecoration(
-                          labelText: "Primary Tax Rate",
-                          border: OutlineInputBorder()),
-                      items: [
-                        const DropdownMenuItem(
-                            value: null, child: Text("No Tax")),
-                        ...taxes.map((t) => DropdownMenuItem(
-                            value: t.id,
-                            child: Text("${t.name} (${t.rate}%)"))),
-                      ],
-                      onChanged: (v) => setState(() => _selectedTaxId = v),
-                    );
-                  }),
-            ],
-          ),
-        ),
-
-        // PLACEHOLDERS
+      ]);
+      dialogTabViews.addAll([
+        _buildTaxesTab(),
         const Center(
             child: Text("Coming in Phase 2...",
                 style: TextStyle(color: Colors.grey))),
@@ -969,16 +703,15 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
         const Center(
             child: Text("Coming in Phase 2...",
                 style: TextStyle(color: Colors.grey))),
-      ]
-    ];
+      ]);
+    }
 
     return DefaultTabController(
-      length: dialogTabs.length, // Perfectly adapts to Edit vs Create
+      length: dialogTabs.length,
       child: AlertDialog(
         contentPadding: EdgeInsets.zero,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        title: Text(_isEditing ? "Edit Product" : "New Product",
-            style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
         content: Form(
           key: _formKey,
           child: SizedBox(
@@ -992,9 +725,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                   indicatorColor: Colors.indigo,
                   tabs: dialogTabs,
                 ),
-                Expanded(
-                  child: TabBarView(children: dialogTabViews),
-                ),
+                Expanded(child: TabBarView(children: dialogTabViews)),
                 if (_errorMessage != null)
                   Padding(
                     padding:
@@ -1026,8 +757,321 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 32, vertical: 12)),
               onPressed: _submit,
-              child: Text(_isEditing ? "Save Changes" : "Create Product"),
+              child: Text(buttonText),
             ),
+        ],
+      ),
+    );
+  }
+
+  // --- SUB-WIDGETS TO KEEP THE BUILD TREE CLEAN ---
+
+  Widget _buildGeneralTab() {
+    final allGroupsAsync = ref.watch(allProductGroupsProvider);
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 3,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                        child: TextFormField(
+                            controller: _nameCtrl,
+                            decoration: const InputDecoration(
+                                labelText: "Product Name *",
+                                border: OutlineInputBorder()))),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: allGroupsAsync.when(
+                        loading: () => const LinearProgressIndicator(),
+                        error: (_, __) => const Text("Error loading groups"),
+                        data: (groups) => DropdownButtonFormField<int?>(
+                          value: _selectedGroupId,
+                          decoration: const InputDecoration(
+                              labelText: "Category / Group",
+                              border: OutlineInputBorder()),
+                          items: [
+                            const DropdownMenuItem(
+                                value: null,
+                                child: Text("None (Uncategorized)")),
+                            ...groups.map((g) => DropdownMenuItem(
+                                value: g.id, child: Text(g.name))),
+                          ],
+                          onChanged: (v) =>
+                              setState(() => _selectedGroupId = v),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                        child: TextFormField(
+                            controller: _codeCtrl,
+                            decoration: const InputDecoration(
+                                labelText: "Product Code / SKU",
+                                border: OutlineInputBorder()))),
+                    const SizedBox(width: 16),
+                    Expanded(
+                        child: TextFormField(
+                            controller: _pluCtrl,
+                            decoration: const InputDecoration(
+                                labelText: "PLU", border: OutlineInputBorder()),
+                            keyboardType: TextInputType.number)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                        child: TextFormField(
+                            controller: _measurementUnitCtrl,
+                            decoration: const InputDecoration(
+                                labelText: "Measurement Unit",
+                                border: OutlineInputBorder(),
+                                hintText: "e.g. kg, pcs"))),
+                    const SizedBox(width: 16),
+                    Expanded(
+                        child: TextFormField(
+                            controller: _ageRestrictionCtrl,
+                            decoration: const InputDecoration(
+                                labelText: "Age Restriction",
+                                border: OutlineInputBorder(),
+                                hintText: "e.g. 18"),
+                            keyboardType: TextInputType.number)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                        child: TextFormField(
+                            controller: _priceCtrl,
+                            decoration: const InputDecoration(
+                                labelText: "Selling Price *",
+                                border: OutlineInputBorder(),
+                                prefixText: "\$"),
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true))),
+                    const SizedBox(width: 16),
+                    Expanded(
+                        child: TextFormField(
+                            controller: _costCtrl,
+                            decoration: const InputDecoration(
+                                labelText: "Purchase Cost",
+                                border: OutlineInputBorder(),
+                                prefixText: "\$"),
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true))),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                        child: TextFormField(
+                            controller: _markupCtrl,
+                            decoration: const InputDecoration(
+                                labelText: "Margin / Markup (%)",
+                                border: OutlineInputBorder(),
+                                suffixText: "%"),
+                            keyboardType: const TextInputType.numberWithOptions(
+                                decimal: true))),
+                    const SizedBox(width: 16),
+                    Expanded(
+                        child: TextFormField(
+                            controller: _rankCtrl,
+                            decoration: const InputDecoration(
+                                labelText: "Rank (Display Order)",
+                                border: OutlineInputBorder()),
+                            keyboardType: TextInputType.number)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                    controller: _descriptionCtrl,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                        labelText: "Description",
+                        border: OutlineInputBorder(),
+                        alignLabelWithHint: true)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 32),
+          Expanded(
+            flex: 2,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[300]!),
+                      borderRadius: BorderRadius.circular(8)),
+                  child: Column(
+                    children: [
+                      SwitchListTile(
+                          title: const Text("Product Price is Tax Inclusive"),
+                          value: _isTaxInclusive,
+                          onChanged: (v) => setState(() => _isTaxInclusive = v),
+                          visualDensity: VisualDensity.compact),
+                      SwitchListTile(
+                          title: const Text("Is Service (Not physical)"),
+                          value: _isService,
+                          onChanged: (v) => setState(() => _isService = v),
+                          visualDensity: VisualDensity.compact),
+                      SwitchListTile(
+                          title: const Text("Change Price Allowed"),
+                          value: _isPriceChangeAllowed,
+                          onChanged: (v) =>
+                              setState(() => _isPriceChangeAllowed = v),
+                          visualDensity: VisualDensity.compact),
+                      SwitchListTile(
+                          title: const Text("Is Using Default Quantity"),
+                          value: _isUsingDefaultQuantity,
+                          onChanged: (v) =>
+                              setState(() => _isUsingDefaultQuantity = v),
+                          visualDensity: VisualDensity.compact),
+                      SwitchListTile(
+                          title: const Text("Is Enabled (Visible)"),
+                          value: _isEnabled,
+                          activeColor: Colors.green,
+                          onChanged: (v) => setState(() => _isEnabled = v),
+                          visualDensity: VisualDensity.compact),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text("Product Color Marker",
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _colorPalette.map((color) {
+                    final hex = _colorToHex(color);
+                    final isSelected =
+                        _selectedHexColor.toUpperCase() == hex.toUpperCase();
+                    return InkWell(
+                      onTap: () => setState(() => _selectedHexColor = hex),
+                      borderRadius: BorderRadius.circular(20),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                            border: isSelected
+                                ? Border.all(
+                                    color:
+                                        Theme.of(context).colorScheme.primary,
+                                    width: 3)
+                                : null,
+                            boxShadow: [
+                              if (isSelected)
+                                BoxShadow(
+                                    color: color.withOpacity(0.4),
+                                    blurRadius: 6,
+                                    spreadRadius: 1)
+                            ]),
+                        child: isSelected
+                            ? const Icon(Icons.check,
+                                color: Colors.white, size: 16)
+                            : null,
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 24),
+                const Text("Product Image",
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Container(
+                      width: 100,
+                      height: 100,
+                      decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey[400]!)),
+                      child: _selectedImageBase64 != null &&
+                              _selectedImageBase64!.isNotEmpty
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.memory(
+                                  base64Decode(_selectedImageBase64!),
+                                  fit: BoxFit.cover))
+                          : const Icon(Icons.image,
+                              color: Colors.grey, size: 30),
+                    ),
+                    const SizedBox(width: 16),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ElevatedButton.icon(
+                            icon: const Icon(Icons.upload, size: 18),
+                            label: const Text("Upload"),
+                            onPressed: _pickImage),
+                        if (_selectedImageBase64 != null &&
+                            _selectedImageBase64!.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          TextButton(
+                              onPressed: () =>
+                                  setState(() => _selectedImageBase64 = null),
+                              child: const Text("Remove Image",
+                                  style: TextStyle(color: Colors.red))),
+                        ]
+                      ],
+                    )
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTaxesTab() {
+    final allTaxesAsync = ref.watch(allTaxesProvider);
+    return Padding(
+      padding: const EdgeInsets.all(32.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Apply Taxes",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          allTaxesAsync.when(
+              loading: () => const CircularProgressIndicator(),
+              error: (_, __) => const Text("Failed to load taxes"),
+              data: (taxes) {
+                return DropdownButtonFormField<int?>(
+                  value: _selectedTaxId,
+                  decoration: const InputDecoration(
+                      labelText: "Primary Tax Rate",
+                      border: OutlineInputBorder()),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text("No Tax")),
+                    ...taxes.map((t) => DropdownMenuItem(
+                        value: t.id, child: Text("${t.name} (${t.rate}%)"))),
+                  ],
+                  onChanged: (v) => setState(() => _selectedTaxId = v),
+                );
+              }),
         ],
       ),
     );
