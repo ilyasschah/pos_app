@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';
-
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'product_model.dart';
@@ -11,6 +10,8 @@ import 'product_group_model.dart';
 import 'product_groups_screen.dart';
 import 'product_provider.dart';
 import 'tax_provider.dart';
+import 'product_comment_model.dart';
+import 'product_comment_provider.dart';
 
 // --- HELPER ---
 String _parseApiError(dynamic e) {
@@ -53,7 +54,6 @@ class ProductsScreen extends ConsumerWidget {
 
               ref.invalidate(productsByGroupProvider);
 
-              // PHASE 2: Taxes & Stock (Only triggers if Phase 1 succeeded and returned the Product)
               if (result is Product && context.mounted) {
                 showDialog(
                   context: context,
@@ -412,7 +412,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   final _rankCtrl = TextEditingController(text: '');
   final _ageRestrictionCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
-
+  final _newCommentCtrl = TextEditingController();
   // Toggles
   bool _isTaxInclusive = true;
   bool _isService = false;
@@ -505,6 +505,22 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
         });
       }
     } catch (_) {}
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _codeCtrl.dispose();
+    _pluCtrl.dispose();
+    _measurementUnitCtrl.dispose();
+    _priceCtrl.dispose();
+    _costCtrl.dispose();
+    _markupCtrl.dispose();
+    _rankCtrl.dispose();
+    _ageRestrictionCtrl.dispose();
+    _descriptionCtrl.dispose();
+    _newCommentCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _pickImage() async {
@@ -694,9 +710,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
       ]);
       dialogTabViews.addAll([
         _buildTaxesTab(),
-        const Center(
-            child: Text("Coming in Phase 2...",
-                style: TextStyle(color: Colors.grey))),
+        _buildCommentsTab(),
         const Center(
             child: Text("Coming in Phase 2...",
                 style: TextStyle(color: Colors.grey))),
@@ -1072,6 +1086,143 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                   onChanged: (v) => setState(() => _selectedTaxId = v),
                 );
               }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCommentsTab() {
+    // Safety check - we know the product exists because this tab is only shown in Edit/Phase 2 mode!
+    if (widget.existingProduct == null) return const SizedBox();
+
+    final productId = widget.existingProduct!.id;
+    final asyncComments = ref.watch(productCommentsProvider(productId));
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+
+    return Padding(
+      padding: const EdgeInsets.all(32.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Product Modifiers & Comments",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text(
+              "Add specific notes like 'Extra Spicy' or 'Contains Nuts'.",
+              style: TextStyle(color: Colors.grey)),
+          const SizedBox(height: 24),
+
+          // INPUT ROW
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _newCommentCtrl,
+                  decoration: const InputDecoration(
+                    labelText: "New Modifier / Comment",
+                    hintText: "e.g. No Onions",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              ElevatedButton.icon(
+                  icon: const Icon(Icons.add),
+                  label: const Text("Add"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.indigo,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 20),
+                  ),
+                  onPressed: () async {
+                    if (_newCommentCtrl.text.trim().isEmpty ||
+                        companyId == null) return;
+
+                    try {
+                      final dio = createDio();
+                      // Instantly push to your C# API!
+                      await dio.post('/ProductComments/Add', queryParameters: {
+                        'companyId': companyId
+                      }, data: {
+                        'productId': productId,
+                        'comment': _newCommentCtrl.text.trim()
+                      });
+                      _newCommentCtrl.clear();
+                      // Tell Riverpod to instantly refresh the list below!
+                      ref.invalidate(productCommentsProvider(productId));
+                    } catch (e) {
+                      if (mounted)
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text(_parseApiError(e)),
+                            backgroundColor: Colors.red));
+                    }
+                  })
+            ],
+          ),
+
+          const SizedBox(height: 32),
+
+          // LIST OF COMMENTS
+          Expanded(
+            child: asyncComments.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (e, _) => Center(
+                    child: Text("Error: ${_parseApiError(e)}",
+                        style: const TextStyle(color: Colors.red))),
+                data: (comments) {
+                  if (comments.isEmpty)
+                    return const Center(
+                        child: Text("No comments added yet.",
+                            style:
+                                TextStyle(color: Colors.grey, fontSize: 16)));
+
+                  return Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[300]!),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: ListView.separated(
+                      itemCount: comments.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final c = comments[index];
+                        return ListTile(
+                          leading:
+                              const Icon(Icons.comment, color: Colors.blueGrey),
+                          title: Text(c.comment,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold)),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete,
+                                color: Colors.redAccent),
+                            tooltip: "Delete Comment",
+                            onPressed: () async {
+                              if (companyId == null) return;
+                              try {
+                                final dio = createDio();
+                                // Instantly delete from C# API!
+                                await dio.delete('/ProductComments/Delete',
+                                    queryParameters: {
+                                      'id': c.id,
+                                      'companyId': companyId
+                                    });
+                                ref.invalidate(
+                                    productCommentsProvider(productId));
+                              } catch (e) {
+                                if (mounted)
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                          content: Text(_parseApiError(e)),
+                                          backgroundColor: Colors.red));
+                              }
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                }),
+          )
         ],
       ),
     );
