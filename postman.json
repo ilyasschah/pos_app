@@ -1,8 +1,8 @@
 {
   "info": {
-    "name": "POS - Product Taxes",
-    "_postman_id": "a1b2c3d4-e5f6-7890-1234-producttaxes5678",
-    "description": "Endpoints for managing the Many-to-Many junction table between Products and Taxes.",
+    "name": "POS - Product Comments",
+    "_postman_id": "e4f5g6h7-i8j9-0123-4567-productcomments890",
+    "description": "Endpoints for managing Product Comments.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -14,45 +14,39 @@
   ],
   "item": [
     {
-      "name": "Get All Product Taxes",
+      "name": "Get All Comments",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/ProductTaxes/GetAll?companyId=2",
+          "raw": "{{baseUrl}}/api/ProductComments/GetAll",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "ProductTaxes",
+            "ProductComments",
             "GetAll"
-          ],
-          "query": [
-            {
-              "key": "companyId",
-              "value": "2"
-            }
           ]
         }
       }
     },
     {
-      "name": "Get Taxes By Product ID",
+      "name": "Get Comment By Id",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/ProductTaxes/GetByProductId?productId=1&companyId=2",
+          "raw": "{{baseUrl}}/api/ProductComments/GetById?id=1&companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "ProductTaxes",
-            "GetByProductId"
+            "ProductComments",
+            "GetById"
           ],
           "query": [
             {
-              "key": "productId",
+              "key": "id",
               "value": "1"
             },
             {
@@ -64,23 +58,23 @@
       }
     },
     {
-      "name": "Get Products By Tax ID",
+      "name": "Get Comments By Product Id (2021)",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/ProductTaxes/GetByTaxId?taxId=7&companyId=2",
+          "raw": "{{baseUrl}}/api/ProductComments/GetByProductId?productId=2021&companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "ProductTaxes",
-            "GetByTaxId"
+            "ProductComments",
+            "GetByProductId"
           ],
           "query": [
             {
-              "key": "taxId",
-              "value": "7"
+              "key": "productId",
+              "value": "2021"
             },
             {
               "key": "companyId",
@@ -91,7 +85,7 @@
       }
     },
     {
-      "name": "Link Tax to Product (Add)",
+      "name": "Add Product Comment",
       "request": {
         "method": "POST",
         "header": [
@@ -102,16 +96,16 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"productId\": 1,\n  \"taxId\": 7\n}"
+          "raw": "{\n  \"productId\": 2021,\n  \"comment\": \"Contains nuts. Allergy warning.\"\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/api/ProductTaxes/Add?companyId=2",
+          "raw": "{{baseUrl}}/api/ProductComments/Add?companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "ProductTaxes",
+            "ProductComments",
             "Add"
           ],
           "query": [
@@ -124,27 +118,56 @@
       }
     },
     {
-      "name": "Unlink Tax from Product (Delete)",
+      "name": "Update Product Comment",
       "request": {
-        "method": "DELETE",
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"id\": 1,\n  \"productId\": 2021,\n  \"comment\": \"Contains peanuts and tree nuts. Severe allergy warning.\"\n}"
+        },
         "url": {
-          "raw": "{{baseUrl}}/api/ProductTaxes/Delete?productId=1&taxId=7&companyId=2",
+          "raw": "{{baseUrl}}/api/ProductComments/Update?companyId=2",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "ProductTaxes",
+            "ProductComments",
+            "Update"
+          ],
+          "query": [
+            {
+              "key": "companyId",
+              "value": "2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Delete Product Comment",
+      "request": {
+        "method": "DELETE",
+        "url": {
+          "raw": "{{baseUrl}}/api/ProductComments/Delete?id=1&companyId=2",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "ProductComments",
             "Delete"
           ],
           "query": [
             {
-              "key": "productId",
+              "key": "id",
               "value": "1"
-            },
-            {
-              "key": "taxId",
-              "value": "7"
             },
             {
               "key": "companyId",

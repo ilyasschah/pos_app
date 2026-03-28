@@ -1,0 +1,4 @@
+$kind: collection
+description: Endpoints for managing Product Comments.
+variables:
+  baseUrl: https://localhost:7002
