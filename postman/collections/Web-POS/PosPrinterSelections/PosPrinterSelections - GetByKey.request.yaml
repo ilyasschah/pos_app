@@ -1,4 +1,0 @@
-$kind: http-request
-url: localhost:7006/api/PosPrinterSelections/GetByKey/{key}
-method: GET
-order: 3000

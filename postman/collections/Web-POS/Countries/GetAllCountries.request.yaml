@@ -1,4 +1,0 @@
-$kind: http-request
-url: "{{SalesURL}}/api/Country/GetAllCountries"
-method: GET
-order: 1000

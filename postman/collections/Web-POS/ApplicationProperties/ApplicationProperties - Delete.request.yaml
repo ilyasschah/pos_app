@@ -1,4 +1,0 @@
-$kind: http-request
-url: localhost:7006/api/ApplicationProperties/Delete/{name}
-method: DELETE
-order: 5000

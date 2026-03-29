@@ -1,4 +1,0 @@
-$kind: http-request
-url: localhost:7006/api/Promotions/Delete/{id}
-method: DELETE
-order: 6000

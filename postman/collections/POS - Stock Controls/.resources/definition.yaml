@@ -1,0 +1,4 @@
+$kind: collection
+description: Endpoints for managing Stock Control rules per product.
+variables:
+  baseUrl: https://localhost:7002

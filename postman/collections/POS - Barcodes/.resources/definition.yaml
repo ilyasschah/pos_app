@@ -1,0 +1,5 @@
+$kind: collection
+description: Endpoints for managing multiple barcodes per product.
+variables:
+  baseUrl: https://localhost:7002
+  companyId: "2"

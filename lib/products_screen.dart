@@ -12,6 +12,11 @@ import 'product_provider.dart';
 import 'tax_provider.dart';
 import 'product_comment_model.dart';
 import 'product_comment_provider.dart';
+import 'customer_provider.dart';
+import 'stock_control_model.dart';
+import 'stock_control_provider.dart';
+import 'barcode_model.dart';
+import 'barcode_provider.dart';
 
 // --- HELPER ---
 String _parseApiError(dynamic e) {
@@ -413,12 +418,14 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   final _ageRestrictionCtrl = TextEditingController();
   final _descriptionCtrl = TextEditingController();
   final _newCommentCtrl = TextEditingController();
+  final _newBarcodeCtrl = TextEditingController();
   // Toggles
   bool _isTaxInclusive = true;
   bool _isService = false;
   bool _isPriceChangeAllowed = false;
   bool _isUsingDefaultQuantity = true;
   bool _isEnabled = true;
+  bool _isBarcodeChipActive = false;
 
   // State
   int? _selectedGroupId;
@@ -520,6 +527,8 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
     _ageRestrictionCtrl.dispose();
     _descriptionCtrl.dispose();
     _newCommentCtrl.dispose();
+    _newBarcodeCtrl.dispose();
+
     super.dispose();
   }
 
@@ -710,13 +719,9 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
       ]);
       dialogTabViews.addAll([
         _buildTaxesTab(),
+        _buildStockControlTab(),
+        _buildBarcodesTab(),
         _buildCommentsTab(),
-        const Center(
-            child: Text("Coming in Phase 2...",
-                style: TextStyle(color: Colors.grey))),
-        const Center(
-            child: Text("Coming in Phase 2...",
-                style: TextStyle(color: Colors.grey))),
       ]);
     }
 
@@ -947,12 +952,6 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                           value: _isPriceChangeAllowed,
                           onChanged: (v) =>
                               setState(() => _isPriceChangeAllowed = v),
-                          visualDensity: VisualDensity.compact),
-                      SwitchListTile(
-                          title: const Text("Is Using Default Quantity"),
-                          value: _isUsingDefaultQuantity,
-                          onChanged: (v) =>
-                              setState(() => _isUsingDefaultQuantity = v),
                           visualDensity: VisualDensity.compact),
                       SwitchListTile(
                           title: const Text("Is Enabled (Visible)"),
@@ -1226,5 +1225,474 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
         ],
       ),
     );
+  }
+
+  Widget _buildBarcodesTab() {
+    if (widget.existingProduct == null) return const SizedBox();
+
+    final productId = widget.existingProduct!.id;
+    final asyncBarcodes = ref.watch(barcodesByProductIdProvider(productId));
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+
+    return Padding(
+      padding: const EdgeInsets.all(32.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Product Barcodes",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text(
+              "Assign multiple barcodes (e.g., individual item, box, or pallet).",
+              style: TextStyle(color: Colors.grey)),
+          const SizedBox(height: 24),
+
+          // INPUT ROW WITH GENERATOR
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: _newBarcodeCtrl,
+                      readOnly:
+                          _isBarcodeChipActive, // Prevents keyboard popping up when chip is active
+                      onSubmitted: (val) {
+                        // Bonus: If they manually type a barcode and hit enter, it also turns into a chip!
+                        if (val.trim().isNotEmpty) {
+                          setState(() => _isBarcodeChipActive = true);
+                        }
+                      },
+                      decoration: InputDecoration(
+                        labelText: "Barcode",
+                        hintText:
+                            _isBarcodeChipActive ? "" : "Scan or enter barcode",
+                        border: const OutlineInputBorder(),
+                        prefixIcon: const Icon(Icons.qr_code_scanner),
+                        prefix: _isBarcodeChipActive
+                            ? Padding(
+                                padding: const EdgeInsets.only(right: 8.0),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(
+                                        0xFFD81B60), // The pink color from your image!
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        _newBarcodeCtrl.text,
+                                        style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      InkWell(
+                                        onTap: () {
+                                          setState(() {
+                                            _newBarcodeCtrl.clear();
+                                            _isBarcodeChipActive = false;
+                                          });
+                                        },
+                                        child: const Icon(Icons.close,
+                                            color: Colors.white, size: 16),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            : null,
+                      ),
+                      style: TextStyle(
+                        color: _isBarcodeChipActive
+                            ? Colors.transparent
+                            : Colors.black,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(50, 30),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () {
+                        setState(() {
+                          _newBarcodeCtrl.text =
+                              DateTime.now().millisecondsSinceEpoch.toString();
+                          _isBarcodeChipActive = true;
+                        });
+                      },
+                      child: const Text("Generate barcode",
+                          style: TextStyle(color: Colors.lightBlue)),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              ElevatedButton.icon(
+                  icon: const Icon(Icons.add),
+                  label: const Text("Add"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.indigo,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 20),
+                  ),
+                  onPressed: () async {
+                    if (_newBarcodeCtrl.text.trim().isEmpty ||
+                        companyId == null) return;
+
+                    try {
+                      final dio = createDio();
+                      await dio.post('/Barcodes/Add', queryParameters: {
+                        'companyId': companyId
+                      }, data: {
+                        'productId': productId,
+                        'value': _newBarcodeCtrl.text.trim()
+                      });
+
+                      setState(() {
+                        _newBarcodeCtrl.clear();
+                        _isBarcodeChipActive = false;
+                      });
+
+                      ref.invalidate(barcodesByProductIdProvider(productId));
+                    } catch (e) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text(_parseApiError(e)),
+                            backgroundColor: Colors.red));
+                      }
+                    }
+                  })
+            ],
+          ),
+
+          const SizedBox(height: 16),
+
+          Expanded(
+            child: asyncBarcodes.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (e, _) => Center(
+                    child: Text("Error: ${_parseApiError(e)}",
+                        style: const TextStyle(color: Colors.red))),
+                data: (barcodes) {
+                  if (barcodes.isEmpty)
+                    return const Center(
+                        child: Text("No barcodes assigned yet.",
+                            style:
+                                TextStyle(color: Colors.grey, fontSize: 16)));
+
+                  return Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[300]!),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: ListView.separated(
+                      itemCount: barcodes.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final b = barcodes[index];
+                        return ListTile(
+                          leading:
+                              const Icon(Icons.qr_code, color: Colors.blueGrey),
+                          title: Text(b.value,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 1.5)),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete,
+                                color: Colors.redAccent),
+                            tooltip: "Delete Barcode",
+                            onPressed: () async {
+                              if (companyId == null) return;
+                              try {
+                                final dio = createDio();
+                                await dio.delete('/Barcodes/Delete',
+                                    queryParameters: {
+                                      'id': b.id,
+                                      'companyId': companyId
+                                    });
+                                ref.invalidate(
+                                    barcodesByProductIdProvider(productId));
+                              } catch (e) {
+                                if (mounted)
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                          content: Text(_parseApiError(e)),
+                                          backgroundColor: Colors.red));
+                              }
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                }),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStockControlTab() {
+    if (widget.existingProduct == null) return const SizedBox();
+    final productId = widget.existingProduct!.id;
+
+    return Padding(
+      padding: const EdgeInsets.all(32.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("General Stock Settings",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey[300]!),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: SwitchListTile(
+              title: const Text("Track Inventory (Is Using Default Quantity)"),
+              subtitle: const Text(
+                  "Enable this to allow standard stock tracking for this product."),
+              value: _isUsingDefaultQuantity,
+              onChanged: (v) => setState(() => _isUsingDefaultQuantity = v),
+            ),
+          ),
+          const SizedBox(height: 32),
+          const Text("Advanced Stock Rules",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text(
+              "Configure reorder points, low stock warnings, and preferred suppliers.",
+              style: TextStyle(color: Colors.grey)),
+          const SizedBox(height: 16),
+          Expanded(
+            child: _StockControlRulesEditor(productId: productId),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StockControlRulesEditor extends ConsumerStatefulWidget {
+  final int productId;
+  const _StockControlRulesEditor({required this.productId});
+
+  @override
+  ConsumerState<_StockControlRulesEditor> createState() =>
+      _StockControlRulesEditorState();
+}
+
+class _StockControlRulesEditorState
+    extends ConsumerState<_StockControlRulesEditor> {
+  final _formKey = GlobalKey<FormState>();
+  bool _isInitialized = false;
+  int? _existingId;
+  int? _selectedSupplierId;
+
+  late final TextEditingController _reorderPointCtrl;
+  late final TextEditingController _preferredQtyCtrl;
+  late final TextEditingController _lowStockWarningQtyCtrl;
+
+  bool _isWarningEnabled = true;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _reorderPointCtrl = TextEditingController(text: '0');
+    _preferredQtyCtrl = TextEditingController(text: '0');
+    _lowStockWarningQtyCtrl = TextEditingController(text: '0');
+  }
+
+  @override
+  void dispose() {
+    _reorderPointCtrl.dispose();
+    _preferredQtyCtrl.dispose();
+    _lowStockWarningQtyCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveRules(int companyId) async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final dio = createDio();
+      final payload = {
+        'reorderPoint': double.tryParse(_reorderPointCtrl.text) ?? 0,
+        'preferredQuantity': double.tryParse(_preferredQtyCtrl.text) ?? 0,
+        'lowStockWarningQuantity':
+            double.tryParse(_lowStockWarningQtyCtrl.text) ?? 0,
+        'isLowStockWarningEnabled': _isWarningEnabled,
+        'customerId':
+            _selectedSupplierId, // Will automatically send null if unselected!
+      };
+
+      if (_existingId != null) {
+        payload['id'] = _existingId;
+        await dio.patch('/StockControls/Update',
+            queryParameters: {'companyId': companyId}, data: payload);
+      } else {
+        payload['productId'] = widget.productId;
+        await dio.post('/StockControls/Add',
+            queryParameters: {'companyId': companyId}, data: payload);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("Stock rules saved successfully!"),
+            backgroundColor: Colors.green));
+        ref.invalidate(stockControlByProductIdProvider(widget.productId));
+      }
+    } catch (e) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(_parseApiError(e)), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final companyId = ref.watch(selectedCompanyProvider)?.id;
+    final asyncRules =
+        ref.watch(stockControlByProductIdProvider(widget.productId));
+    final asyncSuppliers = ref.watch(allCustomersProvider);
+
+    return asyncRules.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(
+            child: Text("Error: ${_parseApiError(e)}",
+                style: const TextStyle(color: Colors.red))),
+        data: (rules) {
+          // Populate controllers once when data arrives
+          if (!_isInitialized) {
+            if (rules != null) {
+              _existingId = rules.id;
+              _selectedSupplierId = rules.customerId;
+              _reorderPointCtrl.text = rules.reorderPoint.toString();
+              _preferredQtyCtrl.text = rules.preferredQuantity.toString();
+              _lowStockWarningQtyCtrl.text =
+                  rules.lowStockWarningQuantity.toString();
+              _isWarningEnabled = rules.isLowStockWarningEnabled;
+            }
+            _isInitialized = true;
+          }
+
+          return Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey[300]!),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _reorderPointCtrl,
+                          decoration: const InputDecoration(
+                              labelText: "Reorder Point",
+                              border: OutlineInputBorder()),
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: TextFormField(
+                          controller: _preferredQtyCtrl,
+                          decoration: const InputDecoration(
+                              labelText: "Preferred Order Qty",
+                              border: OutlineInputBorder()),
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Supplier Dropdown
+                  asyncSuppliers.when(
+                      loading: () => const LinearProgressIndicator(),
+                      error: (_, __) => const Text("Error loading suppliers"),
+                      data: (customers) {
+                        final suppliers =
+                            customers.where((c) => c.isSupplier).toList();
+                        // Prevent dropdown crash if saved supplier ID was deleted
+                        final isValid = _selectedSupplierId == null ||
+                            suppliers.any((s) => s.id == _selectedSupplierId);
+
+                        return DropdownButtonFormField<int?>(
+                          value: isValid ? _selectedSupplierId : null,
+                          decoration: const InputDecoration(
+                              labelText: "Preferred Supplier",
+                              border: OutlineInputBorder()),
+                          items: [
+                            const DropdownMenuItem(
+                                value: null, child: Text("None")),
+                            ...suppliers.map((s) => DropdownMenuItem(
+                                value: s.id, child: Text(s.name))),
+                          ],
+                          onChanged: (v) =>
+                              setState(() => _selectedSupplierId = v),
+                        );
+                      }),
+
+                  const SizedBox(height: 16),
+                  Container(
+                    decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey[300]!),
+                        borderRadius: BorderRadius.circular(8)),
+                    child: SwitchListTile(
+                      title: const Text("Low Stock Warning Enabled"),
+                      value: _isWarningEnabled,
+                      onChanged: (v) => setState(() => _isWarningEnabled = v),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (_isWarningEnabled)
+                    TextFormField(
+                      controller: _lowStockWarningQtyCtrl,
+                      decoration: const InputDecoration(
+                          labelText: "Warning Threshold Qty",
+                          border: OutlineInputBorder()),
+                      keyboardType: TextInputType.number,
+                    ),
+
+                  const Spacer(),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: _isLoading
+                        ? const CircularProgressIndicator()
+                        : ElevatedButton.icon(
+                            icon: const Icon(Icons.save),
+                            label: const Text("Save Stock Rules"),
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.indigo,
+                                foregroundColor: Colors.white),
+                            onPressed: () {
+                              if (companyId != null) _saveRules(companyId);
+                            },
+                          ),
+                  )
+                ],
+              ),
+            ),
+          );
+        });
   }
 }

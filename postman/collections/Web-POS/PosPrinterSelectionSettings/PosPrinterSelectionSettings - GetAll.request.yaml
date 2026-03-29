@@ -1,4 +1,0 @@
-$kind: http-request
-url: localhost:7006/api/PosPrinterSelectionSettings/GetAll
-method: GET
-order: 1000

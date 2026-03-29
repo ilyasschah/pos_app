@@ -1,4 +1,0 @@
-$kind: http-request
-url: "{{ProductsURL}}/api/Warehouses/GetAllWarehouses"
-method: GET
-order: 2000

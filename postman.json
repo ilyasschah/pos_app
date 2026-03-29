@@ -1,8 +1,8 @@
 {
   "info": {
-    "name": "POS - Product Comments",
-    "_postman_id": "e4f5g6h7-i8j9-0123-4567-productcomments890",
-    "description": "Endpoints for managing Product Comments.",
+    "name": "POS - Barcodes",
+    "_postman_id": "b2c3d4e5-f6a7-8901-2345-barcodes678",
+    "description": "Endpoints for managing multiple barcodes per product.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -10,82 +10,90 @@
       "key": "baseUrl",
       "value": "https://localhost:7002",
       "type": "string"
+    },
+    {
+      "key": "companyId",
+      "value": "2",
+      "type": "string"
     }
   ],
   "item": [
     {
-      "name": "Get All Comments",
+      "name": "Get All Barcodes",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/ProductComments/GetAll",
+          "raw": "{{baseUrl}}/api/Barcodes/GetAllBarCodeProductName?companyId={{companyId}}",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "ProductComments",
-            "GetAll"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Get Comment By Id",
-      "request": {
-        "method": "GET",
-        "url": {
-          "raw": "{{baseUrl}}/api/ProductComments/GetById?id=1&companyId=2",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "ProductComments",
-            "GetById"
+            "Barcodes",
+            "GetAllBarCodeProductName"
           ],
           "query": [
             {
-              "key": "id",
-              "value": "1"
-            },
-            {
               "key": "companyId",
-              "value": "2"
+              "value": "{{companyId}}"
             }
           ]
         }
       }
     },
     {
-      "name": "Get Comments By Product Id (2021)",
+      "name": "Get Barcode By Id",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/ProductComments/GetByProductId?productId=2021&companyId=2",
+          "raw": "{{baseUrl}}/api/Barcodes/GetById/1?companyId={{companyId}}",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "ProductComments",
+            "Barcodes",
+            "GetById",
+            "1"
+          ],
+          "query": [
+            {
+              "key": "companyId",
+              "value": "{{companyId}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Barcodes By Product Id",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/Barcodes/GetByProductId?productId=14&companyId={{companyId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Barcodes",
             "GetByProductId"
           ],
           "query": [
             {
               "key": "productId",
-              "value": "2021"
+              "value": "14"
             },
             {
               "key": "companyId",
-              "value": "2"
+              "value": "{{companyId}}"
             }
           ]
         }
       }
     },
     {
-      "name": "Add Product Comment",
+      "name": "Add Barcode",
       "request": {
         "method": "POST",
         "header": [
@@ -96,31 +104,31 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"productId\": 2021,\n  \"comment\": \"Contains nuts. Allergy warning.\"\n}"
+          "raw": "{\n  \"productId\": 14,\n  \"value\": \"890123456789\"\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/api/ProductComments/Add?companyId=2",
+          "raw": "{{baseUrl}}/api/Barcodes/Add?companyId={{companyId}}",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "ProductComments",
+            "Barcodes",
             "Add"
           ],
           "query": [
             {
               "key": "companyId",
-              "value": "2"
+              "value": "{{companyId}}"
             }
           ]
         }
       }
     },
     {
-      "name": "Update Product Comment",
+      "name": "Update Barcode (PATCH)",
       "request": {
-        "method": "PUT",
+        "method": "PATCH",
         "header": [
           {
             "key": "Content-Type",
@@ -129,39 +137,39 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"id\": 1,\n  \"productId\": 2021,\n  \"comment\": \"Contains peanuts and tree nuts. Severe allergy warning.\"\n}"
+          "raw": "{\n  \"id\": 1,\n  \"value\": \"987654321098\"\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/api/ProductComments/Update?companyId=2",
+          "raw": "{{baseUrl}}/api/Barcodes/Update?companyId={{companyId}}",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "ProductComments",
+            "Barcodes",
             "Update"
           ],
           "query": [
             {
               "key": "companyId",
-              "value": "2"
+              "value": "{{companyId}}"
             }
           ]
         }
       }
     },
     {
-      "name": "Delete Product Comment",
+      "name": "Delete Barcode",
       "request": {
         "method": "DELETE",
         "url": {
-          "raw": "{{baseUrl}}/api/ProductComments/Delete?id=1&companyId=2",
+          "raw": "{{baseUrl}}/api/Barcodes/Delete?id=1&companyId={{companyId}}",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "ProductComments",
+            "Barcodes",
             "Delete"
           ],
           "query": [
@@ -171,7 +179,7 @@
             },
             {
               "key": "companyId",
-              "value": "2"
+              "value": "{{companyId}}"
             }
           ]
         }

@@ -1,4 +1,0 @@
-$kind: http-request
-url: https://localhost:7002/api/Currencies/GetAll
-method: GET
-order: 1000

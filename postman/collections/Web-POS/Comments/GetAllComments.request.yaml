@@ -1,4 +1,0 @@
-$kind: http-request
-url: "{{url}}/api/ProductComments/GetAllProductComments"
-method: GET
-order: 1000

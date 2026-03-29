@@ -1,4 +1,0 @@
-$kind: http-request
-url: "{{ApplicationURL}}/api/Migrations/GetAll"
-method: GET
-order: 1000

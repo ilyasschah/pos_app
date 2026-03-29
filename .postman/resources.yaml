@@ -12,7 +12,6 @@ cloudResources:
     ..\postman\collections\Warehouses API - SAFE IMPORT: 41814350-1bb971e1-1600-44ff-81be-18678404f3b6
     ..\postman\collections\Document Types API: 41814350-27b61632-566e-43a2-bfd8-74ddba9bed8a
     ..\postman\collections\Document Categories API: 41814350-2b823257-246b-4c7b-b768-86945f924046
-    ..\postman\collections\Web-POS: 41814350-493bd3e7-8f35-4457-8a0d-479fbf224a6f
     ..\postman\collections\POS - ProductGroups Controller: 41814350-635a91c6-7656-4bfe-9f56-3bb83819a3c1
     ..\postman\collections\POS - DocumentItems Controller: 41814350-6ec9300b-4500-45f2-ae6a-727a043fa5ae
     ..\postman\collections\Taxes API - SAFE IMPORT: 41814350-7d41b7f8-0e6b-448e-a656-934273866882
@@ -23,7 +22,10 @@ cloudResources:
     ..\postman\collections\Documents: 41814350-fe9212ba-c021-4022-9515-da26fc9f004c
     ..\postman\collections\POS - Currencies Controller: 41814350-6089cac7-3d47-43a0-8fae-aabe49157e21
     ..\postman\collections\POS - Products Controller: 41814350-29c0ea0b-0ede-487e-989a-4cc86023472f
-    ..\postman\collections\POS - Product Taxes: 0a91807b-b1cd-4f89-94a9-bf37a4f27e27
-    ..\postman\collections\POS - Product Comments: 1cead12c-b0cf-475d-b8f4-5fce568c8a26
+    ..\postman\collections\POS - Stock Controls: 41814350-ab542113-a189-48f0-b0ee-532d063156e1
+    ..\postman\collections\POS - Product Taxes: 41814350-f712a588-c7c2-4b20-838a-2a79c707e4b7
+    ..\postman\collections\POS - Barcodes: 41814350-1da14cf3-a1a4-440d-a8c2-c572bb1dc0fd
+    ..\postman\collections\POS - Product Comments: 41814350-5f8f46a1-abbb-472b-ab13-f86101c2c9fc
   environments:
     ..\postman\environments\Web-Pos.environment.yaml: 41814350-0c4499b8-6c5d-4ff3-9473-2794f7e0dc56
+    ..\postman\environments\New Environment.environment.yaml: 0ff322dd-64bf-472c-93d0-3e882d21cd5f

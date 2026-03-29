@@ -1,4 +1,0 @@
-$kind: http-request
-url: localhost:7006/api/PosPrinterSettings/Update/{id}
-method: PUT
-order: 5000

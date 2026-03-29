@@ -1,7 +1,0 @@
-$kind: http-request
-url: "{{ProductsURL}}}/api/Warehouses/AddWarehouse"
-method: POST
-body:
-  type: json
-  content: "{\r\n  \"name\": \"anasi\"\r\n}"
-order: 1000

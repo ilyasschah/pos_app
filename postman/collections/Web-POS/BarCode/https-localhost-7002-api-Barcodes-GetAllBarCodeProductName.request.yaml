@@ -1,9 +1,0 @@
-$kind: http-request
-name: https://localhost:7002/api/Barcodes/GetAllBarCodeProductName
-url: https://localhost:7002/api/Barcodes/GetAllBarCodeProductName?companyId=2
-method: GET
-queryParams:
-  companyId: "2"
-auth:
-  type: noauth
-order: 4000

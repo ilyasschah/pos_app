@@ -1,6 +1,0 @@
-$kind: http-request
-url: https://localhost:7002/api/ProductGroups/GetByName/:name
-method: GET
-pathVariables:
-  name: ""
-order: 3000
