@@ -4,21 +4,7 @@ import 'package:dio/dio.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'payment_type_model.dart';
-
-// --- PROVIDER ---
-final allPaymentTypesProvider =
-    FutureProvider<List<PaymentType>>((ref) async {
-  final company = ref.watch(selectedCompanyProvider);
-  if (company == null) return [];
-  final dio = createDio();
-  final response = await dio.get(
-    '/PaymentTypes/GetAll',
-    queryParameters: {'companyId': company.id},
-  );
-  return (response.data as List)
-      .map((j) => PaymentType.fromJson(j))
-      .toList();
-});
+import 'payment_type_provider.dart';
 
 // --- SCREEN ---
 class PaymentTypesScreen extends ConsumerWidget {
@@ -56,8 +42,7 @@ class PaymentTypesScreen extends ConsumerWidget {
       ),
       body: asyncTypes.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) =>
-            Center(child: Text("Error loading payment types: $e")),
+        error: (e, _) => Center(child: Text("Error loading payment types: $e")),
         data: (types) {
           if (company == null) {
             return const Center(child: Text("No company selected."));
@@ -70,8 +55,7 @@ class PaymentTypesScreen extends ConsumerWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text("No payment types found.",
-                      style:
-                          TextStyle(color: Colors.grey, fontSize: 16)),
+                      style: TextStyle(color: Colors.grey, fontSize: 16)),
                   const SizedBox(height: 12),
                   ElevatedButton.icon(
                     icon: const Icon(Icons.add),
@@ -94,14 +78,11 @@ class PaymentTypesScreen extends ConsumerWidget {
             scrollDirection: Axis.horizontal,
             child: SingleChildScrollView(
               child: DataTable(
-                headingRowColor: WidgetStateProperty.all(
-                    Colors.blueGrey[50]),
+                headingRowColor: WidgetStateProperty.all(Colors.blueGrey[50]),
                 columns: const [
                   DataColumn(label: Text("Name")),
                   DataColumn(label: Text("Code")),
-                  DataColumn(
-                      label: Text("Position"),
-                      numeric: true),
+                  DataColumn(label: Text("Position"), numeric: true),
                   DataColumn(label: Text("Enabled")),
                   DataColumn(label: Text("Quick Pay")),
                   DataColumn(label: Text("Customer Req.")),
@@ -155,8 +136,8 @@ class PaymentTypesScreen extends ConsumerWidget {
                                 context: context,
                                 builder: (ctx) => AlertDialog(
                                   title: const Text("Delete"),
-                                  content: Text(
-                                      "Delete payment type '${t.name}'?"),
+                                  content:
+                                      Text("Delete payment type '${t.name}'?"),
                                   actions: [
                                     TextButton(
                                       onPressed: () =>
@@ -169,15 +150,14 @@ class PaymentTypesScreen extends ConsumerWidget {
                                       onPressed: () =>
                                           Navigator.of(ctx).pop(true),
                                       child: const Text("Delete",
-                                          style: TextStyle(
-                                              color: Colors.white)),
+                                          style:
+                                              TextStyle(color: Colors.white)),
                                     ),
                                   ],
                                 ),
                               );
                               if (confirm == true && context.mounted) {
-                                await _delete(
-                                    context, ref, t.id, companyId);
+                                await _delete(context, ref, t.id, companyId);
                               }
                             },
                           ),
@@ -194,8 +174,8 @@ class PaymentTypesScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _delete(BuildContext context, WidgetRef ref, int id,
-      int companyId) async {
+  Future<void> _delete(
+      BuildContext context, WidgetRef ref, int id, int companyId) async {
     try {
       final dio = createDio();
       // DELETE sends id as raw integer body, companyId as query param
@@ -278,8 +258,7 @@ class _PaymentTypeFormDialogState
     final p = widget.paymentType;
     _nameCtrl = TextEditingController(text: p?.name ?? '');
     _codeCtrl = TextEditingController(text: p?.code ?? '');
-    _ordinalCtrl =
-        TextEditingController(text: p?.ordinal.toString() ?? '0');
+    _ordinalCtrl = TextEditingController(text: p?.ordinal.toString() ?? '0');
     _shortcutCtrl = TextEditingController(text: p?.shortcutKey ?? '');
     _isEnabled = p?.isEnabled ?? true;
     _isQuickPayment = p?.isQuickPayment ?? false;
@@ -342,8 +321,7 @@ class _PaymentTypeFormDialogState
       Navigator.of(context).pop();
     } on DioException catch (e) {
       setState(() {
-        _errorMessage =
-            e.response?.data?.toString() ?? "Operation failed.";
+        _errorMessage = e.response?.data?.toString() ?? "Operation failed.";
         _isLoading = false;
       });
     }
@@ -352,8 +330,7 @@ class _PaymentTypeFormDialogState
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title:
-          Text(_isEditing ? "Edit Payment Type" : "New Payment Type"),
+      title: Text(_isEditing ? "Edit Payment Type" : "New Payment Type"),
       content: SizedBox(
         width: 440,
         child: Form(
@@ -369,19 +346,16 @@ class _PaymentTypeFormDialogState
                       flex: 2,
                       child: TextFormField(
                         controller: _nameCtrl,
-                        decoration:
-                            const InputDecoration(labelText: "Name *"),
-                        validator: (v) => v == null || v.trim().isEmpty
-                            ? "Required"
-                            : null,
+                        decoration: const InputDecoration(labelText: "Name *"),
+                        validator: (v) =>
+                            v == null || v.trim().isEmpty ? "Required" : null,
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: TextFormField(
                         controller: _codeCtrl,
-                        decoration:
-                            const InputDecoration(labelText: "Code"),
+                        decoration: const InputDecoration(labelText: "Code"),
                       ),
                     ),
                   ],
@@ -394,8 +368,8 @@ class _PaymentTypeFormDialogState
                     Expanded(
                       child: TextFormField(
                         controller: _ordinalCtrl,
-                        decoration: const InputDecoration(
-                            labelText: "Position"),
+                        decoration:
+                            const InputDecoration(labelText: "Position"),
                         keyboardType: TextInputType.number,
                       ),
                     ),
@@ -403,8 +377,8 @@ class _PaymentTypeFormDialogState
                     Expanded(
                       child: TextFormField(
                         controller: _shortcutCtrl,
-                        decoration: const InputDecoration(
-                            labelText: "Shortcut Key"),
+                        decoration:
+                            const InputDecoration(labelText: "Shortcut Key"),
                       ),
                     ),
                   ],
@@ -424,16 +398,15 @@ class _PaymentTypeFormDialogState
                     (v) => setState(() => _markAsPaid = v)),
                 _switchRow("Open Cash Drawer", _openCashDrawer,
                     (v) => setState(() => _openCashDrawer = v)),
-                _switchRow("Fiscal", _isFiscal,
-                    (v) => setState(() => _isFiscal = v)),
+                _switchRow(
+                    "Fiscal", _isFiscal, (v) => setState(() => _isFiscal = v)),
                 _switchRow("Slip Required", _isSlipRequired,
                     (v) => setState(() => _isSlipRequired = v)),
 
                 if (_errorMessage != null) ...[
                   const SizedBox(height: 12),
                   Text(_errorMessage!,
-                      style: const TextStyle(
-                          color: Colors.red, fontSize: 13)),
+                      style: const TextStyle(color: Colors.red, fontSize: 13)),
                 ],
               ],
             ),
@@ -459,8 +432,7 @@ class _PaymentTypeFormDialogState
     );
   }
 
-  Widget _switchRow(
-      String label, bool value, ValueChanged<bool> onChanged) {
+  Widget _switchRow(String label, bool value, ValueChanged<bool> onChanged) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(

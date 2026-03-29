@@ -1,8 +1,8 @@
 {
   "info": {
-    "name": "POS - Document Item Expiration Dates",
-    "_postman_id": "d4e5f6g7-b8c9-0123-4567-docexpiration890",
-    "description": "Endpoints for managing expiration dates applied to specific document items.",
+    "name": "POS - Payments",
+    "_postman_id": "e5f6g7h8-c9d0-1234-5678-payments9012",
+    "description": "Endpoints for managing payments applied to documents. Includes queries for Z-Report logic.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -13,28 +13,28 @@
     },
     {
       "key": "companyId",
-      "value": "2",
+      "value": "1",
       "type": "string"
     }
   ],
   "item": [
     {
-      "name": "Get Expiration Date By Document Item Id",
+      "name": "Get Payment By Id",
       "request": {
         "method": "GET",
         "url": {
-          "raw": "{{baseUrl}}/api/DocumentItemExpirationDates/Get?documentItemId=1&companyId={{companyId}}",
+          "raw": "{{baseUrl}}/api/Payments/GetById?id=1&companyId={{companyId}}",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "DocumentItemExpirationDates",
-            "Get"
+            "Payments",
+            "GetById"
           ],
           "query": [
             {
-              "key": "documentItemId",
+              "key": "id",
               "value": "1"
             },
             {
@@ -46,7 +46,57 @@
       }
     },
     {
-      "name": "Add Expiration Date",
+      "name": "Get Payments By Document Id",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/Payments/GetByDocumentId?documentId=1&companyId={{companyId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Payments",
+            "GetByDocumentId"
+          ],
+          "query": [
+            {
+              "key": "documentId",
+              "value": "1"
+            },
+            {
+              "key": "companyId",
+              "value": "{{companyId}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Unreported Payments (For Z-Report)",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/Payments/GetUnreported?companyId={{companyId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "Payments",
+            "GetUnreported"
+          ],
+          "query": [
+            {
+              "key": "companyId",
+              "value": "{{companyId}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Add Payment",
       "request": {
         "method": "POST",
         "header": [
@@ -57,16 +107,16 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"documentItemId\": 1,\n  \"expirationDate\": \"2025-12-31T00:00:00\"\n}"
+          "raw": "{\n  \"documentId\": 1,\n  \"paymentTypeId\": 1,\n  \"amount\": 14.00,\n  \"userId\": 1\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/api/DocumentItemExpirationDates/Add?companyId={{companyId}}",
+          "raw": "{{baseUrl}}/api/Payments/Add?companyId={{companyId}}",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "DocumentItemExpirationDates",
+            "Payments",
             "Add"
           ],
           "query": [
@@ -79,7 +129,7 @@
       }
     },
     {
-      "name": "Update Expiration Date (PATCH)",
+      "name": "Update Payment (PATCH)",
       "request": {
         "method": "PATCH",
         "header": [
@@ -90,16 +140,16 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"documentItemId\": 1,\n  \"expirationDate\": \"2026-06-30T00:00:00\"\n}"
+          "raw": "{\n  \"id\": 1,\n  \"amount\": 15.00,\n  \"date\": \"2026-03-29T00:00:00\"\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/api/DocumentItemExpirationDates/Update?companyId={{companyId}}",
+          "raw": "{{baseUrl}}/api/Payments/Update?companyId={{companyId}}",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "DocumentItemExpirationDates",
+            "Payments",
             "Update"
           ],
           "query": [
@@ -112,22 +162,22 @@
       }
     },
     {
-      "name": "Delete Expiration Date",
+      "name": "Delete Payment",
       "request": {
         "method": "DELETE",
         "url": {
-          "raw": "{{baseUrl}}/api/DocumentItemExpirationDates/Delete?documentItemId=1&companyId={{companyId}}",
+          "raw": "{{baseUrl}}/api/Payments/Delete?id=1&companyId={{companyId}}",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "DocumentItemExpirationDates",
+            "Payments",
             "Delete"
           ],
           "query": [
             {
-              "key": "documentItemId",
+              "key": "id",
               "value": "1"
             },
             {

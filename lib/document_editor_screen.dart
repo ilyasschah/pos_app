@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'payment_model.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'document_model.dart';
@@ -13,6 +14,8 @@ import 'document_item_tax_model.dart';
 import 'tax_provider.dart';
 import 'document_item_expiration_date_model.dart';
 import 'document_item_expiration_date_provider.dart';
+import 'payment_provider.dart';
+import 'payment_type_provider.dart';
 
 final documentCategoriesProvider =
     FutureProvider.autoDispose<List<DocumentCategory>>((ref) async {
@@ -441,6 +444,19 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
             documentId: _savedDocumentId!,
             companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
             onItemsChanged: _syncDocumentTotal,
+          ),
+        ),
+      );
+      dialogTabs.add(const Tab(text: "Payments"));
+      dialogTabViews.add(
+        Padding(
+          padding: const EdgeInsets.all(24),
+          child: _PaymentsView(
+            documentId: _savedDocumentId!,
+            companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
+            userId: _selectedUserId ??
+                0, // Passed to assign the payment to the user
+            documentTotal: _savedDocument!.total,
           ),
         ),
       );
@@ -1628,6 +1644,505 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
             label: const Text("Update Item"),
             style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+            onPressed: _submit,
+          ),
+      ],
+    );
+  }
+}
+
+class _PaymentsView extends ConsumerWidget {
+  final int documentId;
+  final int companyId;
+  final int userId;
+  final double documentTotal;
+
+  const _PaymentsView({
+    required this.documentId,
+    required this.companyId,
+    required this.userId,
+    required this.documentTotal,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final asyncPayments = ref.watch(paymentsByDocumentIdProvider(documentId));
+
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text("Applied Payments",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.payment, size: 16),
+              label: const Text("Add Payment"),
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal, foregroundColor: Colors.white),
+              onPressed: () async {
+                await showDialog(
+                    context: context,
+                    builder: (_) => _AddPaymentDialog(
+                          documentId: documentId,
+                          companyId: companyId,
+                          userId: userId,
+                        ));
+                ref.invalidate(paymentsByDocumentIdProvider(documentId));
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        asyncPayments.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) =>
+              Text("Error: $e", style: const TextStyle(color: Colors.red)),
+          data: (payments) {
+            final totalPaid = payments.fold<double>(0, (s, p) => s + p.amount);
+            final remaining = documentTotal - totalPaid;
+
+            return Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Payment Summary Cards
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _SummaryCard(
+                          "Document Total", documentTotal, Colors.blueGrey),
+                      _SummaryCard("Total Paid", totalPaid, Colors.green),
+                      _SummaryCard("Remaining Balance", remaining,
+                          remaining > 0 ? Colors.orange : Colors.grey),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+
+                  if (payments.isEmpty)
+                    const Center(
+                      child: Text("No payments added yet.",
+                          style: TextStyle(color: Colors.grey)),
+                    )
+                  else
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: DataTable(
+                          headingRowColor:
+                              WidgetStateProperty.all(Colors.teal[50]),
+                          columns: const [
+                            DataColumn(label: Text("ID")),
+                            DataColumn(label: Text("Status")),
+                            DataColumn(label: Text("Payment Type")),
+                            DataColumn(label: Text("Date")),
+                            DataColumn(label: Text("Amount"), numeric: true),
+                            DataColumn(label: Text("Actions")),
+                          ],
+                          rows: payments.map((payment) {
+                            final isLocked = payment.zReportId != null;
+                            return DataRow(cells: [
+                              DataCell(Text(payment.id.toString())),
+                              DataCell(Icon(
+                                isLocked ? Icons.lock : Icons.check_circle,
+                                color: isLocked ? Colors.grey : Colors.green,
+                                size: 20,
+                              )),
+                              DataCell(
+                                  Text(payment.paymentTypeName ?? "Unknown")),
+                              DataCell(Text(payment.date
+                                  .toIso8601String()
+                                  .split('T')
+                                  .first)),
+                              DataCell(Text(payment.amount.toStringAsFixed(2),
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold))),
+                              DataCell(Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: Icon(Icons.edit,
+                                        color: isLocked
+                                            ? Colors.grey
+                                            : Colors.blueGrey,
+                                        size: 18),
+                                    onPressed: isLocked
+                                        ? null
+                                        : () async {
+                                            await showDialog(
+                                                context: context,
+                                                builder: (_) =>
+                                                    _EditPaymentDialog(
+                                                      payment: payment,
+                                                      companyId: companyId,
+                                                    ));
+                                            ref.invalidate(
+                                                paymentsByDocumentIdProvider(
+                                                    documentId));
+                                          },
+                                  ),
+                                  IconButton(
+                                    icon: Icon(Icons.delete,
+                                        color:
+                                            isLocked ? Colors.grey : Colors.red,
+                                        size: 18),
+                                    onPressed: isLocked
+                                        ? null
+                                        : () async {
+                                            final confirm =
+                                                await showDialog<bool>(
+                                              context: context,
+                                              builder: (ctx) => AlertDialog(
+                                                title: const Text(
+                                                    "Delete Payment"),
+                                                content: const Text(
+                                                    "Are you sure you want to delete this payment?"),
+                                                actions: [
+                                                  TextButton(
+                                                      onPressed: () =>
+                                                          Navigator.of(ctx)
+                                                              .pop(false),
+                                                      child:
+                                                          const Text("Cancel")),
+                                                  ElevatedButton(
+                                                    style: ElevatedButton
+                                                        .styleFrom(
+                                                            backgroundColor:
+                                                                Colors.red),
+                                                    onPressed: () =>
+                                                        Navigator.of(ctx)
+                                                            .pop(true),
+                                                    child: const Text("Delete",
+                                                        style: TextStyle(
+                                                            color:
+                                                                Colors.white)),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                            if (confirm == true) {
+                                              try {
+                                                final dio = createDio();
+                                                await dio.delete(
+                                                    '/Payments/Delete',
+                                                    queryParameters: {
+                                                      'id': payment.id,
+                                                      'companyId': companyId
+                                                    });
+                                                ref.invalidate(
+                                                    paymentsByDocumentIdProvider(
+                                                        documentId));
+                                              } catch (e) {
+                                                if (context.mounted) {
+                                                  ScaffoldMessenger.of(context)
+                                                      .showSnackBar(SnackBar(
+                                                          content: Text(
+                                                              "Delete failed: $e"),
+                                                          backgroundColor:
+                                                              Colors.red));
+                                                }
+                                              }
+                                            }
+                                          },
+                                  ),
+                                ],
+                              )),
+                            ]);
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _SummaryCard extends StatelessWidget {
+  final String title;
+  final double amount;
+  final Color color;
+
+  const _SummaryCard(this.title, this.amount, this.color);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.5)),
+      ),
+      child: Column(
+        children: [
+          Text(title,
+              style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Text("\$${amount.toStringAsFixed(2)}",
+              style: TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+        ],
+      ),
+    );
+  }
+}
+
+// --- ADD PAYMENT DIALOG ---
+class _AddPaymentDialog extends ConsumerStatefulWidget {
+  final int documentId;
+  final int companyId;
+  final int userId;
+  const _AddPaymentDialog(
+      {required this.documentId,
+      required this.companyId,
+      required this.userId});
+
+  @override
+  ConsumerState<_AddPaymentDialog> createState() => _AddPaymentDialogState();
+}
+
+class _AddPaymentDialogState extends ConsumerState<_AddPaymentDialog> {
+  int? _selectedPaymentTypeId;
+  final _amountCtrl = TextEditingController();
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_selectedPaymentTypeId == null) {
+      setState(() => _errorMessage = "Please select a payment type.");
+      return;
+    }
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final dio = createDio();
+      await dio.post('/Payments/Add', queryParameters: {
+        'companyId': widget.companyId
+      }, data: {
+        'documentId': widget.documentId,
+        'paymentTypeId': _selectedPaymentTypeId,
+        'amount': double.tryParse(_amountCtrl.text) ?? 0.0,
+        'userId': widget.userId,
+      });
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } on DioException catch (e) {
+      setState(() {
+        // This will catch and display the exact text of your C# InvalidOperationException!
+        _errorMessage = e.response?.data?['message']?.toString() ??
+            e.response?.data?.toString() ??
+            "Failed to add payment.";
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final paymentTypesAsync = ref.watch(allPaymentTypesProvider);
+
+    return AlertDialog(
+      title: const Text("Add Payment"),
+      content: SizedBox(
+        width: 350,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            paymentTypesAsync.when(
+                loading: () => const CircularProgressIndicator(),
+                error: (e, _) => Text("Error: $e"),
+                data: (types) {
+                  if (_selectedPaymentTypeId == null && types.isNotEmpty) {
+                    _selectedPaymentTypeId = types.first.id;
+                  }
+                  return DropdownButtonFormField<int>(
+                    value: _selectedPaymentTypeId,
+                    decoration: const InputDecoration(
+                        labelText: "Payment Type",
+                        border: OutlineInputBorder()),
+                    items: types
+                        .map((t) =>
+                            DropdownMenuItem(value: t.id, child: Text(t.name)))
+                        .toList(),
+                    onChanged: (v) =>
+                        setState(() => _selectedPaymentTypeId = v),
+                  );
+                }),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _amountCtrl,
+              decoration: const InputDecoration(
+                  labelText: "Amount", border: OutlineInputBorder()),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    border: Border.all(color: Colors.red),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.red),
+                    const SizedBox(width: 8),
+                    Expanded(
+                        child: Text(_errorMessage!,
+                            style: const TextStyle(color: Colors.red))),
+                  ],
+                ),
+              )
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text("Cancel")),
+        if (_isLoading)
+          const Padding(
+              padding: EdgeInsets.all(8), child: CircularProgressIndicator())
+        else
+          ElevatedButton.icon(
+            icon: const Icon(Icons.payment),
+            label: const Text("Add Payment"),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.teal, foregroundColor: Colors.white),
+            onPressed: _submit,
+          ),
+      ],
+    );
+  }
+}
+
+// --- EDIT PAYMENT DIALOG ---
+class _EditPaymentDialog extends ConsumerStatefulWidget {
+  final PaymentModel payment;
+  final int companyId;
+  const _EditPaymentDialog({required this.payment, required this.companyId});
+
+  @override
+  ConsumerState<_EditPaymentDialog> createState() => _EditPaymentDialogState();
+}
+
+class _EditPaymentDialogState extends ConsumerState<_EditPaymentDialog> {
+  late final TextEditingController _amountCtrl;
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _amountCtrl =
+        TextEditingController(text: widget.payment.amount.toStringAsFixed(2));
+  }
+
+  @override
+  void dispose() {
+    _amountCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final dio = createDio();
+      await dio.patch('/Payments/Update', queryParameters: {
+        'companyId': widget.companyId
+      }, data: {
+        'id': widget.payment.id,
+        'amount': double.tryParse(_amountCtrl.text) ?? widget.payment.amount,
+        'date': widget.payment.date
+            .toIso8601String(), // Passing the existing date to satisfy the Update Request
+      });
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } on DioException catch (e) {
+      setState(() {
+        _errorMessage = e.response?.data?['message']?.toString() ??
+            e.response?.data?.toString() ??
+            "Update failed.";
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text("Edit Payment #${widget.payment.id}"),
+      content: SizedBox(
+        width: 350,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Payment Type: ${widget.payment.paymentTypeName ?? 'Unknown'}",
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _amountCtrl,
+              decoration: const InputDecoration(
+                  labelText: "Amount", border: OutlineInputBorder()),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+            ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    border: Border.all(color: Colors.red),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.red),
+                    const SizedBox(width: 8),
+                    Expanded(
+                        child: Text(_errorMessage!,
+                            style: const TextStyle(color: Colors.red))),
+                  ],
+                ),
+              )
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text("Cancel")),
+        if (_isLoading)
+          const Padding(
+              padding: EdgeInsets.all(8), child: CircularProgressIndicator())
+        else
+          ElevatedButton.icon(
+            icon: const Icon(Icons.save),
+            label: const Text("Save Changes"),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.teal, foregroundColor: Colors.white),
             onPressed: _submit,
           ),
       ],
