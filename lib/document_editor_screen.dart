@@ -9,8 +9,11 @@ import 'auth_provider.dart';
 import 'warehouse_provider.dart';
 import 'product_provider.dart';
 import 'documents_screen.dart';
+import 'document_item_tax_model.dart';
+import 'tax_provider.dart';
+import 'document_item_expiration_date_model.dart';
+import 'document_item_expiration_date_provider.dart';
 
-// --- PROVIDERS ---
 final documentCategoriesProvider =
     FutureProvider.autoDispose<List<DocumentCategory>>((ref) async {
   final company = ref.watch(selectedCompanyProvider);
@@ -36,6 +39,28 @@ final documentItemsByDocIdProvider = FutureProvider.autoDispose
   return (response.data as List).map((j) => DocumentItem.fromJson(j)).toList();
 });
 
+final documentItemTaxesProvider = FutureProvider.autoDispose
+    .family<List<DocumentItemTaxModel>, int>((ref, documentItemId) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return [];
+
+  try {
+    final dio = createDio();
+    final res = await dio.get(
+      '/DocumentItemTaxes/GetByDocumentItemId',
+      queryParameters: {
+        'documentItemId': documentItemId,
+        'companyId': companyId
+      },
+    );
+    return (res.data as List)
+        .map((x) => DocumentItemTaxModel.fromJson(x))
+        .toList();
+  } catch (e) {
+    return [];
+  }
+});
+
 // --- ENTRY POINT ---
 Future<void> showDocumentEditor(BuildContext context, WidgetRef ref,
     {Document? existingDocument}) async {
@@ -59,9 +84,10 @@ class _DocumentEditorDialog extends ConsumerStatefulWidget {
 }
 
 class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
+  final _formKey = GlobalKey<FormState>();
   bool _headerSaved = false;
   int? _savedDocumentId;
-  Document? _savedDocument; // <-- holds the doc after POST
+  Document? _savedDocument;
 
   int? _selectedDocTypeId;
   String? _selectedDocTypeName;
@@ -232,27 +258,24 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
             queryParameters: {'companyId': company.id}, data: payload);
 
         int? newId;
-        final data = response.data;
 
-        if (data != null) {
-          if (data is Map) {
-            newId = int.tryParse(
-                data['id']?.toString() ?? data['Id']?.toString() ?? '');
-          } else if (data is int || data is num) {
-            newId = (data as num).toInt();
-          }
+        final responseBody = response.data;
+
+        final data = responseBody is Map && responseBody.containsKey('data')
+            ? responseBody['data']
+            : responseBody;
+
+        if (data != null && data is Map) {
+          newId = int.tryParse(
+              data['id']?.toString() ?? data['Id']?.toString() ?? '');
+        } else if (data is int || data is num) {
+          newId = (data as num).toInt();
         }
 
         if (newId == null || newId <= 0) {
           throw Exception(
               "Server saved the document but returned an unreadable ID: $data");
         }
-
-        setState(() {
-          _savedDocumentId = newId;
-          _headerSaved = true;
-          _isLoading = false;
-        });
 
         final createdDoc = Document(
           id: newId,
@@ -274,7 +297,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
 
         setState(() {
           _savedDocumentId = newId;
-          _savedDocument = createdDoc; // <-- KEY FIX
+          _savedDocument = createdDoc;
           _headerSaved = true;
           _isLoading = false;
         });
@@ -325,149 +348,135 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final screenSize = MediaQuery.of(context).size;
+    String title = "New Document";
+    if (_isEditing) {
+      title = "Edit Document — ${_numberCtrl.text}";
+    } else if (_headerSaved) {
+      title = "Document — ${_numberCtrl.text}";
+    }
 
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: screenSize.width * 0.95,
-          maxHeight: screenSize.height * 0.95,
-          minWidth: 800,
+    final List<Widget> dialogTabs = [
+      const Tab(text: "General Header"),
+    ];
+
+    final List<Widget> dialogTabViews = [
+      SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: _HeaderForm(
+          isEditing: _headerSaved,
+          selectedDocTypeName: _selectedDocTypeName,
+          selectedCustomerId: _selectedCustomerId,
+          selectedUserId: _selectedUserId,
+          selectedWarehouseId: _selectedWarehouseId,
+          date: _date,
+          dueDate: _dueDate,
+          stockDate: _stockDate,
+          numberCtrl: _numberCtrl,
+          internalNoteCtrl: _internalNoteCtrl,
+          noteCtrl: _noteCtrl,
+          refDocCtrl: _refDocCtrl,
+          discount: _discount,
+          discountType: _discountType,
+          discountApplyRule: _discountApplyRule,
+          errorMessage: _errorMessage,
+          isLoading: _isLoading,
+          onSelectDocType: () async {
+            final result = await showDialog<DocumentType>(
+              context: context,
+              builder: (_) => const _SelectDocumentTypeDialog(),
+            );
+            if (result != null) {
+              setState(() {
+                _selectedDocTypeId = result.id;
+                _selectedDocTypeName = "${result.code} - ${result.name}";
+                _selectedWarehouseId = result.warehouseId;
+                if (_numberCtrl.text.isEmpty) {
+                  _numberCtrl.text = _generateOrderNumber(result.name);
+                }
+              });
+            }
+          },
+          onCustomerChanged: (v) => setState(() => _selectedCustomerId = v),
+          onUserChanged: (v) => setState(() => _selectedUserId = v),
+          onWarehouseChanged: (v) => setState(() => _selectedWarehouseId = v),
+          onDatePick: () async {
+            final picked = await showDatePicker(
+                context: context,
+                initialDate: _date,
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2030));
+            if (picked != null) setState(() => _date = picked);
+          },
+          onDueDatePick: () async {
+            final picked = await showDatePicker(
+                context: context,
+                initialDate: _dueDate,
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2030));
+            if (picked != null) setState(() => _dueDate = picked);
+          },
+          onStockDatePick: () async {
+            final picked = await showDatePicker(
+                context: context,
+                initialDate: _stockDate,
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2030));
+            if (picked != null) setState(() => _stockDate = picked);
+          },
+          onDiscountChanged: (v) => setState(() => _discount = v),
+          onDiscountTypeChanged: (v) => setState(() => _discountType = v),
+          onDiscountApplyRuleChanged: (v) =>
+              setState(() => _discountApplyRule = v),
+          onSave: _saveOrUpdateHeader,
         ),
-        child: Column(
-          children: [
-            // Title bar
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              color: Colors.blueGrey[800],
-              child: Row(
-                children: [
-                  const Icon(Icons.description, color: Colors.white),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _isEditing
-                          ? "Edit Document — ${_numberCtrl.text}"
-                          : _headerSaved
-                              ? "Document — ${_numberCtrl.text} (Add Items)"
-                              : "New Document",
-                      style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-            ),
+      ),
+    ];
 
-            // Body
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  children: [
-                    // Header form — always visible
-                    _HeaderForm(
-                      isEditing: _headerSaved,
-                      selectedDocTypeName: _selectedDocTypeName,
-                      selectedCustomerId: _selectedCustomerId,
-                      selectedUserId: _selectedUserId,
-                      selectedWarehouseId: _selectedWarehouseId,
-                      date: _date,
-                      dueDate: _dueDate,
-                      stockDate: _stockDate,
-                      numberCtrl: _numberCtrl,
-                      internalNoteCtrl: _internalNoteCtrl,
-                      noteCtrl: _noteCtrl,
-                      refDocCtrl: _refDocCtrl,
-                      discount: _discount,
-                      discountType: _discountType,
-                      discountApplyRule: _discountApplyRule,
-                      errorMessage: _errorMessage,
-                      isLoading: _isLoading,
-                      onSelectDocType: () async {
-                        final result = await showDialog<DocumentType>(
-                          context: context,
-                          builder: (_) => const _SelectDocumentTypeDialog(),
-                        );
-                        if (result != null) {
-                          setState(() {
-                            _selectedDocTypeId = result.id;
-                            _selectedDocTypeName =
-                                "${result.code} - ${result.name}";
-                            _selectedWarehouseId = result.warehouseId;
-                            if (_numberCtrl.text.isEmpty) {
-                              _numberCtrl.text =
-                                  _generateOrderNumber(result.name);
-                            }
-                          });
-                        }
-                      },
-                      onCustomerChanged: (v) =>
-                          setState(() => _selectedCustomerId = v),
-                      onUserChanged: (v) => setState(() => _selectedUserId = v),
-                      onWarehouseChanged: (v) =>
-                          setState(() => _selectedWarehouseId = v),
-                      onDatePick: () async {
-                        final picked = await showDatePicker(
-                            context: context,
-                            initialDate: _date,
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime(2030));
-                        if (picked != null) setState(() => _date = picked);
-                      },
-                      onDueDatePick: () async {
-                        final picked = await showDatePicker(
-                            context: context,
-                            initialDate: _dueDate,
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime(2030));
-                        if (picked != null) setState(() => _dueDate = picked);
-                      },
-                      onStockDatePick: () async {
-                        final picked = await showDatePicker(
-                            context: context,
-                            initialDate: _stockDate,
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime(2030));
-                        if (picked != null) setState(() => _stockDate = picked);
-                      },
-                      onDiscountChanged: (v) => setState(() => _discount = v),
-                      onDiscountTypeChanged: (v) =>
-                          setState(() => _discountType = v),
-                      onDiscountApplyRuleChanged: (v) =>
-                          setState(() => _discountApplyRule = v),
-                      onSave: _saveOrUpdateHeader,
-                    ),
+    if (_headerSaved && _savedDocumentId != null && _savedDocument != null) {
+      dialogTabs.add(const Tab(text: "Document Items"));
+      dialogTabViews.add(
+        Padding(
+          padding: const EdgeInsets.all(24),
+          child: _ItemsView(
+            documentId: _savedDocumentId!,
+            companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
+            onItemsChanged: _syncDocumentTotal,
+          ),
+        ),
+      );
+    }
 
-                    // Items section — only shown after header is saved
-                    if (_headerSaved &&
-                        _savedDocumentId != null &&
-                        _savedDocument != null) ...[
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 24),
-                        child: Divider(thickness: 2),
-                      ),
-                      _ItemsView(
-                        documentId: _savedDocumentId!,
-                        companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
-                        onItemsChanged: _syncDocumentTotal,
-                      ),
-                    ],
-                  ],
+    return DefaultTabController(
+      key:
+          ValueKey(dialogTabs.length), // Forces rebuild when tab length changes
+      length: dialogTabs.length,
+      child: AlertDialog(
+        contentPadding: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: Form(
+          key: _formKey,
+          child: SizedBox(
+            width: 1000,
+            height: 700,
+            child: Column(
+              children: [
+                TabBar(
+                  labelColor: Colors.indigo,
+                  unselectedLabelColor: Colors.grey,
+                  indicatorColor: Colors.indigo,
+                  tabs: dialogTabs,
                 ),
-              ),
+                Expanded(child: TabBarView(children: dialogTabViews)),
+              ],
             ),
-          ],
+          ),
         ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Close")),
+        ],
       ),
     );
   }
@@ -1237,7 +1246,7 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
   }
 }
 
-// --- EDIT ITEM DIALOG ---
+// --- EDIT ITEM DIALOG (NOW SPLIT WITH TAXES) ---
 class _EditItemDialog extends ConsumerStatefulWidget {
   final DocumentItem item;
   final int companyId;
@@ -1251,9 +1260,15 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
   late final TextEditingController _qtyCtrl;
   late final TextEditingController _priceCtrl;
   late final TextEditingController _discountCtrl;
+  late final TextEditingController _expirationDateCtrl;
+  DateTime? _expirationDate;
+  bool _hasInitialExpirationDate = false;
+  bool _initializedExpDate = false;
   late int _discountType;
   bool _isLoading = false;
   String? _errorMessage;
+
+  int? _selectedTaxId;
 
   @override
   void initState() {
@@ -1263,6 +1278,7 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
     _discountCtrl =
         TextEditingController(text: widget.item.discount.toString());
     _discountType = widget.item.discountType;
+    _expirationDateCtrl = TextEditingController();
   }
 
   @override
@@ -1270,6 +1286,7 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
     _qtyCtrl.dispose();
     _priceCtrl.dispose();
     _discountCtrl.dispose();
+    _expirationDateCtrl.dispose();
     super.dispose();
   }
 
@@ -1280,6 +1297,8 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
     });
     try {
       final dio = createDio();
+
+      // 1. Update the Document Item itself
       await dio.patch('/DocumentItems/Update', queryParameters: {
         'companyId': widget.companyId
       }, data: {
@@ -1296,6 +1315,37 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
         'productCost': widget.item.productCost,
         'discountApplyRule': widget.item.discountApplyRule,
       });
+
+      // 2. Handle the Expiration Date
+      if (_expirationDate != null) {
+        if (_hasInitialExpirationDate) {
+          await dio
+              .patch('/DocumentItemExpirationDates/Update', queryParameters: {
+            'companyId': widget.companyId
+          }, data: {
+            'documentItemId': widget.item.id,
+            'expirationDate': _expirationDate!.toIso8601String()
+          });
+        } else {
+          await dio.post('/DocumentItemExpirationDates/Add', queryParameters: {
+            'companyId': widget.companyId
+          }, data: {
+            'documentItemId': widget.item.id,
+            'expirationDate': _expirationDate!.toIso8601String()
+          });
+        }
+      } else if (_hasInitialExpirationDate && _expirationDate == null) {
+        // Only trigger delete if an initial date actually existed and was cleared
+        await dio.delete('/DocumentItemExpirationDates/Delete',
+            queryParameters: {
+              'documentItemId': widget.item.id,
+              'companyId': widget.companyId
+            });
+      }
+
+      // Invalidate the provider so next time it is opened it fetches fresh
+      ref.invalidate(documentItemExpirationDateProvider(widget.item.id));
+
       if (!mounted) return;
       Navigator.of(context).pop();
     } on DioException catch (e) {
@@ -1306,54 +1356,260 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
     }
   }
 
+  Future<void> _addTax() async {
+    if (_selectedTaxId == null) return;
+    try {
+      final dio = createDio();
+      await dio.post('/DocumentItemTaxes/Add', queryParameters: {
+        'companyId': widget.companyId
+      }, data: {
+        'documentItemId': widget.item.id,
+        'taxId': _selectedTaxId,
+      });
+      ref.invalidate(documentItemTaxesProvider(widget.item.id));
+      ref.invalidate(documentItemsByDocIdProvider(widget.item.documentId));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.toString()), backgroundColor: Colors.red));
+      }
+    }
+  }
+
+  Future<void> _deleteTax(int taxId) async {
+    try {
+      final dio = createDio();
+      await dio.delete('/DocumentItemTaxes/Delete', queryParameters: {
+        'documentItemId': widget.item.id,
+        'taxId': taxId,
+        'companyId': widget.companyId
+      });
+      ref.invalidate(documentItemTaxesProvider(widget.item.id));
+      ref.invalidate(documentItemsByDocIdProvider(widget.item.documentId));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.toString()), backgroundColor: Colors.red));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final allTaxesAsync = ref.watch(allTaxesProvider);
+    final itemTaxesAsync = ref.watch(documentItemTaxesProvider(widget.item.id));
+
+    // Listen for expiration date changes to populate initial data once
+    ref.listen<AsyncValue<DocumentItemExpirationDateModel?>>(
+      documentItemExpirationDateProvider(widget.item.id),
+      (previous, next) {
+        next.whenData((expDateModel) {
+          if (!_initializedExpDate) {
+            _initializedExpDate = true;
+            if (expDateModel != null) {
+              setState(() {
+                _hasInitialExpirationDate = true;
+                _expirationDate = expDateModel.expirationDate;
+                _expirationDateCtrl.text =
+                    _expirationDate!.toIso8601String().split('T').first;
+              });
+            }
+          }
+        });
+      },
+    );
+
     return AlertDialog(
       title: Text("Edit — ${widget.item.productName ?? ''}"),
       content: SizedBox(
-        width: 400,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        width: 800, // Widened to fit taxes naturally
+        height: 380,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              Expanded(
-                  child: TextFormField(
-                      controller: _qtyCtrl,
-                      decoration: const InputDecoration(
-                          labelText: "Quantity",
-                          border: OutlineInputBorder()))),
-              const SizedBox(width: 12),
-              Expanded(
-                  child: TextFormField(
-                      controller: _priceCtrl,
-                      decoration: const InputDecoration(
-                          labelText: "Price", border: OutlineInputBorder()))),
-            ]),
-            const SizedBox(height: 12),
-            Row(children: [
-              Expanded(
-                  child: TextFormField(
-                      controller: _discountCtrl,
-                      decoration: const InputDecoration(
-                          labelText: "Discount",
-                          border: OutlineInputBorder()))),
-              const SizedBox(width: 12),
-              Expanded(
-                  child: DropdownButtonFormField<int>(
-                value: _discountType,
-                decoration: const InputDecoration(border: OutlineInputBorder()),
-                items: const [
-                  DropdownMenuItem(value: 0, child: Text("%")),
-                  DropdownMenuItem(value: 1, child: Text("Fixed")),
+            // LEFT COLUMN (Item Details)
+            Expanded(
+              flex: 1,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(children: [
+                      Expanded(
+                          child: TextFormField(
+                              controller: _qtyCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: "Quantity",
+                                  border: OutlineInputBorder()))),
+                      const SizedBox(width: 12),
+                      Expanded(
+                          child: TextFormField(
+                              controller: _priceCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: "Price",
+                                  border: OutlineInputBorder()))),
+                    ]),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      Expanded(
+                          child: TextFormField(
+                              controller: _discountCtrl,
+                              decoration: const InputDecoration(
+                                  labelText: "Discount",
+                                  border: OutlineInputBorder()))),
+                      const SizedBox(width: 12),
+                      Expanded(
+                          child: DropdownButtonFormField<int>(
+                        value: _discountType,
+                        decoration:
+                            const InputDecoration(border: OutlineInputBorder()),
+                        items: const [
+                          DropdownMenuItem(value: 0, child: Text("%")),
+                          DropdownMenuItem(value: 1, child: Text("Fixed")),
+                        ],
+                        onChanged: (v) =>
+                            setState(() => _discountType = v ?? 0),
+                      )),
+                    ]),
+                    const SizedBox(height: 12),
+
+                    // FULLY WIRED Expiration Date Field
+                    TextFormField(
+                      controller: _expirationDateCtrl,
+                      readOnly: true,
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: _expirationDate ?? DateTime.now(),
+                          firstDate: DateTime(2000),
+                          lastDate: DateTime(2100),
+                        );
+                        if (picked != null) {
+                          setState(() {
+                            _expirationDate = picked;
+                            _expirationDateCtrl.text =
+                                picked.toIso8601String().split('T').first;
+                          });
+                        }
+                      },
+                      decoration: InputDecoration(
+                        labelText: "Expiration Date",
+                        border: const OutlineInputBorder(),
+                        suffixIcon: _expirationDate != null
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 16),
+                                onPressed: () {
+                                  setState(() {
+                                    _expirationDate = null;
+                                    _expirationDateCtrl.clear();
+                                  });
+                                },
+                              )
+                            : const Icon(Icons.calendar_today, size: 16),
+                      ),
+                    ),
+
+                    if (_errorMessage != null) ...[
+                      const SizedBox(height: 12),
+                      Text(_errorMessage!,
+                          style:
+                              const TextStyle(color: Colors.red, fontSize: 13)),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 32),
+            const VerticalDivider(thickness: 1),
+            const SizedBox(width: 16),
+
+            // RIGHT COLUMN (Item Taxes)
+            Expanded(
+              flex: 1,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text("Item Taxes",
+                      style:
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: allTaxesAsync.when(
+                            loading: () => const LinearProgressIndicator(),
+                            error: (_, __) => const Text("Error loading taxes"),
+                            data: (taxes) => DropdownButtonFormField<int>(
+                                  value: _selectedTaxId,
+                                  decoration: const InputDecoration(
+                                      labelText: "Select Tax",
+                                      border: OutlineInputBorder(),
+                                      contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 8)),
+                                  items: taxes
+                                      .map((t) => DropdownMenuItem(
+                                          value: t.id,
+                                          child:
+                                              Text("${t.name} (${t.rate}%)")))
+                                      .toList(),
+                                  onChanged: (v) =>
+                                      setState(() => _selectedTaxId = v),
+                                )),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: _selectedTaxId == null ? null : _addTax,
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.indigo,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 18, horizontal: 16)),
+                        child: const Text("Add"),
+                      )
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Expanded(
+                      child: itemTaxesAsync.when(
+                          loading: () =>
+                              const Center(child: CircularProgressIndicator()),
+                          error: (e, _) => Text("Error: $e",
+                              style: const TextStyle(color: Colors.red)),
+                          data: (taxes) {
+                            if (taxes.isEmpty)
+                              return const Text("No taxes applied.",
+                                  style: TextStyle(color: Colors.grey));
+
+                            return Container(
+                              decoration: BoxDecoration(
+                                  border: Border.all(color: Colors.grey[300]!),
+                                  borderRadius: BorderRadius.circular(8)),
+                              child: ListView.separated(
+                                itemCount: taxes.length,
+                                separatorBuilder: (_, __) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, i) {
+                                  final t = taxes[i];
+                                  return ListTile(
+                                    dense: true,
+                                    title: Text(t.taxName,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.bold)),
+                                    subtitle: Text(
+                                        "Tax Amount: \$${t.amount.toStringAsFixed(4)}"),
+                                    trailing: IconButton(
+                                      icon: const Icon(Icons.delete,
+                                          color: Colors.redAccent, size: 20),
+                                      onPressed: () => _deleteTax(t.taxId),
+                                    ),
+                                  );
+                                },
+                              ),
+                            );
+                          }))
                 ],
-                onChanged: (v) => setState(() => _discountType = v ?? 0),
-              )),
-            ]),
-            if (_errorMessage != null) ...[
-              const SizedBox(height: 12),
-              Text(_errorMessage!,
-                  style: const TextStyle(color: Colors.red, fontSize: 13)),
-            ],
+              ),
+            )
           ],
         ),
       ),
@@ -1369,7 +1625,7 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
         else
           ElevatedButton.icon(
             icon: const Icon(Icons.save),
-            label: const Text("Update"),
+            label: const Text("Update Item"),
             style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.indigo, foregroundColor: Colors.white),
             onPressed: _submit,
