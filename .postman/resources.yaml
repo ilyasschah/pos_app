@@ -29,6 +29,6 @@ cloudResources:
     ..\postman\collections\POS - Document Item Taxes: 9e6251cd-40c1-44a4-9f55-d51c818ae146
     ..\postman\collections\POS - Document Item Expiration Dates: 44753e29-9df2-4431-a74e-99d964752f2c
     ..\postman\collections\POS - Payments: dafddc6e-30e3-497a-a417-9f87015e5271
+    ..\postman\collections\POS - Z-Reports: ea1d3496-7737-463f-b323-83dbcb6baa38
   environments:
-    ..\postman\environments\Web-Pos.environment.yaml: 41814350-0c4499b8-6c5d-4ff3-9473-2794f7e0dc56
     ..\postman\environments\New Environment.environment.yaml: 0ff322dd-64bf-472c-93d0-3e882d21cd5f

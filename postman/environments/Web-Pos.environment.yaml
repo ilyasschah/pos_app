@@ -1,6 +1,0 @@
-name: Web-Pos
-values:
-  - key: ProductsURL
-    value: https://localhost:7002
-    enabled: true
-color: null

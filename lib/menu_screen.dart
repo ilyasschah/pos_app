@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -7,11 +8,11 @@ import 'cart_provider.dart';
 import 'auth_provider.dart';
 import 'customer_provider.dart';
 import 'customer_model.dart';
-import 'group_model.dart';
 import 'documents_screen.dart';
 import 'company_provider.dart';
 import 'my_company_screen.dart';
 import 'customers_screen.dart';
+import 'product_provider.dart';
 import 'users_screen.dart';
 import 'reports_screen.dart';
 import 'payment_types_screen.dart';
@@ -22,7 +23,10 @@ import 'stock_screen.dart';
 import 'product_groups_screen.dart';
 import 'currencies_screen.dart';
 import 'products_screen.dart';
-// --- PROVIDERS ---
+import 'z_report_screen.dart';
+import 'payment_type_provider.dart';
+import 'product_group_model.dart';
+import 'product_group_provider.dart';
 
 // 1. Current Folder State (Null = Root)
 class CurrentGroupNotifier extends Notifier<ProductGroup?> {
@@ -42,41 +46,6 @@ class SearchQueryNotifier extends Notifier<String> {
 
 final searchQueryProvider =
     NotifierProvider<SearchQueryNotifier, String>(() => SearchQueryNotifier());
-
-// 3. Fetch ALL Groups — filtered by selected company
-final groupsProvider = FutureProvider<List<ProductGroup>>((ref) async {
-  final company = ref.watch(selectedCompanyProvider);
-  if (company == null) return [];
-  final dio = createDio();
-  final response = await dio.get(
-    'https://localhost:7002/api/ProductGroups/GetAll',
-    queryParameters: {'companyId': company.id},
-  );
-  final data = response.data as List;
-  return data.map((json) => ProductGroup.fromJson(json)).toList();
-});
-
-// 4. Fetch ALL Products — filtered by selected company
-final productsProvider = FutureProvider<List<Product>>((ref) async {
-  final company = ref.watch(selectedCompanyProvider);
-  if (company == null) return [];
-  final dio = createDio();
-  final response = await dio.get(
-    'https://localhost:7002/api/Products/GetAll',
-    queryParameters: {'companyId': company.id},
-  );
-  final data = response.data as List;
-  return data.map((json) => Product.fromJson(json)).toList();
-});
-
-// 5. Fetch Payment Types
-final paymentTypesProvider = FutureProvider<List<PaymentType>>((ref) async {
-  final dio = createDio();
-  final response =
-      await dio.get('https://localhost:7002/api/PaymentTypes/GetAll');
-  final data = response.data as List;
-  return data.map((json) => PaymentType.fromJson(json)).toList();
-});
 
 // --- MAIN SCREEN ---
 class MenuScreen extends ConsumerWidget {
@@ -257,7 +226,17 @@ class MenuScreen extends ConsumerWidget {
                 );
               },
             ),
-
+            ListTile(
+              leading: const Icon(Icons.lock_clock),
+              title: const Text("End of Day"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const EndOfDayScreen()),
+                );
+              },
+            ),
             const Divider(),
 
             // Logout
@@ -340,8 +319,8 @@ class BrowserSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final asyncGroups = ref.watch(groupsProvider);
-    final asyncProducts = ref.watch(productsProvider);
+    final asyncGroups = ref.watch(allProductGroupsProvider);
+    final asyncProducts = ref.watch(allProductsListProvider);
     final currentGroup = ref.watch(currentGroupProvider);
     final searchQuery = ref.watch(searchQueryProvider);
     final selectedCompany = ref.watch(selectedCompanyProvider);
@@ -470,17 +449,45 @@ class BrowserSection extends ConsumerWidget {
         ref.read(searchQueryProvider.notifier).state = "";
       },
       child: Card(
-        color: Colors.blue[50],
+        color: group.flutterColor.withOpacity(0.15),
         elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side:
+              BorderSide(color: group.flutterColor.withOpacity(0.5), width: 1),
+        ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.folder, size: 48, color: Colors.blue),
-            const SizedBox(height: 8),
-            Text(
-              group.name,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            if (group.imageBytes != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.memory(
+                  group.imageBytes!,
+                  height: 60,
+                  width: 60,
+                  fit: BoxFit.cover,
+                  errorBuilder: (ctx, err, stack) =>
+                      Icon(Icons.folder, size: 48, color: group.flutterColor),
+                ),
+              )
+            else
+              Icon(Icons.folder, size: 54, color: group.flutterColor),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+              child: Text(
+                group.name,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: group.flutterColor == Colors.white
+                      ? Colors.black
+                      : group.flutterColor
+                          .withOpacity(0.9), // Ensures text is readable
+                ),
+              ),
             ),
           ],
         ),
@@ -529,7 +536,7 @@ class CartSection extends ConsumerStatefulWidget {
 }
 
 class _CartSectionState extends ConsumerState<CartSection> {
-  // Removed the initState and dispose methods completely!
+  bool _isProcessing = false;
 
   void _showCustomerDialog(
       BuildContext context, WidgetRef ref, List<Customer> customers) {
@@ -561,6 +568,147 @@ class _CartSectionState extends ConsumerState<CartSection> {
     );
   }
 
+  Future<void> _showCheckoutDialog(
+      BuildContext context, WidgetRef parentRef, double total) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        // 👇 WRAP IN A CONSUMER SO IT LISTENS FOR UPDATES!
+        return Consumer(
+          builder: (context, ref, child) {
+            // Now we WATCH the provider, so it updates when the API finishes
+            final paymentTypesAsync = ref.watch(allPaymentTypesProvider);
+
+            return AlertDialog(
+              title: const Text("Checkout"),
+              content: SizedBox(
+                width: 400,
+                child: paymentTypesAsync.when(
+                  loading: () =>
+                      const Center(child: CircularProgressIndicator()),
+                  error: (e, _) => Text("Error loading payment types: $e"),
+                  data: (paymentTypes) {
+                    if (paymentTypes.isEmpty) {
+                      return const Text(
+                          "No payment types configured for this company.",
+                          style: TextStyle(color: Colors.red));
+                    }
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text("Total Due: \$${total.toStringAsFixed(2)}",
+                            style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green)),
+                        const SizedBox(height: 24),
+                        const Text("Select Payment Method:",
+                            style: TextStyle(fontSize: 16)),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          alignment: WrapAlignment.center,
+                          children: paymentTypes.map((pt) {
+                            return ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 24, vertical: 16),
+                                backgroundColor: Colors.indigo,
+                                foregroundColor: Colors.white,
+                              ),
+                              // Trigger the backend API call
+                              onPressed: () =>
+                                  _submitTransaction(ctx, ref, pt.id, total),
+                              icon: const Icon(Icons.payment),
+                              label: Text(pt.name,
+                                  style: const TextStyle(fontSize: 16)),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child:
+                      const Text("Cancel", style: TextStyle(color: Colors.red)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // --- NEW: SEND DATA TO BACKEND ---
+  Future<void> _submitTransaction(BuildContext dialogContext, WidgetRef ref,
+      int paymentTypeId, double totalAmount) async {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    final userId = ref.read(currentUserProvider)?.id;
+    final customerId = ref.read(currentCustomerProvider)?.id;
+    final cartItems = ref.read(cartProvider);
+
+    if (companyId == null || userId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Error: Missing Company or User ID.")));
+      return;
+    }
+
+    // Close the popup dialog immediately to show loading state
+    Navigator.pop(dialogContext);
+    setState(() => _isProcessing = true);
+
+    try {
+      final dio = createDio();
+
+      // ⚠️ IMPORTANT: Adjust these JSON keys to perfectly match your C# 'CreateDocumentRequest' DTO!
+      final payload = {
+        "companyId": companyId,
+        "userId": userId,
+        "customerId": customerId,
+        "total": totalAmount,
+        "items": cartItems
+            .map((item) => {
+                  "productId": item.product.id,
+                  "quantity": item.quantity,
+                  "price": item.product.price,
+                })
+            .toList(),
+        "payments": [
+          {"paymentTypeId": paymentTypeId, "amount": totalAmount}
+        ]
+      };
+
+      await dio.post('/Documents/Create', data: payload);
+      ref.read(cartProvider.notifier).clearCart();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text("Transaction Saved Successfully!"),
+              backgroundColor: Colors.green),
+        );
+      }
+    } on DioException catch (e) {
+      if (mounted) {
+        final errorMsg =
+            e.response?.data?['message'] ?? "Failed to process transaction.";
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(errorMsg), backgroundColor: Colors.red));
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     ref.listen<AsyncValue<List<Customer>>>(allCustomersProvider,
@@ -570,7 +718,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
           customers.isNotEmpty &&
           ref.read(currentCustomerProvider) == null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.read(currentCustomerProvider.notifier).setDefault(customers);
+          // ref.read(currentCustomerProvider.notifier).setDefault(customers);
         });
       }
     });
@@ -653,12 +801,24 @@ class _CartSectionState extends ConsumerState<CartSection> {
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
                       color: Colors.green)),
-              ElevatedButton(
-                onPressed:
-                    cartItems.isEmpty ? null : () {/* Trigger Checkout */},
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                child: const Text("PAY", style: TextStyle(color: Colors.white)),
-              )
+
+              // --- UPDATED PAY BUTTON ---
+              _isProcessing
+                  ? const CircularProgressIndicator()
+                  : ElevatedButton(
+                      onPressed: cartItems.isEmpty
+                          ? null
+                          : () => _showCheckoutDialog(context, ref, total),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 32, vertical: 16)),
+                      child: const Text("PAY",
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold)),
+                    )
             ],
           ),
         ),

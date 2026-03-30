@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
+import 'product_group_provider.dart';
 import 'product_model.dart';
 import 'product_group_model.dart';
 import 'product_groups_screen.dart';

@@ -21,3 +21,19 @@ final paymentsByDocumentIdProvider = FutureProvider.autoDispose
     return [];
   }
 });
+final unreportedPaymentsProvider =
+    FutureProvider.autoDispose<List<PaymentModel>>((ref) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return [];
+
+  try {
+    final dio = createDio();
+    final response = await dio.get('/Payments/GetUnreported',
+        queryParameters: {'companyId': companyId});
+    return (response.data as List)
+        .map((j) => PaymentModel.fromJson(j))
+        .toList();
+  } catch (e) {
+    return [];
+  }
+});
