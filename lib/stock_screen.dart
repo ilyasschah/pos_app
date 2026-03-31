@@ -3,9 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
-import 'warehouse_provider.dart'; // <-- use this, not warehouses_screen.dart
+import 'warehouse_provider.dart';
 import 'stock_model.dart';
-import 'product_model.dart';
 import 'product_provider.dart';
 
 // --- PROVIDER ---

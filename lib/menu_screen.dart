@@ -16,7 +16,6 @@ import 'product_provider.dart';
 import 'users_screen.dart';
 import 'reports_screen.dart';
 import 'payment_types_screen.dart';
-import 'payment_type_model.dart';
 import 'warehouses_screen.dart';
 import 'tax_rates_screen.dart';
 import 'stock_screen.dart';
@@ -50,6 +49,14 @@ final searchQueryProvider =
 // --- MAIN SCREEN ---
 class MenuScreen extends ConsumerWidget {
   const MenuScreen({super.key});
+
+  void _handleLogout(BuildContext context, WidgetRef ref) {
+    // Clear user and cart
+    ref.read(currentUserProvider.notifier).state = null;
+    ref.read(cartProvider.notifier).clearCart();
+    // 🧹 Completely clear the navigation stack and go back to root (User Selection)
+    Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -86,16 +93,13 @@ class MenuScreen extends ConsumerWidget {
               ),
             ),
 
-            // My Company — navigates to edit screen, NOT selection screen
             ListTile(
               leading: const Icon(Icons.business),
               title: const Text("My Company"),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const MyCompanyScreen()),
-                );
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const MyCompanyScreen()));
               },
             ),
             ListTile(
@@ -103,34 +107,28 @@ class MenuScreen extends ConsumerWidget {
               title: const Text("Documents"),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const DocumentsScreen()),
-                );
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const DocumentsScreen()));
               },
             ),
-            // Customers
             ListTile(
               leading: const Icon(Icons.people),
               title: const Text("Customers"),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const CustomersScreen()),
-                );
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const CustomersScreen()));
               },
             ),
-            // Payment Types
             ListTile(
               leading: const Icon(Icons.payment),
               title: const Text("Payment Types"),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PaymentTypesScreen()),
-                );
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const PaymentTypesScreen()));
               },
             ),
             ListTile(
@@ -138,10 +136,8 @@ class MenuScreen extends ConsumerWidget {
               title: const Text("Stock"),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const StockScreen()),
-                );
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const StockScreen()));
               },
             ),
             ListTile(
@@ -150,9 +146,9 @@ class MenuScreen extends ConsumerWidget {
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const CurrenciesScreen()),
-                );
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const CurrenciesScreen()));
               },
             ),
             ListTile(
@@ -160,33 +156,28 @@ class MenuScreen extends ConsumerWidget {
               title: const Text("Tax Rates"),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const TaxRatesScreen()),
-                );
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const TaxRatesScreen()));
               },
             ),
-            // Warehouses
             ListTile(
               leading: const Icon(Icons.warehouse),
               title: const Text("Warehouses"),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const WarehousesScreen()),
-                );
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const WarehousesScreen()));
               },
             ),
             ListTile(
-              leading: const Icon(Icons.fastfood), // Or Icons.inventory
+              leading: const Icon(Icons.fastfood),
               title: const Text("Products"),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ProductsScreen()),
-                );
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const ProductsScreen()));
               },
             ),
             ListTile(
@@ -195,35 +186,27 @@ class MenuScreen extends ConsumerWidget {
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const ProductGroupsScreen()),
-                );
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const ProductGroupsScreen()));
               },
             ),
-            // Users
             ListTile(
               leading: const Icon(Icons.manage_accounts),
               title: const Text("Users"),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const UsersScreen()),
-                );
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const UsersScreen()));
               },
             ),
-
-            // Reports
             ListTile(
               leading: const Icon(Icons.bar_chart),
               title: const Text("Reports"),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ReportsScreen()),
-                );
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const ReportsScreen()));
               },
             ),
             ListTile(
@@ -231,10 +214,8 @@ class MenuScreen extends ConsumerWidget {
               title: const Text("End of Day"),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const EndOfDayScreen()),
-                );
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const EndOfDayScreen()));
               },
             ),
             const Divider(),
@@ -243,12 +224,7 @@ class MenuScreen extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.red),
               title: const Text("Logout", style: TextStyle(color: Colors.red)),
-              onTap: () {
-                Navigator.pop(context);
-                ref.read(currentUserProvider.notifier).state = null;
-                ref.read(cartProvider.notifier).clearCart();
-                Navigator.of(context).pushReplacementNamed('/');
-              },
+              onTap: () => _handleLogout(context, ref),
             ),
           ],
         ),
@@ -281,29 +257,27 @@ class MenuScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.red),
             tooltip: "Logout",
-            onPressed: () {
-              ref.read(currentUserProvider.notifier).state = null;
-              ref.read(cartProvider.notifier).clearCart();
-              Navigator.of(context).pushReplacementNamed('/');
-            },
+            onPressed: () => _handleLogout(context, ref),
           ),
           const SizedBox(width: 8),
         ],
       ),
       body: Row(
         children: [
+          // 🌗 Browser Section: Now uses Theme background instead of hardcoded grey
           Expanded(
             flex: 2,
             child: Container(
-              color: Colors.grey[100],
+              color: Theme.of(context).scaffoldBackgroundColor,
               child: const BrowserSection(),
             ),
           ),
           const VerticalDivider(width: 1, thickness: 1),
+          // 🌗 Cart Section: Now uses Theme surface color instead of hardcoded white
           Expanded(
             flex: 1,
             child: Container(
-              color: Colors.white,
+              color: Theme.of(context).colorScheme.surface,
               child: const CartSection(),
             ),
           ),
@@ -324,6 +298,7 @@ class BrowserSection extends ConsumerWidget {
     final currentGroup = ref.watch(currentGroupProvider);
     final searchQuery = ref.watch(searchQueryProvider);
     final selectedCompany = ref.watch(selectedCompanyProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (selectedCompany == null) {
       return const Center(
@@ -363,11 +338,14 @@ class BrowserSection extends ConsumerWidget {
       children: [
         Container(
           padding: const EdgeInsets.all(12),
-          color: Colors.white,
+          // Adaptive background for search bar area
+          color: Theme.of(context).scaffoldBackgroundColor,
           child: TextField(
             decoration: InputDecoration(
               hintText: "Search products...",
               prefixIcon: const Icon(Icons.search),
+              fillColor: Theme.of(context).cardColor,
+              filled: true,
               suffixIcon: searchQuery.isNotEmpty
                   ? IconButton(
                       icon: const Icon(Icons.clear),
@@ -375,8 +353,10 @@ class BrowserSection extends ConsumerWidget {
                           ref.read(searchQueryProvider.notifier).state = "",
                     )
                   : null,
-              border:
-                  OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide.none, // Cleaner look
+              ),
               contentPadding:
                   const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
             ),
@@ -387,7 +367,7 @@ class BrowserSection extends ConsumerWidget {
         if (!isSearching && currentGroup != null)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Colors.grey[200],
+            color: isDark ? Colors.grey[850] : Colors.grey[200],
             child: Row(
               children: [
                 IconButton(
@@ -425,15 +405,18 @@ class BrowserSection extends ConsumerWidget {
                   padding: const EdgeInsets.all(16),
                   gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: 180,
-                    childAspectRatio: 0.85,
+                    childAspectRatio:
+                        0.9, // Slightly taller to fit images better
                     crossAxisSpacing: 16,
                     mainAxisSpacing: 16,
                   ),
                   itemCount: itemsToDisplay.length,
                   itemBuilder: (context, index) {
                     final item = itemsToDisplay[index];
-                    if (item is ProductGroup) return _buildGroupCard(ref, item);
-                    if (item is Product) return _buildProductCard(ref, item);
+                    if (item is ProductGroup)
+                      return _buildGroupCard(context, ref, item);
+                    if (item is Product)
+                      return _buildProductCard(context, ref, item);
                     return const SizedBox();
                   },
                 ),
@@ -442,50 +425,64 @@ class BrowserSection extends ConsumerWidget {
     );
   }
 
-  Widget _buildGroupCard(WidgetRef ref, ProductGroup group) {
+  // --- 🎨 REDESIGNED GROUP CARD ---
+  Widget _buildGroupCard(
+      BuildContext context, WidgetRef ref, ProductGroup group) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // Fallback if they pick white/transparent in the backend
+    final baseColor = (group.flutterColor == Colors.transparent ||
+            group.flutterColor == Colors.white)
+        ? Colors.blueGrey
+        : group.flutterColor;
+
+    final bgColor =
+        isDark ? baseColor.withOpacity(0.2) : baseColor.withOpacity(0.15);
+    final borderColor =
+        isDark ? baseColor.withOpacity(0.5) : baseColor.withOpacity(0.3);
+
     return InkWell(
       onTap: () {
         ref.read(currentGroupProvider.notifier).state = group;
         ref.read(searchQueryProvider.notifier).state = "";
       },
-      child: Card(
-        color: group.flutterColor.withOpacity(0.15),
-        elevation: 2,
-        shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: bgColor,
           borderRadius: BorderRadius.circular(12),
-          side:
-              BorderSide(color: group.flutterColor.withOpacity(0.5), width: 1),
+          border: Border.all(color: borderColor, width: 1.5),
         ),
+        clipBehavior: Clip.antiAlias,
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (group.imageBytes != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.memory(
-                  group.imageBytes!,
-                  height: 60,
-                  width: 60,
-                  fit: BoxFit.cover,
-                  errorBuilder: (ctx, err, stack) =>
-                      Icon(Icons.folder, size: 48, color: group.flutterColor),
-                ),
-              )
-            else
-              Icon(Icons.folder, size: 54, color: group.flutterColor),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: Text(
-                group.name,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: group.flutterColor == Colors.white
-                      ? Colors.black
-                      : group.flutterColor
-                          .withOpacity(0.9), // Ensures text is readable
+            Expanded(
+              flex: 3,
+              child: group.imageBytes != null
+                  ? Image.memory(group.imageBytes!, fit: BoxFit.cover)
+                  : Center(
+                      child: Icon(Icons.folder,
+                          size: 54,
+                          color:
+                              isDark ? baseColor.withOpacity(0.8) : baseColor),
+                    ),
+            ),
+            Expanded(
+              flex: 2,
+              child: Container(
+                padding: const EdgeInsets.all(8.0),
+                alignment: Alignment.center,
+                child: Text(
+                  group.name,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
                 ),
               ),
             ),
@@ -495,30 +492,77 @@ class BrowserSection extends ConsumerWidget {
     );
   }
 
-  Widget _buildProductCard(WidgetRef ref, Product product) {
+  // --- 🎨 REDESIGNED PRODUCT CARD ---
+  Widget _buildProductCard(
+      BuildContext context, WidgetRef ref, Product product) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return InkWell(
       onTap: () => ref.read(cartProvider.notifier).addProduct(product),
-      child: Card(
-        color: Colors.white,
-        elevation: 2,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+              color: isDark ? Colors.grey[800]! : Colors.grey[300]!, width: 1),
+          boxShadow: isDark
+              ? []
+              : [
+                  BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2))
+                ],
+        ),
+        clipBehavior: Clip.antiAlias,
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(Icons.fastfood, size: 40, color: Colors.orange),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4.0),
-              child: Text(
-                product.name,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
+            // Image Section (Expands nicely)
+            Expanded(
+              flex: 3,
+              child: product.imageBytes != null
+                  ? Image.memory(product.imageBytes!, fit: BoxFit.cover)
+                  : Container(
+                      color: isDark ? Colors.grey[850] : Colors.grey[100],
+                      child: Icon(Icons.inventory_2,
+                          size: 48,
+                          color: isDark ? Colors.grey[600] : Colors.grey[400]),
+                    ),
             ),
-            Text(
-              "\$${product.price.toStringAsFixed(2)}",
-              style: TextStyle(color: Colors.grey[700]),
+            // Text Section
+            Expanded(
+              flex: 2,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                color: isDark ? Colors.grey[900] : Colors.white,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      product.name,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "\$${product.price.toStringAsFixed(2)}",
+                      style: TextStyle(
+                        color: isDark
+                            ? Colors.greenAccent[400]
+                            : Colors.green[700],
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
@@ -574,10 +618,8 @@ class _CartSectionState extends ConsumerState<CartSection> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
-        // 👇 WRAP IN A CONSUMER SO IT LISTENS FOR UPDATES!
         return Consumer(
           builder: (context, ref, child) {
-            // Now we WATCH the provider, so it updates when the API finishes
             final paymentTypesAsync = ref.watch(allPaymentTypesProvider);
 
             return AlertDialog(
@@ -618,7 +660,6 @@ class _CartSectionState extends ConsumerState<CartSection> {
                                 backgroundColor: Colors.indigo,
                                 foregroundColor: Colors.white,
                               ),
-                              // Trigger the backend API call
                               onPressed: () =>
                                   _submitTransaction(ctx, ref, pt.id, total),
                               icon: const Icon(Icons.payment),
@@ -646,7 +687,6 @@ class _CartSectionState extends ConsumerState<CartSection> {
     );
   }
 
-  // --- NEW: SEND DATA TO BACKEND ---
   Future<void> _submitTransaction(BuildContext dialogContext, WidgetRef ref,
       int paymentTypeId, double totalAmount) async {
     final companyId = ref.read(selectedCompanyProvider)?.id;
@@ -660,14 +700,12 @@ class _CartSectionState extends ConsumerState<CartSection> {
       return;
     }
 
-    // Close the popup dialog immediately to show loading state
     Navigator.pop(dialogContext);
     setState(() => _isProcessing = true);
 
     try {
       final dio = createDio();
 
-      // ⚠️ IMPORTANT: Adjust these JSON keys to perfectly match your C# 'CreateDocumentRequest' DTO!
       final payload = {
         "companyId": companyId,
         "userId": userId,
@@ -717,9 +755,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
       if (customers != null &&
           customers.isNotEmpty &&
           ref.read(currentCustomerProvider) == null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          // ref.read(currentCustomerProvider.notifier).setDefault(customers);
-        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {});
       }
     });
 
@@ -727,6 +763,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final total = ref.watch(cartTotalProvider);
     final currentCustomer = ref.watch(currentCustomerProvider);
     final asyncCustomers = ref.watch(allCustomersProvider);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Column(
       children: [
@@ -756,24 +793,28 @@ class _CartSectionState extends ConsumerState<CartSection> {
         ),
         Expanded(
           child: cartItems.isEmpty
-              ? const Center(
+              ? Center(
                   child: Text("Cart is empty",
-                      style: TextStyle(color: Colors.grey)))
+                      style: TextStyle(
+                          color: isDark ? Colors.grey[600] : Colors.grey)))
               : ListView.separated(
                   itemCount: cartItems.length,
-                  separatorBuilder: (ctx, i) => const Divider(),
+                  separatorBuilder: (ctx, i) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final item = cartItems[index];
                     return ListTile(
-                      title: Text(item.product.name),
+                      title: Text(item.product.name,
+                          style: const TextStyle(fontWeight: FontWeight.w500)),
                       subtitle: Text("x${item.quantity}"),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text("\$${item.total.toStringAsFixed(2)}"),
+                          Text("\$${item.total.toStringAsFixed(2)}",
+                              style: const TextStyle(fontSize: 15)),
                           IconButton(
-                            icon: const Icon(Icons.close,
-                                color: Colors.red, size: 16),
+                            icon: Icon(Icons.close,
+                                color: isDark ? Colors.redAccent : Colors.red,
+                                size: 20),
                             onPressed: () => ref
                                 .read(cartProvider.notifier)
                                 .removeItem(item.product),
@@ -788,21 +829,21 @@ class _CartSectionState extends ConsumerState<CartSection> {
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             color: Theme.of(context).cardColor,
-            boxShadow: const [
+            boxShadow: [
               BoxShadow(
-                  color: Colors.black12, blurRadius: 10, offset: Offset(0, -4))
+                  color: isDark ? Colors.black38 : Colors.black12,
+                  blurRadius: 10,
+                  offset: const Offset(0, -4))
             ],
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text("Total: \$${total.toStringAsFixed(2)}",
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: Colors.green)),
-
-              // --- UPDATED PAY BUTTON ---
+                      color: isDark ? Colors.greenAccent[400] : Colors.green)),
               _isProcessing
                   ? const CircularProgressIndicator()
                   : ElevatedButton(
@@ -811,6 +852,8 @@ class _CartSectionState extends ConsumerState<CartSection> {
                           : () => _showCheckoutDialog(context, ref, total),
                       style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.green,
+                          disabledBackgroundColor:
+                              isDark ? Colors.grey[800] : Colors.grey[300],
                           padding: const EdgeInsets.symmetric(
                               horizontal: 32, vertical: 16)),
                       child: const Text("PAY",

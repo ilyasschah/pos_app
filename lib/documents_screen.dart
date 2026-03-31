@@ -5,8 +5,6 @@ import 'api_client.dart';
 import 'company_provider.dart';
 import 'document_model.dart';
 import 'document_editor_screen.dart';
-import 'document_editor_screen.dart';
-import 'document_model.dart';
 
 // --- PROVIDERS ---
 final allDocumentsProvider =

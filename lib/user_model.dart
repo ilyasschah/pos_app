@@ -1,17 +1,19 @@
 class User {
   final int id;
+  final int companyId;
   final String? firstName;
   final String? lastName;
-  final String username;
+  final String? username;
   final int accessLevel;
   final bool isEnabled;
   final String? email;
 
   User({
     required this.id,
+    required this.companyId,
     this.firstName,
     this.lastName,
-    required this.username,
+    this.username,
     required this.accessLevel,
     required this.isEnabled,
     this.email,
@@ -19,21 +21,21 @@ class User {
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
-      id: json['id'],
+      id: json['id'] ?? 0,
+      companyId: json['companyId'] ?? 0,
       firstName: json['firstName'],
       lastName: json['lastName'],
-      username: json['username'] ?? 'Unknown',
+      username: json['username'],
       accessLevel: json['accessLevel'] ?? 0,
       isEnabled: json['isEnabled'] ?? false,
       email: json['email'],
     );
   }
 
-  // Helper to show a nice name in the UI
   String get displayName {
     if (firstName != null && lastName != null) {
-      return "$firstName $lastName";
+      return '$firstName $lastName';
     }
-    return username;
+    return username ?? 'Unknown User';
   }
 }

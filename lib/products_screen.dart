@@ -8,15 +8,11 @@ import 'company_provider.dart';
 import 'product_group_provider.dart';
 import 'product_model.dart';
 import 'product_group_model.dart';
-import 'product_groups_screen.dart';
 import 'product_provider.dart';
 import 'tax_provider.dart';
-import 'product_comment_model.dart';
 import 'product_comment_provider.dart';
 import 'customer_provider.dart';
-import 'stock_control_model.dart';
 import 'stock_control_provider.dart';
-import 'barcode_model.dart';
 import 'barcode_provider.dart';
 
 // --- HELPER ---

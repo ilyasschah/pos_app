@@ -18,7 +18,6 @@ cloudResources:
     ..\postman\collections\Customer API - Web POS: 41814350-8eece70d-31ed-4fae-8b03-653b804773cc
     ..\postman\collections\PaymentTypes API - Web POS: 41814350-a6ecf566-8243-4a0d-8437-b1848dcc854f
     ..\postman\collections\Stocks API: 41814350-c3a81e84-f018-42c3-b889-196d7de2b2ba
-    ..\postman\collections\Sales.Api - Users: 41814350-d01d2454-3841-4795-9e94-eb7acbad9db3
     ..\postman\collections\Documents: 41814350-fe9212ba-c021-4022-9515-da26fc9f004c
     ..\postman\collections\POS - Currencies Controller: 41814350-6089cac7-3d47-43a0-8fae-aabe49157e21
     ..\postman\collections\POS - Products Controller: 41814350-29c0ea0b-0ede-487e-989a-4cc86023472f
@@ -30,5 +29,7 @@ cloudResources:
     ..\postman\collections\POS - Document Item Expiration Dates: 44753e29-9df2-4431-a74e-99d964752f2c
     ..\postman\collections\POS - Payments: dafddc6e-30e3-497a-a417-9f87015e5271
     ..\postman\collections\POS - Z-Reports: ea1d3496-7737-463f-b323-83dbcb6baa38
+    ..\postman\collections\POS - Users: 4de12dbc-95c7-41d5-949a-7cc3a2bb9d96
+    ..\postman\collections\POS - SecurityKeys: 91d2efd3-6011-491b-815c-3ec59afb8920
   environments:
     ..\postman\environments\New Environment.environment.yaml: 0ff322dd-64bf-472c-93d0-3e882d21cd5f
