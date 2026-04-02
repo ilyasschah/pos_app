@@ -5,6 +5,7 @@ import 'company_provider.dart';
 import 'company_model.dart';
 import 'settings_provider.dart';
 import 'menu_screen.dart';
+import 'package:pos_app/floor_plan/floor_plan_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -17,8 +18,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    // Bypassing the company screen means we MUST set a default company
-    // before the UI tries to fetch users, otherwise the API throws an error.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final selectedCo = ref.read(selectedCompanyProvider);
       final defaultCoId = ref.read(defaultCompanyIdProvider);
@@ -112,7 +111,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       onTap: () {
         ref.read(currentUserProvider.notifier).state = user;
         Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => const MenuScreen()));
+            MaterialPageRoute(builder: (context) => const FloorPlanScreen()));
       },
       child: Card(
         elevation: 4,

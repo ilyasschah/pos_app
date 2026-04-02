@@ -1,50 +1,90 @@
-import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../api_client.dart';
+import '../company_provider.dart';
+import 'floor_plan_provider.dart';
 import 'floor_plan_table.dart';
 
-class FloorPlanTableProvider extends ChangeNotifier {
-  List<FloorPlanTable> _tables = [];
-  int? _selectedTableId;
+// --- 1. API FETCH PROVIDER ---
+// Automatically fetches tables whenever the active Floor Plan (Tab) changes
+final tablesByFloorPlanProvider =
+    FutureProvider.autoDispose<List<FloorPlanTable>>((ref) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  final activeFloorPlanId = ref.watch(floorPlanProvider).activeFloorPlanId;
 
-  List<FloorPlanTable> get tables => _tables;
-  int? get selectedTableId => _selectedTableId;
+  if (companyId == null || activeFloorPlanId == null) return [];
 
-  FloorPlanTable? get selectedTable {
-    if (_selectedTableId == null) return null;
-    try {
-      return _tables.firstWhere((t) => t.id == _selectedTableId);
-    } catch (e) {
-      return null;
-    }
+  try {
+    final dio = createDio();
+    final response = await dio.get(
+      '/FloorPlanTables/GetByFloorPlanId',
+      queryParameters: {
+        'floorPlanId': activeFloorPlanId,
+        'companyId': companyId
+      },
+    );
+    return (response.data as List)
+        .map((j) => FloorPlanTable.fromJson(j))
+        .toList();
+  } catch (e) {
+    return [];
   }
+});
 
-  // We will call the API Service here later
-  void setTables(List<FloorPlanTable> newTables) {
-    _tables = newTables;
-    // Clear selection if the active floor plan changes
-    _selectedTableId = null;
-    notifyListeners();
+// --- 2. STATE MANAGEMENT (Selection & Math) ---
+class FloorPlanTableNotifier extends Notifier<int?> {
+  @override
+  int? build() {
+    return null;
   }
 
   void selectTable(int? id) {
-    _selectedTableId = id;
-    notifyListeners();
+    state = id;
   }
 
-  void updateTableGeometryLocally(int id, double x, double y) {
-    final index = _tables.indexWhere((t) => t.id == id);
-    if (index != -1) {
-      _tables[index].positionX = x;
-      _tables[index].positionY = y;
-      notifyListeners();
-    }
+  // --- API MUTATION METHODS ---
+  Future<void> addTable(FloorPlanTable table) async {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    if (companyId == null) return;
+
+    final dio = createDio();
+    await dio.post('/FloorPlanTables/Add',
+        queryParameters: {'companyId': companyId}, data: table.toJson());
+
+    ref.invalidate(tablesByFloorPlanProvider);
   }
 
-  void updateTableSizeLocally(int id, double width, double height) {
-    final index = _tables.indexWhere((t) => t.id == id);
-    if (index != -1) {
-      _tables[index].width = width;
-      _tables[index].height = height;
-      notifyListeners();
-    }
+  Future<void> deleteTable(int id) async {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    if (companyId == null) return;
+
+    final dio = createDio();
+    await dio.delete('/FloorPlanTables/Delete',
+        queryParameters: {'id': id, 'companyId': companyId});
+
+    if (state == id) state = null; // Deselect if deleted
+    ref.invalidate(tablesByFloorPlanProvider);
+  }
+
+  // Called when a user stops dragging a table in the UI
+  Future<void> updateTableGeometry(
+      int id, double x, double y, double width, double height) async {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    if (companyId == null) return;
+
+    final dio = createDio();
+    await dio.patch('/FloorPlanTables/UpdateGeometry', queryParameters: {
+      'companyId': companyId
+    }, data: {
+      'id': id,
+      'positionX': x,
+      'positionY': y,
+      'width': width,
+      'height': height,
+    });
+
+    ref.invalidate(tablesByFloorPlanProvider);
   }
 }
+
+final floorPlanTableProvider = NotifierProvider<FloorPlanTableNotifier, int?>(
+    () => FloorPlanTableNotifier());
