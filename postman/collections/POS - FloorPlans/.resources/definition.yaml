@@ -1,0 +1,5 @@
+$kind: collection
+description: Endpoints for managing Floor Plans (canvases/rooms) in the POS system.
+variables:
+  baseUrl: https://localhost:7002
+  companyId: "2"

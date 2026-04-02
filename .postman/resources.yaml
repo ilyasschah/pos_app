@@ -7,6 +7,7 @@ localResources:
     - ..\postman.json
 
 # Each entry here maps a local resource to one or more corresponding objects in Postman Cloud
+
 cloudResources:
   collections:
     ..\postman\collections\Warehouses API - SAFE IMPORT: 41814350-1bb971e1-1600-44ff-81be-18678404f3b6
@@ -31,5 +32,7 @@ cloudResources:
     ..\postman\collections\POS - Z-Reports: ea1d3496-7737-463f-b323-83dbcb6baa38
     ..\postman\collections\POS - Users: 4de12dbc-95c7-41d5-949a-7cc3a2bb9d96
     ..\postman\collections\POS - SecurityKeys: 91d2efd3-6011-491b-815c-3ec59afb8920
+    ..\postman\collections\POS - FloorPlanTables: 9a8d73c2-101f-488b-8a31-583cc6b2c1f3
+    ..\postman\collections\POS - FloorPlans: f5a58b59-b8e1-47bf-84c5-622f5fdff189
   environments:
     ..\postman\environments\New Environment.environment.yaml: 0ff322dd-64bf-472c-93d0-3e882d21cd5f
