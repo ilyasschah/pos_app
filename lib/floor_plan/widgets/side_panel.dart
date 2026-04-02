@@ -26,7 +26,6 @@ class SidePanel extends ConsumerWidget {
                   Text(fpState.isEditMode ? "Edit Options" : "Options",
                       style:
                           const TextStyle(color: Colors.white, fontSize: 24)),
-                  // Show an exit arrow if they are in Edit Mode
                   if (fpState.isEditMode)
                     IconButton(
                       icon:
@@ -44,8 +43,6 @@ class SidePanel extends ConsumerWidget {
               ),
             ),
             const Divider(color: Colors.grey),
-
-            // Dynamic content based on mode
             Expanded(
               child: !fpState.isEditMode
                   ? _buildMainMenu(context, ref)
@@ -60,7 +57,6 @@ class SidePanel extends ConsumerWidget {
     );
   }
 
-  // THE NEW MENU (Orders and Settings)
   Widget _buildMainMenu(BuildContext context, WidgetRef ref) {
     return ListView(
       padding: EdgeInsets.zero,
@@ -82,6 +78,11 @@ class SidePanel extends ConsumerWidget {
           onTap: () {
             // Turn on edit mode!
             ref.read(floorPlanProvider.notifier).toggleEditMode(true);
+
+            // 👇 FIX: Close the drawer so the user can ACTUALLY tap a table!
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text("Edit Mode ON: Tap any table to resize it!")));
           },
         ),
       ],
@@ -95,7 +96,6 @@ class SidePanel extends ConsumerWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        // Toggles
         SwitchListTile(
           title: const Text("Show grid", style: TextStyle(color: Colors.white)),
           value: fpState.showGrid,
@@ -103,8 +103,6 @@ class SidePanel extends ConsumerWidget {
           onChanged: (val) =>
               ref.read(floorPlanProvider.notifier).toggleShowGrid(val),
         ),
-
-        // Buttons
         const SizedBox(height: 20),
         Wrap(
           spacing: 10,
@@ -114,7 +112,6 @@ class SidePanel extends ConsumerWidget {
               style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF374151)),
               onPressed: () {
-                // Add table logic
                 if (activePlanId != 0) {
                   ref.read(floorPlanTableProvider.notifier).addTable(
                       FloorPlanTable(
@@ -134,7 +131,36 @@ class SidePanel extends ConsumerWidget {
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF374151)),
-              onPressed: () {/* Add Floor Plan Logic */},
+              onPressed: () {
+                // 👇 FIX: Added real logic to create a new Floor Plan
+                showDialog(
+                    context: context,
+                    builder: (ctx) {
+                      String newName = "";
+                      return AlertDialog(
+                          title: const Text("New Floor Plan"),
+                          content: TextField(
+                            onChanged: (v) => newName = v,
+                            decoration: const InputDecoration(
+                                hintText: "E.g., Second Floor"),
+                          ),
+                          actions: [
+                            TextButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text("Cancel")),
+                            TextButton(
+                                onPressed: () {
+                                  if (newName.isNotEmpty) {
+                                    ref
+                                        .read(floorPlanProvider.notifier)
+                                        .addFloorPlan(newName, "Transparent");
+                                  }
+                                  Navigator.pop(ctx);
+                                },
+                                child: const Text("Save"))
+                          ]);
+                    });
+              },
               child: const Text("Add new floor plan",
                   style: TextStyle(color: Colors.white)),
             ),
@@ -144,31 +170,96 @@ class SidePanel extends ConsumerWidget {
     );
   }
 
-  // --- UI FROM IMAGE 3 (TABLE EDITOR) ---
   Widget _buildTableEditor(BuildContext context, WidgetRef ref, int tableId) {
-    // Note: To show real-time changes without rebuilding the whole drawer heavily,
-    // we would pull the specific table from the tables list.
+    // 👇 FIX: Retrieve the table data to show real dimensions
+    final tablesAsync = ref.watch(tablesByFloorPlanProvider);
+    final tables = tablesAsync.value;
+    if (tables == null) return const SizedBox();
+
+    final tableIndex = tables.indexWhere((t) => t.id == tableId);
+    if (tableIndex == -1) return const SizedBox();
+    final table = tables[tableIndex];
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         ElevatedButton(
           style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF374151)),
-          onPressed: () {
-            ref.read(floorPlanTableProvider.notifier).deleteTable(tableId);
-          },
+          onPressed: () =>
+              ref.read(floorPlanTableProvider.notifier).deleteTable(tableId),
           child: const Text("Remove selected table",
               style: TextStyle(color: Colors.redAccent)),
         ),
         const SizedBox(height: 20),
 
-        // Size Controls
-        const Text("Height & Width", style: TextStyle(color: Colors.white)),
-        // We will add the + / - steppers from your UI here later
-        const Center(
-          child: Text("Use drag edges on table to resize (Coming soon)",
-              style: TextStyle(color: Colors.grey)),
-        )
+        Text("Table: ${table.name}",
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold)),
+        const SizedBox(height: 20),
+        const Text("Height & Width",
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 10),
+
+        // 👇 FIX: Actual Height Stepper from your screenshots
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          const Text("Height", style: TextStyle(color: Colors.white70)),
+          Row(children: [
+            IconButton(
+                icon: const Icon(Icons.remove, color: Colors.white),
+                onPressed: () {
+                  if (table.height > 20) {
+                    ref
+                        .read(floorPlanTableProvider.notifier)
+                        .updateTableGeometry(table.id, table.positionX,
+                            table.positionY, table.width, table.height - 10);
+                  }
+                }),
+            Text("${table.height.toInt()}",
+                style: const TextStyle(color: Colors.white, fontSize: 16)),
+            IconButton(
+                icon: const Icon(Icons.add, color: Colors.white),
+                onPressed: () {
+                  ref.read(floorPlanTableProvider.notifier).updateTableGeometry(
+                      table.id,
+                      table.positionX,
+                      table.positionY,
+                      table.width,
+                      table.height + 10);
+                }),
+          ])
+        ]),
+
+        // 👇 FIX: Actual Width Stepper from your screenshots
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          const Text("Width", style: TextStyle(color: Colors.white70)),
+          Row(children: [
+            IconButton(
+                icon: const Icon(Icons.remove, color: Colors.white),
+                onPressed: () {
+                  if (table.width > 20) {
+                    ref
+                        .read(floorPlanTableProvider.notifier)
+                        .updateTableGeometry(table.id, table.positionX,
+                            table.positionY, table.width - 10, table.height);
+                  }
+                }),
+            Text("${table.width.toInt()}",
+                style: const TextStyle(color: Colors.white, fontSize: 16)),
+            IconButton(
+                icon: const Icon(Icons.add, color: Colors.white),
+                onPressed: () {
+                  ref.read(floorPlanTableProvider.notifier).updateTableGeometry(
+                      table.id,
+                      table.positionX,
+                      table.positionY,
+                      table.width + 10,
+                      table.height);
+                }),
+          ])
+        ]),
       ],
     );
   }

@@ -100,10 +100,9 @@ class FloorPlanScreen extends ConsumerWidget {
             data: (tables) {
               return Stack(
                 children: [
-                  // TODO: Draw Grid CustomPaint here if fpState.showGrid is true
-
-                  // Render all tables
-                  ...tables.map((t) => TableWidget(table: t)).toList(),
+                  ...tables
+                      .map((t) => TableWidget(key: ValueKey(t.id), table: t))
+                      .toList(),
                 ],
               );
             },
