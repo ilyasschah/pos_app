@@ -18,7 +18,9 @@ Dio createDio() {
   if (!kIsWeb) {
     (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
       final client = HttpClient();
-      client.badCertificateCallback = (cert, host, port) => true;
+      if (kDebugMode) {
+        client.badCertificateCallback = (cert, host, port) => true;
+        }
       return client;
     };
   }

@@ -1,11 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import '../api_client.dart';
 import '../company_provider.dart';
 import 'floor_plan_provider.dart';
 import 'floor_plan_table.dart';
+import '../utils/api_error_parser.dart';
 
-// --- 1. API FETCH PROVIDER ---
-// Automatically fetches tables whenever the active Floor Plan (Tab) changes
 final tablesByFloorPlanProvider =
     FutureProvider.autoDispose<List<FloorPlanTable>>((ref) async {
   final companyId = ref.watch(selectedCompanyProvider)?.id;
@@ -19,58 +19,47 @@ final tablesByFloorPlanProvider =
       '/FloorPlanTables/GetByFloorPlanId',
       queryParameters: {
         'floorPlanId': activeFloorPlanId,
-        'companyId': companyId
+        'companyId': companyId,
       },
     );
     return (response.data as List)
         .map((j) => FloorPlanTable.fromJson(j))
         .toList();
-  } catch (e) {
+  } on DioException catch (e, st) {
+    rethrowApiError(e, st);
     return [];
   }
 });
 
-// --- 2. STATE MANAGEMENT (Selection & Math) ---
 class FloorPlanTableNotifier extends Notifier<int?> {
   @override
-  int? build() {
-    return null;
-  }
+  int? build() => null;
 
-  void selectTable(int? id) {
-    state = id;
-  }
+  void selectTable(int? id) => state = id;
 
-  // --- API MUTATION METHODS ---
   Future<void> addTable(FloorPlanTable table) async {
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
-
     final dio = createDio();
     await dio.post('/FloorPlanTables/Add',
         queryParameters: {'companyId': companyId}, data: table.toJson());
-
     ref.invalidate(tablesByFloorPlanProvider);
   }
 
   Future<void> deleteTable(int id) async {
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
-
     final dio = createDio();
     await dio.delete('/FloorPlanTables/Delete',
         queryParameters: {'id': id, 'companyId': companyId});
-
-    if (state == id) state = null; // Deselect if deleted
+    if (state == id) state = null;
     ref.invalidate(tablesByFloorPlanProvider);
   }
 
-  // Called when a user stops dragging a table in the UI
   Future<void> updateTableGeometry(
       int id, double x, double y, double width, double height) async {
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
-
     final dio = createDio();
     await dio.patch('/FloorPlanTables/UpdateGeometry', queryParameters: {
       'companyId': companyId
@@ -81,7 +70,6 @@ class FloorPlanTableNotifier extends Notifier<int?> {
       'width': width,
       'height': height,
     });
-
     ref.invalidate(tablesByFloorPlanProvider);
   }
 }

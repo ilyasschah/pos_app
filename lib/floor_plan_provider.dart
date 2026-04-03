@@ -1,10 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import '../api_client.dart';
 import '../company_provider.dart';
 import 'floor_plan.dart';
+import '../utils/api_error_parser.dart';
 
-// --- 1. API FETCH PROVIDER ---
-// Fetches all floor plans for the currently selected company
 final allFloorPlansProvider =
     FutureProvider.autoDispose<List<FloorPlan>>((ref) async {
   final companyId = ref.watch(selectedCompanyProvider)?.id;
@@ -17,18 +17,19 @@ final allFloorPlansProvider =
       queryParameters: {'companyId': companyId},
     );
     return (response.data as List).map((j) => FloorPlan.fromJson(j)).toList();
-  } catch (e) {
+  } on DioException catch (e, st) {
+    rethrowApiError(e, st);
     return [];
   }
 });
 
-// --- 2. STATE MANAGEMENT (UI Settings & Active Tab) ---
 class FloorPlanState {
   final int? activeFloorPlanId;
   final bool showGrid;
   final bool snapToGrid;
   final double gridSize;
   final bool isEditMode;
+
   FloorPlanState({
     this.activeFloorPlanId,
     this.showGrid = true,
@@ -56,69 +57,49 @@ class FloorPlanState {
 
 class FloorPlanNotifier extends Notifier<FloorPlanState> {
   @override
-  FloorPlanState build() {
-    return FloorPlanState();
-  }
+  FloorPlanState build() => FloorPlanState();
 
-  void setActiveFloorPlan(int id) {
-    state = state.copyWith(activeFloorPlanId: id);
-  }
+  void setActiveFloorPlan(int id) =>
+      state = state.copyWith(activeFloorPlanId: id);
 
   void toggleShowGrid(bool value) => state = state.copyWith(showGrid: value);
   void toggleSnapToGrid(bool value) =>
       state = state.copyWith(snapToGrid: value);
   void setGridSize(double size) => state = state.copyWith(gridSize: size);
+  void toggleEditMode(bool value) => state = state.copyWith(isEditMode: value);
 
-  // --- API MUTATION METHODS ---
   Future<void> addFloorPlan(String name, String color) async {
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
-
     final dio = createDio();
-    await dio.post('/FloorPlans/Add', queryParameters: {
-      'companyId': companyId
-    }, data: {
-      'name': name,
-      'color': color,
-    });
+    await dio.post('/FloorPlans/Add',
+        queryParameters: {'companyId': companyId},
+        data: {'name': name, 'color': color});
     ref.invalidate(allFloorPlansProvider);
   }
 
   Future<void> updateFloorPlan(int id, String name, String color) async {
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
-
     final dio = createDio();
-    await dio.patch('/FloorPlans/Update', queryParameters: {
-      'companyId': companyId
-    }, data: {
-      'id': id,
-      'name': name,
-      'color': color,
-    });
+    await dio.patch('/FloorPlans/Update',
+        queryParameters: {'companyId': companyId},
+        data: {'id': id, 'name': name, 'color': color});
     ref.invalidate(allFloorPlansProvider);
   }
 
   Future<void> deleteFloorPlan(int id) async {
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
-
     final dio = createDio();
     await dio.delete('/FloorPlans/Delete',
         queryParameters: {'id': id, 'companyId': companyId});
-
-    // Clear selection if we deleted the active one
     if (state.activeFloorPlanId == id) {
-      state = FloorPlanState(activeFloorPlanId: null); // resets to defaults
+      state = FloorPlanState(activeFloorPlanId: null);
     }
     ref.invalidate(allFloorPlansProvider);
-  }
-
-  void toggleEditMode(bool value) {
-    state = state.copyWith(isEditMode: value);
   }
 }
 
 final floorPlanProvider = NotifierProvider<FloorPlanNotifier, FloorPlanState>(
-  () => FloorPlanNotifier(),
-);
+    () => FloorPlanNotifier());

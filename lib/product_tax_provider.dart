@@ -1,9 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'product_tax_model.dart';
+import 'utils/api_error_parser.dart';
 
-// Fetch taxes specifically linked to a single product
 final productTaxesByProductIdProvider = FutureProvider.autoDispose
     .family<List<ProductTax>, int>((ref, productId) async {
   final companyId = ref.watch(selectedCompanyProvider)?.id;
@@ -16,7 +17,10 @@ final productTaxesByProductIdProvider = FutureProvider.autoDispose
       queryParameters: {'productId': productId, 'companyId': companyId},
     );
     return (res.data as List).map((x) => ProductTax.fromJson(x)).toList();
-  } catch (e) {
+  } on DioException catch (e, st) {
+    // 404 = no taxes linked yet, not an error worth surfacing
+    if (e.response?.statusCode == 404) return [];
+    rethrowApiError(e, st);
     return [];
   }
 });

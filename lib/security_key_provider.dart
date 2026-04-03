@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'security_key_model.dart';
+import 'utils/api_error_parser.dart';
 
 final allSecurityKeysProvider =
     FutureProvider<List<SecurityKeyModel>>((ref) async {
@@ -15,14 +16,11 @@ final allSecurityKeysProvider =
       '/SecurityKeys/GetAll',
       queryParameters: {'companyId': company.id},
     );
-
-    final data = response.data as List;
-    return data.map((json) => SecurityKeyModel.fromJson(json)).toList();
-  } on DioException catch (e) {
-    print("Failed to fetch security keys: ${e.message}");
-    return [];
-  } catch (e) {
-    print("Unexpected error fetching security keys: $e");
+    return (response.data as List)
+        .map((json) => SecurityKeyModel.fromJson(json))
+        .toList();
+  } on DioException catch (e, st) {
+    rethrowApiError(e, st);
     return [];
   }
 });

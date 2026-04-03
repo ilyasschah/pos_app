@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'barcode_model.dart';
+import 'utils/api_error_parser.dart';
 
 final barcodesByProductIdProvider = FutureProvider.autoDispose
     .family<List<BarcodeModel>, int>((ref, productId) async {
@@ -15,7 +17,9 @@ final barcodesByProductIdProvider = FutureProvider.autoDispose
       queryParameters: {'productId': productId, 'companyId': companyId},
     );
     return (res.data as List).map((x) => BarcodeModel.fromJson(x)).toList();
-  } catch (e) {
+  } on DioException catch (e, st) {
+    if (e.response?.statusCode == 404) return [];
+    rethrowApiError(e, st);
     return [];
   }
 });

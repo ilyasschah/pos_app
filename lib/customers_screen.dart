@@ -62,13 +62,11 @@ class CustomersScreen extends ConsumerWidget {
                   items: customers,
                   companyId: companyId,
                   emptyMessage: "No customers found.",
-                  ref: ref,
                 ),
                 _CustomerList(
                   items: suppliers,
                   companyId: companyId,
                   emptyMessage: "No suppliers found.",
-                  ref: ref,
                 ),
               ],
             );
@@ -80,25 +78,26 @@ class CustomersScreen extends ConsumerWidget {
 }
 
 // --- SHARED LIST ---
-class _CustomerList extends StatelessWidget {
+// Fixed: Changed from StatelessWidget + WidgetRef param to ConsumerWidget
+class _CustomerList extends ConsumerWidget {
   final List<Customer> items;
   final int companyId;
   final String emptyMessage;
-  final WidgetRef ref;
 
   const _CustomerList({
     required this.items,
     required this.companyId,
     required this.emptyMessage,
-    required this.ref,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (items.isEmpty) {
       return Center(
-        child: Text(emptyMessage,
-            style: const TextStyle(color: Colors.grey, fontSize: 16)),
+        child: Text(
+          emptyMessage,
+          style: const TextStyle(color: Colors.grey, fontSize: 16),
+        ),
       );
     }
 
@@ -126,9 +125,10 @@ class _CustomerList extends StatelessWidget {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Enable/Disable toggle
-              _EnableToggle(customer: c, companyId: companyId, ref: ref),
-              // Edit
+              _EnableToggle(
+                customer: c,
+                companyId: companyId,
+              ),
               IconButton(
                 icon: const Icon(Icons.edit, color: Colors.blueGrey),
                 tooltip: "Edit",
@@ -143,7 +143,6 @@ class _CustomerList extends StatelessWidget {
                   ref.invalidate(allCustomersProvider);
                 },
               ),
-              // Delete
               IconButton(
                 icon: const Icon(Icons.delete, color: Colors.red),
                 tooltip: "Delete",
@@ -170,8 +169,7 @@ class _CustomerList extends StatelessWidget {
                     ),
                   );
                   if (confirm == true && context.mounted) {
-                    await _delete(context, c.id, companyId);
-                    ref.invalidate(allCustomersProvider);
+                    await _delete(context, ref, c.id, companyId);
                   }
                 },
               ),
@@ -182,7 +180,12 @@ class _CustomerList extends StatelessWidget {
     );
   }
 
-  Future<void> _delete(BuildContext context, int id, int companyId) async {
+  Future<void> _delete(
+    BuildContext context,
+    WidgetRef ref,
+    int id,
+    int companyId,
+  ) async {
     try {
       final dio = createDio();
       await dio.delete(
@@ -192,9 +195,11 @@ class _CustomerList extends StatelessWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text("Deleted successfully"),
-            backgroundColor: Colors.green),
+          content: Text("Deleted successfully"),
+          backgroundColor: Colors.green,
+        ),
       );
+      ref.invalidate(allCustomersProvider);
     } on DioException catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -206,15 +211,14 @@ class _CustomerList extends StatelessWidget {
 }
 
 // --- ENABLE / DISABLE TOGGLE ---
+// No changes needed here - StatefulWidget is correct for local loading state
 class _EnableToggle extends StatefulWidget {
   final Customer customer;
   final int companyId;
-  final WidgetRef ref;
 
   const _EnableToggle({
     required this.customer,
     required this.companyId,
-    required this.ref,
   });
 
   @override
@@ -236,7 +240,10 @@ class _EnableToggleState extends State<_EnableToggle> {
           'isEnabled': !widget.customer.isEnabled,
         },
       );
-      widget.ref.invalidate(allCustomersProvider);
+      // Use context.mounted check before using context after async gap
+      if (!mounted) return;
+      // Invalidate via ProviderScope since we no longer have WidgetRef here
+      ProviderScope.containerOf(context).invalidate(allCustomersProvider);
     } on DioException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -252,9 +259,10 @@ class _EnableToggleState extends State<_EnableToggle> {
   Widget build(BuildContext context) {
     if (_loading) {
       return const SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(strokeWidth: 2));
+        width: 24,
+        height: 24,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
     }
     return Switch(
       value: widget.customer.isEnabled,
@@ -267,7 +275,7 @@ class _EnableToggleState extends State<_EnableToggle> {
 // --- ADD / EDIT CUSTOMER DIALOG ---
 class _CustomerFormDialog extends ConsumerStatefulWidget {
   final int companyId;
-  final Customer? customer; // null = Add, non-null = Edit
+  final Customer? customer;
 
   const _CustomerFormDialog({
     required this.companyId,
@@ -284,17 +292,14 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
   bool _isLoading = false;
   String? _errorMessage;
 
-  // Type flags
   late bool _isCustomer;
   late bool _isSupplier;
   late bool _isTaxExempt;
 
-  // Country
   List<Country> _countries = [];
   int? _selectedCountryId;
   bool _countriesLoading = true;
 
-  // Controllers
   late final TextEditingController _nameCtrl;
   late final TextEditingController _codeCtrl;
   late final TextEditingController _taxNumberCtrl;
@@ -354,7 +359,6 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
           (response.data as List).map((j) => Country.fromJson(j)).toList();
       setState(() {
         _countries = countries;
-        // If editing and countryId matches, keep it; otherwise pick first
         if (_selectedCountryId != null &&
             !countries.any((c) => c.id == _selectedCountryId)) {
           _selectedCountryId = countries.isNotEmpty ? countries.first.id : null;
@@ -458,7 +462,6 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Type checkboxes
                 Row(
                   children: [
                     Checkbox(
@@ -483,12 +486,14 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
                   ],
                 ),
                 const SizedBox(height: 8),
-
                 _sectionLabel("General"),
                 _row([
-                  _field(_nameCtrl, "Name *",
-                      validator: (v) =>
-                          v == null || v.trim().isEmpty ? "Required" : null),
+                  _field(
+                    _nameCtrl,
+                    "Name *",
+                    validator: (v) =>
+                        v == null || v.trim().isEmpty ? "Required" : null,
+                  ),
                   _field(_codeCtrl, "Code"),
                 ]),
                 _row([
@@ -497,10 +502,12 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
                 ]),
                 _row([
                   _field(_phoneCtrl, "Phone Number"),
-                  _field(_dueDateCtrl, "Due Date Period (days)",
-                      keyboardType: TextInputType.number),
+                  _field(
+                    _dueDateCtrl,
+                    "Due Date Period (days)",
+                    keyboardType: TextInputType.number,
+                  ),
                 ]),
-
                 const SizedBox(height: 12),
                 _sectionLabel("Address"),
                 _row([
@@ -517,13 +524,13 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
                 ]),
                 _field(_citySubdivisionCtrl, "District"),
                 const SizedBox(height: 12),
-
-                // Country Dropdown
                 _countriesLoading
                     ? const LinearProgressIndicator()
                     : _countries.isEmpty
-                        ? const Text("No countries available.",
-                            style: TextStyle(color: Colors.red))
+                        ? const Text(
+                            "No countries available.",
+                            style: TextStyle(color: Colors.red),
+                          )
                         : DropdownButtonFormField<int>(
                             value: _selectedCountryId,
                             decoration: const InputDecoration(
@@ -541,11 +548,12 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
                             onChanged: (v) =>
                                 setState(() => _selectedCountryId = v),
                           ),
-
                 if (_errorMessage != null) ...[
                   const SizedBox(height: 12),
-                  Text(_errorMessage!,
-                      style: const TextStyle(color: Colors.red, fontSize: 13)),
+                  Text(
+                    _errorMessage!,
+                    style: const TextStyle(color: Colors.red, fontSize: 13),
+                  ),
                 ],
               ],
             ),
@@ -554,8 +562,9 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text("Cancel")),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text("Cancel"),
+        ),
         if (_isLoading)
           const Padding(
             padding: EdgeInsets.all(8.0),
@@ -573,9 +582,13 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
 
   Widget _sectionLabel(String text) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
-        child: Text(text,
-            style: const TextStyle(
-                fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+        child: Text(
+          text,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.blueGrey,
+          ),
+        ),
       );
 
   Widget _row(List<Widget> children) => Padding(

@@ -23,8 +23,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final defaultCoId = ref.read(defaultCompanyIdProvider);
 
       if (selectedCo == null) {
-        // Fallback to Company ID 2 (or whatever default you want)
-        final fallbackId = defaultCoId ?? 2;
+        final fallbackId = defaultCoId ??
+            2; // Fallback to 2 if no default set hardcoded for debuging
         ref.read(selectedCompanyProvider.notifier).state = Company(
             id: fallbackId, name: "Default Branch", countrySubentity: "DEF");
       }
@@ -33,7 +33,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Only watch users AFTER ensuring a company is selected
     final selectedCo = ref.watch(selectedCompanyProvider);
     if (selectedCo == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));

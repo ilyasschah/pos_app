@@ -4,22 +4,26 @@ import 'package:flutter_riverpod/legacy.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'product_model.dart';
+import 'utils/api_error_parser.dart';
 
 final selectedProductGroupIdProvider = StateProvider<int?>((ref) => null);
-
-// --- PROVIDERS ---
 
 final allProductsListProvider =
     FutureProvider.autoDispose<List<Product>>((ref) async {
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return [];
 
-  final dio = createDio();
-  final response = await dio.get(
-    '/Products/GetAll',
-    queryParameters: {'companyId': company.id},
-  );
-  return (response.data as List).map((j) => Product.fromJson(j)).toList();
+  try {
+    final dio = createDio();
+    final response = await dio.get(
+      '/Products/GetAll',
+      queryParameters: {'companyId': company.id},
+    );
+    return (response.data as List).map((j) => Product.fromJson(j)).toList();
+  } on DioException catch (e, st) {
+    rethrowApiError(e, st);
+    return [];
+  }
 });
 
 final productsByGroupProvider =
@@ -29,22 +33,29 @@ final productsByGroupProvider =
 
   if (companyId == null) return [];
 
-  final dio = createDio();
   try {
+    final dio = createDio();
     if (groupId == null) {
-      final res = await dio
-          .get('/Products/GetAll', queryParameters: {'companyId': companyId});
+      final res = await dio.get(
+        '/Products/GetAll',
+        queryParameters: {'companyId': companyId},
+      );
       return (res.data as List).map((x) => Product.fromJson(x)).toList();
     } else {
-      final res = await dio.get('/Products/GetByProductGroup',
-          queryParameters: {'productGroupId': groupId, 'companyId': companyId});
+      final res = await dio.get(
+        '/Products/GetByProductGroup',
+        queryParameters: {
+          'productGroupId': groupId,
+          'companyId': companyId,
+        },
+      );
       return (res.data as List).map((x) => Product.fromJson(x)).toList();
     }
-  } on DioException catch (e) {
-    if (e.response?.statusCode == 404) {
-      return [];
-    }
-    rethrow;
+  } on DioException catch (e, st) {
+    // 404 just means no products in this group — not a real error
+    if (e.response?.statusCode == 404) return [];
+    rethrowApiError(e, st);
+    return [];
   }
 });
 
@@ -53,12 +64,17 @@ final productByIdProvider =
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return null;
 
-  final dio = createDio();
-  final response = await dio.get(
-    '/Products/GetById',
-    queryParameters: {'id': productId, 'companyId': company.id},
-  );
-  return Product.fromJson(response.data as Map<String, dynamic>);
+  try {
+    final dio = createDio();
+    final response = await dio.get(
+      '/Products/GetById',
+      queryParameters: {'id': productId, 'companyId': company.id},
+    );
+    return Product.fromJson(response.data as Map<String, dynamic>);
+  } on DioException catch (e, st) {
+    rethrowApiError(e, st);
+    return null;
+  }
 });
 
 final productMapProvider =

@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'stock_control_model.dart';
+import 'utils/api_error_parser.dart';
 
 final stockControlByProductIdProvider = FutureProvider.autoDispose
     .family<StockControl?, int>((ref, productId) async {
@@ -14,10 +16,12 @@ final stockControlByProductIdProvider = FutureProvider.autoDispose
       '/StockControls/GetByProductId',
       queryParameters: {'productId': productId, 'companyId': companyId},
     );
-    if (res.data == null || res.data == '')
-      return null; // In case the product doesn't have a rule yet
+    if (res.data == null || res.data == '') return null;
     return StockControl.fromJson(res.data);
-  } catch (e) {
+  } on DioException catch (e, st) {
+    // 404 = no stock control rule set yet for this product
+    if (e.response?.statusCode == 404) return null;
+    rethrowApiError(e, st);
     return null;
   }
 });

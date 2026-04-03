@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
 import 'payment_model.dart';
+import 'utils/api_error_parser.dart';
 
 final paymentsByDocumentIdProvider = FutureProvider.autoDispose
     .family<List<PaymentModel>, int>((ref, documentId) async {
@@ -17,10 +19,12 @@ final paymentsByDocumentIdProvider = FutureProvider.autoDispose
     return (response.data as List)
         .map((j) => PaymentModel.fromJson(j))
         .toList();
-  } catch (e) {
+  } on DioException catch (e, st) {
+    rethrowApiError(e, st);
     return [];
   }
 });
+
 final unreportedPaymentsProvider =
     FutureProvider.autoDispose<List<PaymentModel>>((ref) async {
   final companyId = ref.watch(selectedCompanyProvider)?.id;
@@ -28,12 +32,15 @@ final unreportedPaymentsProvider =
 
   try {
     final dio = createDio();
-    final response = await dio.get('/Payments/GetUnreported',
-        queryParameters: {'companyId': companyId});
+    final response = await dio.get(
+      '/Payments/GetUnreported',
+      queryParameters: {'companyId': companyId},
+    );
     return (response.data as List)
         .map((j) => PaymentModel.fromJson(j))
         .toList();
-  } catch (e) {
+  } on DioException catch (e, st) {
+    rethrowApiError(e, st);
     return [];
   }
 });

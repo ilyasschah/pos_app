@@ -3,18 +3,14 @@ import 'package:dio/dio.dart';
 import 'user_model.dart';
 import 'api_client.dart';
 import 'company_provider.dart';
+import 'utils/api_error_parser.dart';
 
 class CurrentUserNotifier extends Notifier<User?> {
   @override
   User? build() => null;
 
-  void setUser(User user) {
-    state = user;
-  }
-
-  void logout() {
-    state = null;
-  }
+  void setUser(User user) => state = user;
+  void logout() => state = null;
 }
 
 final currentUserProvider =
@@ -30,14 +26,9 @@ final allUsersProvider = FutureProvider<List<User>>((ref) async {
       '/Users/GetAllUsers',
       queryParameters: {'companyId': company.id},
     );
-
-    final data = response.data as List;
-    return data.map((json) => User.fromJson(json)).toList();
-  } on DioException catch (e) {
-    print("Failed to fetch users: ${e.message}");
-    return [];
-  } catch (e) {
-    print("Unexpected error fetching users: $e");
+    return (response.data as List).map((json) => User.fromJson(json)).toList();
+  } on DioException catch (e, st) {
+    rethrowApiError(e, st);
     return [];
   }
 });
