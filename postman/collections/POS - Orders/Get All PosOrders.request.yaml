@@ -1,0 +1,6 @@
+$kind: http-request
+url: "{{baseUrl}}/api/PosOrder?companyId={{companyId}}"
+method: GET
+queryParams:
+  companyId: "{{companyId}}"
+order: 1000
