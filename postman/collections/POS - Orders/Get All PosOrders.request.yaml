@@ -1,5 +1,6 @@
 $kind: http-request
-url: "{{baseUrl}}/api/PosOrder?companyId={{companyId}}"
+name: Get All PosOrders
+url: "{{baseUrl}}/api/PosOrder/GetAll?companyId={{companyId}}"
 method: GET
 queryParams:
   companyId: "{{companyId}}"

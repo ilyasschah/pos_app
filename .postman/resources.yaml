@@ -35,5 +35,8 @@ cloudResources:
     ..\postman\collections\POS - FloorPlanTables: 9a8d73c2-101f-488b-8a31-583cc6b2c1f3
     ..\postman\collections\POS - FloorPlans: f5a58b59-b8e1-47bf-84c5-622f5fdff189
     ..\postman\collections\POS - Orders: 754bf8ac-8552-4a7e-9af4-6072b13c09a0
+    ..\postman\collections\POS - Order Items: 2df557e9-5f60-4437-98b2-230c06ca813c
+    ..\postman\collections\POS - Checkout Flow: a6a69bdd-0c02-4d2f-abba-0812e41dd75e
+    ..\postman\collections\POS - Bulk Add Cart Items: 89333818-ccf6-4a93-bb82-5e9d318ee50b
   environments:
     ..\postman\environments\New Environment.environment.yaml: 0ff322dd-64bf-472c-93d0-3e882d21cd5f

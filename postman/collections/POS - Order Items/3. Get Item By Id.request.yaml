@@ -1,0 +1,11 @@
+$kind: http-request
+name: 3. Get Item By Id
+url: "{{baseUrl}}/api/PosOrderItem?id=8&companyId={{companyId}}"
+method: GET
+queryParams:
+  - key: id
+    value: "8"
+    description: Replace '1' with the actual ID returned from the POST request.
+  - key: companyId
+    value: "{{companyId}}"
+order: 3000
