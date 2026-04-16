@@ -1,103 +1,100 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pos_app/floor_plan_provider.dart';
+import 'package:pos_app/api_client.dart';
+import 'package:pos_app/cart_provider.dart';
 import 'package:pos_app/floor_plan_table.dart';
-import 'package:pos_app/floor_plan_table_provider.dart';
-import 'package:pos_app/menu_screen.dart';
-// Adjust your imports based on your folder structure:
 
-class TableWidget extends ConsumerStatefulWidget {
+class TableWidget extends StatelessWidget {
   final FloorPlanTable table;
-  const TableWidget({Key? key, required this.table}) : super(key: key);
-  @override
-  ConsumerState<TableWidget> createState() => _TableWidgetState();
-}
+  final int companyId;
+  final int userId;
+  final int warehouseId;
 
-class _TableWidgetState extends ConsumerState<TableWidget> {
-  late double localX;
-  late double localY;
-
-  @override
-  void initState() {
-    super.initState();
-    localX = widget.table.positionX;
-    localY = widget.table.positionY;
-  }
-
-  @override
-  void didUpdateWidget(covariant TableWidget oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.table.positionX != widget.table.positionX ||
-        oldWidget.table.positionY != widget.table.positionY) {
-      localX = widget.table.positionX;
-      localY = widget.table.positionY;
-    }
-  }
+  const TableWidget({
+    Key? key,
+    required this.table,
+    required this.companyId,
+    required this.userId,
+    required this.warehouseId,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    final selectedTableId = ref.watch(floorPlanTableProvider);
-    final isEditMode =
-        ref.watch(floorPlanProvider).isEditMode; // Watch the mode
-    final isSelected = selectedTableId == widget.table.id && isEditMode;
+    // ✨ 1. Dynamic Colors based on Status!
+    Color tableColor = Colors.green.shade400; // Free
+    if (table.status == 1) tableColor = Colors.red.shade400; // Occupied
+    if (table.status == 2) tableColor = Colors.orange.shade400; // Reserved
 
-    return Positioned(
-      left: localX,
-      top: localY,
-      width: widget.table.width,
-      height: widget.table.height,
-      child: GestureDetector(
-        onTap: () {
-          if (isEditMode) {
-            // EDIT MODE: Select table and open side panel
-            ref
-                .read(floorPlanTableProvider.notifier)
-                .selectTable(widget.table.id);
-            Scaffold.of(context).openEndDrawer();
-          } else {
-            // ORDER MODE: Go to POS!
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const MenuScreen()),
-            );
+    return GestureDetector(
+      onTap: () async {
+        if (table.status == 1) {
+          // Table is already occupied (Red).
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Table is already occupied!')),
+          );
+          return;
+        }
+
+        // ✨ 2. Table is Free (Green)! Let's create an order.
+        try {
+          // Optional: Show a quick loading indicator
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) =>
+                const Center(child: CircularProviderIndicator()),
+          );
+
+          final apiClient =
+              ApiClient(); // Or however you access your Dio client
+
+          // Call the C# Backend
+          final int newOrderId = await apiClient.createPosOrder(
+            companyId,
+            userId,
+            1, // 1 = Dine-in Service Type
+            table.id,
+          );
+
+          // Close the loading dialog
+          if (context.mounted) Navigator.pop(context);
+
+          // ✨ 3. Tell the "Brain" that we have an active order!
+          if (context.mounted) {
+            Provider.of<CartProvider>(context, listen: false)
+                .setOrderContext(newOrderId, warehouseId);
+
+            // ✨ 4. Navigate to the Menu/Cart Screen
+            // (Make sure '/menu' matches the route in your main.dart)
+            Navigator.pushNamed(context, '/menu');
           }
-        },
-        // ONLY allow dragging if in Edit Mode
-        onPanUpdate: isEditMode
-            ? (details) {
-                setState(() {
-                  localX += details.delta.dx;
-                  localY += details.delta.dy;
-                });
-              }
-            : null,
-        onPanEnd: isEditMode
-            ? (details) {
-                ref.read(floorPlanTableProvider.notifier).updateTableGeometry(
-                      widget.table.id,
-                      localX,
-                      localY,
-                      widget.table.width,
-                      widget.table.height,
-                    );
-              }
-            : null,
-        child: Container(
-          decoration: BoxDecoration(
-            color: isSelected ? Colors.green[400] : Colors.green[600],
-            shape: widget.table.isRound ? BoxShape.circle : BoxShape.rectangle,
-            border: Border.all(
-              color: isSelected ? Colors.white : Colors.green[800]!,
-              width: isSelected ? 3 : 2,
-            ),
-          ),
-          child: Center(
-            child: Text(
-              widget.table.name,
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18),
+        } catch (e) {
+          if (context.mounted) Navigator.pop(context); // Close loader on error
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error opening table: $e')),
+          );
+        }
+      },
+      child: Container(
+        decoration: BoxDecoration(
+          color: tableColor,
+          borderRadius: table.isRound
+              ? BorderRadius.circular(100)
+              : BorderRadius.circular(8),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black12,
+              blurRadius: 4,
+              offset: const Offset(2, 2),
+            )
+          ],
+        ),
+        child: Center(
+          child: Text(
+            table.name,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
             ),
           ),
         ),

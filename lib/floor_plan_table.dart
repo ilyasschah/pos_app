@@ -1,12 +1,13 @@
 class FloorPlanTable {
   final int id;
   final int floorPlanId;
-  String name;
-  double positionX;
-  double positionY;
-  double width;
-  double height;
-  bool isRound;
+  final String name;
+  final double positionX;
+  final double positionY;
+  final double width;
+  final double height;
+  final bool isRound;
+  final int status;
 
   FloorPlanTable({
     required this.id,
@@ -17,31 +18,20 @@ class FloorPlanTable {
     required this.width,
     required this.height,
     required this.isRound,
+    this.status = 0,
   });
 
   factory FloorPlanTable.fromJson(Map<String, dynamic> json) {
     return FloorPlanTable(
       id: json['id'],
       floorPlanId: json['floorPlanId'],
-      name: json['name'],
-      positionX: (json['positionX'] as num).toDouble(),
-      positionY: (json['positionY'] as num).toDouble(),
-      width: (json['width'] as num).toDouble(),
-      height: (json['height'] as num).toDouble(),
-      isRound: json['isRound'],
+      name: json['name'] ?? '',
+      positionX: (json['positionX'] ?? 0).toDouble(),
+      positionY: (json['positionY'] ?? 0).toDouble(),
+      width: (json['width'] ?? 0).toDouble(),
+      height: (json['height'] ?? 0).toDouble(),
+      isRound: json['isRound'] ?? false,
+      status: json['status'] ?? 0,
     );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'floorPlanId': floorPlanId,
-      'name': name,
-      'positionX': positionX,
-      'positionY': positionY,
-      'width': width,
-      'height': height,
-      'isRound': isRound,
-    };
   }
 }

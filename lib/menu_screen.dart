@@ -53,7 +53,7 @@ class MenuScreen extends ConsumerWidget {
   void _handleLogout(BuildContext context, WidgetRef ref) {
     // Clear user and cart
     ref.read(currentUserProvider.notifier).state = null;
-    ref.read(cartProvider.notifier).clearCart();
+    ref.read(CartProvider.notifier).clearCart();
     // 🧹 Completely clear the navigation stack and go back to root (User Selection)
     Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
@@ -498,7 +498,7 @@ class BrowserSection extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return InkWell(
-      onTap: () => ref.read(cartProvider.notifier).addProduct(product),
+      onTap: () => ref.read(CartProvider.notifier).addProduct(product),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         decoration: BoxDecoration(
@@ -692,7 +692,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final companyId = ref.read(selectedCompanyProvider)?.id;
     final userId = ref.read(currentUserProvider)?.id;
     final customerId = ref.read(currentCustomerProvider)?.id;
-    final cartItems = ref.read(cartProvider);
+    final cartItems = ref.read(CartProvider);
 
     if (companyId == null || userId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -724,7 +724,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
       };
 
       await dio.post('/Documents/Create', data: payload);
-      ref.read(cartProvider.notifier).clearCart();
+      ref.read(CartProvider.notifier).clearCart();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -759,8 +759,8 @@ class _CartSectionState extends ConsumerState<CartSection> {
       }
     });
 
-    final cartItems = ref.watch(cartProvider);
-    final total = ref.watch(cartTotalProvider);
+    final cartItems = ref.watch(CartProvider);
+    final total = ref.watch(CartTotalProvider);
     final currentCustomer = ref.watch(currentCustomerProvider);
     final asyncCustomers = ref.watch(allCustomersProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -816,7 +816,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                                 color: isDark ? Colors.redAccent : Colors.red,
                                 size: 20),
                             onPressed: () => ref
-                                .read(cartProvider.notifier)
+                                .read(CartProvider.notifier)
                                 .removeItem(item.product),
                           )
                         ],
