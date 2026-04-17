@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/floor_plan_provider.dart';
 import 'package:pos_app/floor_plan_table.dart';
 import 'package:pos_app/floor_plan_table_provider.dart';
+import 'package:pos_app/floor_plan/active_orders_screen.dart';
 
 class SidePanel extends ConsumerWidget {
   const SidePanel({Key? key}) : super(key: key);
@@ -66,8 +67,10 @@ class SidePanel extends ConsumerWidget {
           title:
               const Text("Show orders", style: TextStyle(color: Colors.white)),
           onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Show Orders coming soon")));
+            // ✨ FIX: Close drawer and navigate to Active Orders
+            Navigator.pop(context);
+            Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const ActiveOrdersScreen()));
           },
         ),
         const Divider(color: Colors.grey),
@@ -76,10 +79,7 @@ class SidePanel extends ConsumerWidget {
           title: const Text("Floor plan / table settings",
               style: TextStyle(color: Colors.white)),
           onTap: () {
-            // Turn on edit mode!
             ref.read(floorPlanProvider.notifier).toggleEditMode(true);
-
-            // 👇 FIX: Close the drawer so the user can ACTUALLY tap a table!
             Navigator.pop(context);
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                 content: Text("Edit Mode ON: Tap any table to resize it!")));
@@ -132,7 +132,7 @@ class SidePanel extends ConsumerWidget {
               style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF374151)),
               onPressed: () {
-                // 👇 FIX: Added real logic to create a new Floor Plan
+                // 燥 FIX: Added real logic to create a new Floor Plan
                 showDialog(
                     context: context,
                     builder: (ctx) {
@@ -171,7 +171,6 @@ class SidePanel extends ConsumerWidget {
   }
 
   Widget _buildTableEditor(BuildContext context, WidgetRef ref, int tableId) {
-    // 👇 FIX: Retrieve the table data to show real dimensions
     final tablesAsync = ref.watch(tablesByFloorPlanProvider);
     final tables = tablesAsync.value;
     if (tables == null) return const SizedBox();
@@ -192,7 +191,6 @@ class SidePanel extends ConsumerWidget {
               style: TextStyle(color: Colors.redAccent)),
         ),
         const SizedBox(height: 20),
-
         Text("Table: ${table.name}",
             style: const TextStyle(
                 color: Colors.white,
@@ -202,8 +200,6 @@ class SidePanel extends ConsumerWidget {
         const Text("Height & Width",
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         const SizedBox(height: 10),
-
-        // 👇 FIX: Actual Height Stepper from your screenshots
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           const Text("Height", style: TextStyle(color: Colors.white70)),
           Row(children: [
@@ -231,8 +227,6 @@ class SidePanel extends ConsumerWidget {
                 }),
           ])
         ]),
-
-        // 👇 FIX: Actual Width Stepper from your screenshots
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           const Text("Width", style: TextStyle(color: Colors.white70)),
           Row(children: [

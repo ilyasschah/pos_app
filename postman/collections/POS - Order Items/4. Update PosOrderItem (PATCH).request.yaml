@@ -12,12 +12,7 @@ body:
   type: json
   content: |-
     {
-      "id": 1,
-      "quantity": 3.0,
-      "price": 15.50,
-      "discount": 5.0,
-      "discountType": 1,
-      "discountAppliedType": 1,
-      "comment": "Extra cheese, absolutely no onions"
+      "id": 15,
+      "IsLocked" : "True"
     }
 order: 4000

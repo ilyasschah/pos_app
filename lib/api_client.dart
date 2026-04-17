@@ -1,21 +1,16 @@
-// lib/api_client.dart
-
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'checkout_models.dart'; // Make sure this matches your file name!
+import 'checkout_models.dart';
 
-// SHARED DIO INSTANCE CREATOR
 Dio createDio() {
   final dio = Dio();
 
-  // Configure Base Options
   dio.options.baseUrl = 'https://localhost:7002/api';
   dio.options.connectTimeout = const Duration(seconds: 10);
   dio.options.receiveTimeout = const Duration(seconds: 10);
 
-  // SSL Certificate Handling for Local Development
   if (!kIsWeb) {
     (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
       final client = HttpClient();
@@ -34,17 +29,10 @@ class ApiClient {
   ApiClient() {
     _dio = createDio();
   }
-
-  // Optional: Call this when a user logs in so all future requests are authenticated
   void setAuthToken(String token) {
     _dio.options.headers['Authorization'] = 'Bearer $token';
   }
 
-  // ==========================================
-  // NEW POS WORKFLOW ENDPOINTS
-  // ==========================================
-
-  // 1. Fetch the Ultimate Menu (Lightning fast single request)
   Future<List<MenuCategory>> getFullMenu(int companyId, int warehouseId) async {
     try {
       final response = await _dio.get(
@@ -56,7 +44,6 @@ class ApiClient {
       );
 
       if (response.statusCode == 200) {
-        // Dio automatically decodes the JSON!
         final List<dynamic> data = response.data;
         return data.map((json) => MenuCategory.fromJson(json)).toList();
       } else {
@@ -67,17 +54,15 @@ class ApiClient {
     }
   }
 
-  // 2. Bulk Add Cart Items (Saves the whole cart in one database transaction)
   Future<bool> bulkAddPosOrderItems(int companyId, List<CartItem> items) async {
     try {
-      // Map our Dart objects into simple maps for Dio
       final List<Map<String, dynamic>> jsonList =
           items.map((item) => item.toJson()).toList();
 
       final response = await _dio.post(
         '/PosOrderItem/BulkAdd',
         queryParameters: {'companyId': companyId},
-        data: jsonList, // Dio automatically converts this to a JSON string!
+        data: jsonList,
       );
 
       if (response.statusCode == 200) {
@@ -119,21 +104,99 @@ class ApiClient {
       final response = await _dio.post(
         '/PosOrder/Create',
         queryParameters: {'companyId': companyId},
+        // ✨ FIX: Sending a complete JSON payload to satisfy ASP.NET Core validation!
         data: {
           "userId": userId,
-          "serviceType": serviceType, // e.g., 1 for Dine-in
+          "number": "ORD-TEMP", // Your C# backend overrides this anyway!
+          "discount": 0.0,
+          "discountType": 0,
+          "total": 0.0,
+          "customerId": null,
+          "serviceType": serviceType,
+          "serviceStatus": 1, // 1 = Open/Occupied
           "floorPlanTableId": floorPlanTableId,
-          "customerId": null
+          "bookingId": null
         },
       );
 
-      if (response.statusCode == 200) {
-        return response.data['id'];
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        // Your C# backend returns the whole PosOrder object, so we extract the ID
+        final data = response.data;
+        if (data is int) return data;
+        if (data['id'] != null) return data['id'];
+        if (data['Id'] != null) return data['Id'];
+
+        throw Exception('Could not find Order ID in response');
       } else {
-        throw Exception('Failed to create order.');
+        throw Exception(
+            'Failed to create order. Status: ${response.statusCode}');
       }
     } catch (e) {
       throw Exception('Error creating order: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>?> getActiveOrderForTable(
+      int companyId, int tableId) async {
+    try {
+      final response = await _dio
+          .get('/PosOrder/GetAll', queryParameters: {'companyId': companyId});
+      if (response.statusCode == 200) {
+        final List<dynamic> orders = response.data;
+        orders.sort((a, b) {
+          final idA = a['id'] ?? a['Id'] ?? 0;
+          final idB = b['id'] ?? b['Id'] ?? 0;
+          return idB.compareTo(idA);
+        });
+
+        return orders.firstWhere(
+          (o) =>
+              (o['floorPlanTableId'] ?? o['FloorPlanTableId']) == tableId &&
+              (o['serviceStatus'] ?? o['ServiceStatus']) == 1,
+          orElse: () => null,
+        );
+      }
+      return null;
+    } catch (e) {
+      throw Exception('Failed to fetch active order: $e');
+    }
+  }
+
+  Future<List<dynamic>> getOrderItems(int companyId, int posOrderId) async {
+    try {
+      final response =
+          await _dio.get('/PosOrderItem/GetByOrderId', queryParameters: {
+        'posOrderId': posOrderId,
+        'companyId': companyId,
+      });
+      return response.data as List<dynamic>;
+    } catch (e) {
+      throw Exception('Failed to fetch order items: $e');
+    }
+  }
+
+  Future<List<dynamic>> getAllActiveOrders(int companyId) async {
+    try {
+      final response = await _dio
+          .get('/PosOrder/GetAll', queryParameters: {'companyId': companyId});
+
+      if (response.statusCode == 200) {
+        final List<dynamic> orders = response.data;
+        final activeOrders = orders
+            .where((o) => (o['serviceStatus'] ?? o['ServiceStatus']) == 1)
+            .toList();
+
+        activeOrders.sort((a, b) {
+          final idA = a['id'] ?? a['Id'] ?? 0;
+          final idB = b['id'] ?? b['Id'] ?? 0;
+          return idB.compareTo(idA);
+        });
+
+        return activeOrders;
+      }
+      return [];
+    } catch (e) {
+      throw Exception('Failed to fetch active orders: $e');
     }
   }
 }

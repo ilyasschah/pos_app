@@ -1,5 +1,3 @@
-// lib/checkout_models.dart
-
 class MenuTax {
   final int id;
   final String name;
@@ -34,7 +32,6 @@ class MenuProduct {
   final String color;
   final double stockQuantity;
   final List<MenuTax> taxes;
-  // Note: We excluded the image byte array to keep the app lightning fast!
 
   MenuProduct({
     required this.id,
@@ -97,8 +94,6 @@ class CartItem {
   int discountType;
   String? comment;
   String? bundle;
-
-  // --- UI ONLY FIELDS (Not sent to API) ---
   final String productName;
   final List<MenuTax> appliedTaxes;
 
@@ -116,18 +111,34 @@ class CartItem {
     required this.appliedTaxes,
   });
 
-  // Only exports what the C# BulkAdd endpoint expects!
   Map<String, dynamic> toJson() {
     return {
+      'id': 0,
+      'Id': 0,
       'posOrderId': posOrderId,
+      'PosOrderId': posOrderId,
       'productId': productId,
+      'ProductId': productId,
+      'productName': productName,
+      'ProductName': productName,
       'roundNumber': roundNumber,
+      'RoundNumber': roundNumber,
       'quantity': quantity,
+      'Quantity': quantity,
       'price': price,
+      'Price': price,
       'discount': discount,
+      'Discount': discount,
       'discountType': discountType,
+      'DiscountType': discountType,
       'comment': comment,
+      'Comment': comment,
       'bundle': bundle,
+      'Bundle': bundle,
+      'isLocked': false,
+      'IsLocked': false,
+      'isFeatured': false,
+      'IsFeatured': false,
     };
   }
 }
@@ -154,6 +165,86 @@ class CheckoutRequest {
       'amountPaid': amountPaid,
       'documentTypeId': documentTypeId,
       'warehouseId': warehouseId,
+    };
+  }
+}
+
+// --- ORDER HEADER ---
+class PosOrderDto {
+  final int userId;
+  final String number;
+  final double discount;
+  final int discountType;
+  final double? total;
+  final int? customerId;
+
+  final String? userName;
+  final String? customerName;
+
+  PosOrderDto({
+    required this.userId,
+    required this.number,
+    this.discount = 0,
+    this.discountType = 0,
+    this.total,
+    this.customerId,
+    this.userName,
+    this.customerName,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      "Id": 0,
+      "UserId": userId,
+      "Number": number,
+      "Discount": discount,
+      "DiscountType": discountType,
+      "Total": total,
+      "CustomerId": customerId,
+      "UserName": userName,
+      "CustomerName": customerName,
+    };
+  }
+}
+
+// --- ORDER ITEMS ---
+class PosOrderItemDto {
+  final int posOrderId;
+  final int productId;
+  final String productName;
+  final double quantity;
+  final double price;
+  final double discount;
+  final int discountType;
+  final bool isLocked;
+  final bool isFeatured;
+
+  PosOrderItemDto({
+    required this.posOrderId,
+    required this.productId,
+    required this.productName,
+    required this.quantity,
+    required this.price,
+    this.discount = 0.0,
+    this.discountType = 0,
+    this.isLocked = false,
+    this.isFeatured = false,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      "Id": 0,
+      "PosOrderId": posOrderId,
+      "ProductId": productId,
+      "ProductName": productName,
+      "RoundNumber": 0,
+      "Quantity": quantity,
+      "Price": price,
+      "IsLocked": isLocked,
+      "Discount": discount,
+      "DiscountType": discountType,
+      "IsFeatured": isFeatured,
+      "DateCreated": DateTime.now().toIso8601String(),
     };
   }
 }

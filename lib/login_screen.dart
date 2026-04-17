@@ -4,7 +4,6 @@ import 'auth_provider.dart';
 import 'company_provider.dart';
 import 'company_model.dart';
 import 'settings_provider.dart';
-import 'menu_screen.dart';
 import 'package:pos_app/floor_plan/floor_plan_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -24,7 +23,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
       if (selectedCo == null) {
         final fallbackId = defaultCoId ??
-            2; // Fallback to 2 if no default set hardcoded for debuging
+            2;
         ref.read(selectedCompanyProvider.notifier).state = Company(
             id: fallbackId, name: "Default Branch", countrySubentity: "DEF");
       }

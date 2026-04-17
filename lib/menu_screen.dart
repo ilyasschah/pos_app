@@ -1,60 +1,44 @@
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:pos_app/product_model.dart';
+import 'package:pos_app/cart_provider.dart';
+import 'package:pos_app/auth_provider.dart';
+import 'package:pos_app/customer_provider.dart';
+import 'package:pos_app/customer_model.dart';
+import 'package:pos_app/documents_screen.dart';
+import 'package:pos_app/company_provider.dart';
+import 'package:pos_app/my_company_screen.dart';
+import 'package:pos_app/customers_screen.dart';
+import 'package:pos_app/product_provider.dart';
+import 'package:pos_app/users_screen.dart';
+import 'package:pos_app/reports_screen.dart';
+import 'package:pos_app/payment_types_screen.dart';
+import 'package:pos_app/warehouses_screen.dart';
+import 'package:pos_app/tax_rates_screen.dart';
+import 'package:pos_app/stock_screen.dart';
+import 'package:pos_app/product_groups_screen.dart';
+import 'package:pos_app/currencies_screen.dart';
+import 'package:pos_app/products_screen.dart';
+import 'package:pos_app/z_report_screen.dart';
+import 'package:pos_app/product_group_model.dart';
+import 'package:pos_app/product_group_provider.dart';
+import 'package:pos_app/floor_plan/floor_plan_screen.dart';
+import 'package:pos_app/checkout_models.dart';
+import 'package:pos_app/checkout_dialog.dart';
 import 'api_client.dart';
-import 'product_model.dart';
-import 'cart_provider.dart';
-import 'auth_provider.dart';
-import 'customer_provider.dart';
-import 'customer_model.dart';
-import 'documents_screen.dart';
-import 'company_provider.dart';
-import 'my_company_screen.dart';
-import 'customers_screen.dart';
-import 'product_provider.dart';
-import 'users_screen.dart';
-import 'reports_screen.dart';
-import 'payment_types_screen.dart';
-import 'warehouses_screen.dart';
-import 'tax_rates_screen.dart';
-import 'stock_screen.dart';
-import 'product_groups_screen.dart';
-import 'currencies_screen.dart';
-import 'products_screen.dart';
-import 'z_report_screen.dart';
-import 'payment_type_provider.dart';
-import 'product_group_model.dart';
-import 'product_group_provider.dart';
 
-// 1. Current Folder State (Null = Root)
-class CurrentGroupNotifier extends Notifier<ProductGroup?> {
-  @override
-  ProductGroup? build() => null;
-}
-
-final currentGroupProvider =
-    NotifierProvider<CurrentGroupNotifier, ProductGroup?>(
-        () => CurrentGroupNotifier());
-
-// 2. Search Query State
-class SearchQueryNotifier extends Notifier<String> {
-  @override
-  String build() => "";
-}
-
-final searchQueryProvider =
-    NotifierProvider<SearchQueryNotifier, String>(() => SearchQueryNotifier());
+final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
+final searchQueryProvider = StateProvider<String>((ref) => "");
 
 // --- MAIN SCREEN ---
 class MenuScreen extends ConsumerWidget {
   const MenuScreen({super.key});
 
   void _handleLogout(BuildContext context, WidgetRef ref) {
-    // Clear user and cart
     ref.read(currentUserProvider.notifier).state = null;
-    ref.read(CartProvider.notifier).clearCart();
-    // 🧹 Completely clear the navigation stack and go back to root (User Selection)
+    ref.read(cartProvider.notifier).clearCart();
     Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
 
@@ -92,146 +76,158 @@ class MenuScreen extends ConsumerWidget {
                 ],
               ),
             ),
-
             ListTile(
-              leading: const Icon(Icons.business),
-              title: const Text("My Company"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const MyCompanyScreen()));
-              },
-            ),
+                leading: const Icon(Icons.business),
+                title: const Text("My Company"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const MyCompanyScreen()));
+                }),
             ListTile(
-              leading: const Icon(Icons.description),
-              title: const Text("Documents"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const DocumentsScreen()));
-              },
-            ),
+                leading: const Icon(Icons.description),
+                title: const Text("Documents"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const DocumentsScreen()));
+                }),
             ListTile(
-              leading: const Icon(Icons.people),
-              title: const Text("Customers"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const CustomersScreen()));
-              },
-            ),
+                leading: const Icon(Icons.people),
+                title: const Text("Customers"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const CustomersScreen()));
+                }),
             ListTile(
-              leading: const Icon(Icons.payment),
-              title: const Text("Payment Types"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const PaymentTypesScreen()));
-              },
-            ),
+                leading: const Icon(Icons.payment),
+                title: const Text("Payment Types"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const PaymentTypesScreen()));
+                }),
             ListTile(
-              leading: const Icon(Icons.inventory),
-              title: const Text("Stock"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const StockScreen()));
-              },
-            ),
+                leading: const Icon(Icons.inventory),
+                title: const Text("Stock"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const StockScreen()));
+                }),
             ListTile(
-              leading: const Icon(Icons.currency_exchange),
-              title: const Text("Currencies"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const CurrenciesScreen()));
-              },
-            ),
+                leading: const Icon(Icons.currency_exchange),
+                title: const Text("Currencies"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const CurrenciesScreen()));
+                }),
             ListTile(
-              leading: const Icon(Icons.percent),
-              title: const Text("Tax Rates"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const TaxRatesScreen()));
-              },
-            ),
+                leading: const Icon(Icons.percent),
+                title: const Text("Tax Rates"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const TaxRatesScreen()));
+                }),
             ListTile(
-              leading: const Icon(Icons.warehouse),
-              title: const Text("Warehouses"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const WarehousesScreen()));
-              },
-            ),
+                leading: const Icon(Icons.warehouse),
+                title: const Text("Warehouses"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const WarehousesScreen()));
+                }),
             ListTile(
-              leading: const Icon(Icons.fastfood),
-              title: const Text("Products"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const ProductsScreen()));
-              },
-            ),
+                leading: const Icon(Icons.fastfood),
+                title: const Text("Products"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const ProductsScreen()));
+                }),
             ListTile(
-              leading: const Icon(Icons.folder_special),
-              title: const Text("Product Groups"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const ProductGroupsScreen()));
-              },
-            ),
+                leading: const Icon(Icons.folder_special),
+                title: const Text("Product Groups"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const ProductGroupsScreen()));
+                }),
             ListTile(
-              leading: const Icon(Icons.manage_accounts),
-              title: const Text("Users"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const UsersScreen()));
-              },
-            ),
+                leading: const Icon(Icons.manage_accounts),
+                title: const Text("Users"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const UsersScreen()));
+                }),
             ListTile(
-              leading: const Icon(Icons.bar_chart),
-              title: const Text("Reports"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const ReportsScreen()));
-              },
-            ),
+                leading: const Icon(Icons.bar_chart),
+                title: const Text("Reports"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const ReportsScreen()));
+                }),
             ListTile(
-              leading: const Icon(Icons.lock_clock),
-              title: const Text("End of Day"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const EndOfDayScreen()));
-              },
-            ),
+                leading: const Icon(Icons.lock_clock),
+                title: const Text("End of Day"),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const EndOfDayScreen()));
+                }),
             const Divider(),
-
-            // Logout
             ListTile(
-              leading: const Icon(Icons.logout, color: Colors.red),
-              title: const Text("Logout", style: TextStyle(color: Colors.red)),
-              onTap: () => _handleLogout(context, ref),
-            ),
+                leading: const Icon(Icons.logout, color: Colors.red),
+                title:
+                    const Text("Logout", style: TextStyle(color: Colors.red)),
+                onTap: () => _handleLogout(context, ref)),
           ],
         ),
       ),
       appBar: AppBar(
         title: const Text("POS System"),
         actions: [
+          TextButton.icon(
+            onPressed: () {
+              ref.read(cartProvider.notifier).clearCart();
+              Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
+                  (route) => false);
+            },
+            icon: const Icon(Icons.grid_view, color: Colors.white),
+            label: const Text("Tables",
+                style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16)),
+          ),
+          const SizedBox(width: 16),
           IconButton(
             icon: const Icon(Icons.kitchen, color: Colors.purple),
             tooltip: "Open Kitchen Screen",
@@ -247,40 +243,31 @@ class MenuScreen extends ConsumerWidget {
             Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Text(
-                  "User: ${currentUser?.displayName ?? 'Unknown'}",
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 16),
-                ),
+                child: Text("User: ${currentUser?.displayName ?? 'Unknown'}",
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ),
           IconButton(
-            icon: const Icon(Icons.logout, color: Colors.red),
-            tooltip: "Logout",
-            onPressed: () => _handleLogout(context, ref),
-          ),
+              icon: const Icon(Icons.logout, color: Colors.red),
+              tooltip: "Logout",
+              onPressed: () => _handleLogout(context, ref)),
           const SizedBox(width: 8),
         ],
       ),
       body: Row(
         children: [
-          // 🌗 Browser Section: Now uses Theme background instead of hardcoded grey
           Expanded(
-            flex: 2,
-            child: Container(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              child: const BrowserSection(),
-            ),
-          ),
+              flex: 2,
+              child: Container(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  child: const BrowserSection())),
           const VerticalDivider(width: 1, thickness: 1),
-          // 🌗 Cart Section: Now uses Theme surface color instead of hardcoded white
           Expanded(
-            flex: 1,
-            child: Container(
-              color: Theme.of(context).colorScheme.surface,
-              child: const CartSection(),
-            ),
-          ),
+              flex: 1,
+              child: Container(
+                  color: Theme.of(context).colorScheme.surface,
+                  child: const CartSection())),
         ],
       ),
     );
@@ -300,18 +287,14 @@ class BrowserSection extends ConsumerWidget {
     final selectedCompany = ref.watch(selectedCompanyProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    if (selectedCompany == null) {
+    if (selectedCompany == null)
       return const Center(
-        child: Text("No company selected. Open the menu and pick a company."),
-      );
-    }
-
-    if (asyncGroups.isLoading || asyncProducts.isLoading) {
+          child:
+              Text("No company selected. Open the menu and pick a company."));
+    if (asyncGroups.isLoading || asyncProducts.isLoading)
       return const Center(child: CircularProgressIndicator());
-    }
-    if (asyncGroups.hasError || asyncProducts.hasError) {
+    if (asyncGroups.hasError || asyncProducts.hasError)
       return const Center(child: Text("Error loading data"));
-    }
 
     final allGroups = asyncGroups.value ?? [];
     final allProducts = asyncProducts.value ?? [];
@@ -338,7 +321,6 @@ class BrowserSection extends ConsumerWidget {
       children: [
         Container(
           padding: const EdgeInsets.all(12),
-          // Adaptive background for search bar area
           color: Theme.of(context).scaffoldBackgroundColor,
           child: TextField(
             decoration: InputDecoration(
@@ -350,13 +332,11 @@ class BrowserSection extends ConsumerWidget {
                   ? IconButton(
                       icon: const Icon(Icons.clear),
                       onPressed: () =>
-                          ref.read(searchQueryProvider.notifier).state = "",
-                    )
+                          ref.read(searchQueryProvider.notifier).state = "")
                   : null,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide.none, // Cleaner look
-              ),
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none),
               contentPadding:
                   const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
             ),
@@ -387,11 +367,9 @@ class BrowserSection extends ConsumerWidget {
                   },
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  currentGroup.name,
-                  style: const TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold),
-                ),
+                Text(currentGroup.name,
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -404,12 +382,10 @@ class BrowserSection extends ConsumerWidget {
               : GridView.builder(
                   padding: const EdgeInsets.all(16),
                   gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 180,
-                    childAspectRatio:
-                        0.9, // Slightly taller to fit images better
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                  ),
+                      maxCrossAxisExtent: 180,
+                      childAspectRatio: 0.9,
+                      crossAxisSpacing: 16,
+                      mainAxisSpacing: 16),
                   itemCount: itemsToDisplay.length,
                   itemBuilder: (context, index) {
                     final item = itemsToDisplay[index];
@@ -425,21 +401,16 @@ class BrowserSection extends ConsumerWidget {
     );
   }
 
-  // --- 🎨 REDESIGNED GROUP CARD ---
   Widget _buildGroupCard(
       BuildContext context, WidgetRef ref, ProductGroup group) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // Fallback if they pick white/transparent in the backend
     final baseColor = (group.flutterColor == Colors.transparent ||
             group.flutterColor == Colors.white)
         ? Colors.blueGrey
         : group.flutterColor;
-
-    final bgColor =
-        isDark ? baseColor.withOpacity(0.2) : baseColor.withOpacity(0.15);
+    final bgColor = isDark ? baseColor.withAlpha(51) : baseColor.withAlpha(38);
     final borderColor =
-        isDark ? baseColor.withOpacity(0.5) : baseColor.withOpacity(0.3);
+        isDark ? baseColor.withAlpha(128) : baseColor.withAlpha(76);
 
     return InkWell(
       onTap: () {
@@ -449,10 +420,9 @@ class BrowserSection extends ConsumerWidget {
       borderRadius: BorderRadius.circular(12),
       child: Container(
         decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: borderColor, width: 1.5),
-        ),
+            color: bgColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: borderColor, width: 1.5)),
         clipBehavior: Clip.antiAlias,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -465,8 +435,7 @@ class BrowserSection extends ConsumerWidget {
                       child: Icon(Icons.folder,
                           size: 54,
                           color:
-                              isDark ? baseColor.withOpacity(0.8) : baseColor),
-                    ),
+                              isDark ? baseColor.withAlpha(204) : baseColor)),
             ),
             Expanded(
               flex: 2,
@@ -479,10 +448,9 @@ class BrowserSection extends ConsumerWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: isDark ? Colors.white : Colors.black87,
-                  ),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: isDark ? Colors.white : Colors.black87),
                 ),
               ),
             ),
@@ -492,13 +460,42 @@ class BrowserSection extends ConsumerWidget {
     );
   }
 
-  // --- 🎨 REDESIGNED PRODUCT CARD ---
   Widget _buildProductCard(
       BuildContext context, WidgetRef ref, Product product) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return InkWell(
-      onTap: () => ref.read(CartProvider.notifier).addProduct(product),
+      onTap: () {
+        final cartState = ref.read(cartProvider);
+        if (cartState.activePosOrderId == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please select a Table from the Floor Plan first!'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+        try {
+          final menuProduct = MenuProduct(
+            id: product.id,
+            name: product.name,
+            price: product.price,
+            isTaxInclusivePrice: product.isTaxInclusivePrice,
+            color: product.color,
+            stockQuantity: 9999,
+            taxes: [],
+          );
+          ref.read(cartProvider.notifier).addItem(menuProduct);
+        } catch (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.toString().replaceAll("Exception: ", "")),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      },
       borderRadius: BorderRadius.circular(12),
       child: Container(
         decoration: BoxDecoration(
@@ -510,7 +507,7 @@ class BrowserSection extends ConsumerWidget {
               ? []
               : [
                   BoxShadow(
-                      color: Colors.black.withOpacity(0.05),
+                      color: Colors.black.withAlpha(13),
                       blurRadius: 4,
                       offset: const Offset(0, 2))
                 ],
@@ -519,7 +516,6 @@ class BrowserSection extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Image Section (Expands nicely)
             Expanded(
               flex: 3,
               child: product.imageBytes != null
@@ -531,7 +527,6 @@ class BrowserSection extends ConsumerWidget {
                           color: isDark ? Colors.grey[600] : Colors.grey[400]),
                     ),
             ),
-            // Text Section
             Expanded(
               flex: 2,
               child: Container(
@@ -541,25 +536,20 @@ class BrowserSection extends ConsumerWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      product.name,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 13),
-                    ),
+                    Text(product.name,
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 13)),
                     const SizedBox(height: 4),
-                    Text(
-                      "\$${product.price.toStringAsFixed(2)}",
-                      style: TextStyle(
-                        color: isDark
-                            ? Colors.greenAccent[400]
-                            : Colors.green[700],
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14,
-                      ),
-                    ),
+                    Text("\$${product.price.toStringAsFixed(2)}",
+                        style: TextStyle(
+                            color: isDark
+                                ? Colors.greenAccent[400]
+                                : Colors.green[700],
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14)),
                   ],
                 ),
               ),
@@ -580,8 +570,6 @@ class CartSection extends ConsumerStatefulWidget {
 }
 
 class _CartSectionState extends ConsumerState<CartSection> {
-  bool _isProcessing = false;
-
   void _showCustomerDialog(
       BuildContext context, WidgetRef ref, List<Customer> customers) {
     showDialog(
@@ -612,155 +600,12 @@ class _CartSectionState extends ConsumerState<CartSection> {
     );
   }
 
-  Future<void> _showCheckoutDialog(
-      BuildContext context, WidgetRef parentRef, double total) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        return Consumer(
-          builder: (context, ref, child) {
-            final paymentTypesAsync = ref.watch(allPaymentTypesProvider);
-
-            return AlertDialog(
-              title: const Text("Checkout"),
-              content: SizedBox(
-                width: 400,
-                child: paymentTypesAsync.when(
-                  loading: () =>
-                      const Center(child: CircularProgressIndicator()),
-                  error: (e, _) => Text("Error loading payment types: $e"),
-                  data: (paymentTypes) {
-                    if (paymentTypes.isEmpty) {
-                      return const Text(
-                          "No payment types configured for this company.",
-                          style: TextStyle(color: Colors.red));
-                    }
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text("Total Due: \$${total.toStringAsFixed(2)}",
-                            style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green)),
-                        const SizedBox(height: 24),
-                        const Text("Select Payment Method:",
-                            style: TextStyle(fontSize: 16)),
-                        const SizedBox(height: 16),
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          alignment: WrapAlignment.center,
-                          children: paymentTypes.map((pt) {
-                            return ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 24, vertical: 16),
-                                backgroundColor: Colors.indigo,
-                                foregroundColor: Colors.white,
-                              ),
-                              onPressed: () =>
-                                  _submitTransaction(ctx, ref, pt.id, total),
-                              icon: const Icon(Icons.payment),
-                              label: Text(pt.name,
-                                  style: const TextStyle(fontSize: 16)),
-                            );
-                          }).toList(),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child:
-                      const Text("Cancel", style: TextStyle(color: Colors.red)),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _submitTransaction(BuildContext dialogContext, WidgetRef ref,
-      int paymentTypeId, double totalAmount) async {
-    final companyId = ref.read(selectedCompanyProvider)?.id;
-    final userId = ref.read(currentUserProvider)?.id;
-    final customerId = ref.read(currentCustomerProvider)?.id;
-    final cartItems = ref.read(CartProvider);
-
-    if (companyId == null || userId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Error: Missing Company or User ID.")));
-      return;
-    }
-
-    Navigator.pop(dialogContext);
-    setState(() => _isProcessing = true);
-
-    try {
-      final dio = createDio();
-
-      final payload = {
-        "companyId": companyId,
-        "userId": userId,
-        "customerId": customerId,
-        "total": totalAmount,
-        "items": cartItems
-            .map((item) => {
-                  "productId": item.product.id,
-                  "quantity": item.quantity,
-                  "price": item.product.price,
-                })
-            .toList(),
-        "payments": [
-          {"paymentTypeId": paymentTypeId, "amount": totalAmount}
-        ]
-      };
-
-      await dio.post('/Documents/Create', data: payload);
-      ref.read(CartProvider.notifier).clearCart();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text("Transaction Saved Successfully!"),
-              backgroundColor: Colors.green),
-        );
-      }
-    } on DioException catch (e) {
-      if (mounted) {
-        final errorMsg =
-            e.response?.data?['message'] ?? "Failed to process transaction.";
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(errorMsg), backgroundColor: Colors.red));
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isProcessing = false);
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    ref.listen<AsyncValue<List<Customer>>>(allCustomersProvider,
-        (previous, next) {
-      final customers = next.value;
-      if (customers != null &&
-          customers.isNotEmpty &&
-          ref.read(currentCustomerProvider) == null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {});
-      }
-    });
+    final cartState = ref.watch(cartProvider);
+    final cartItems = cartState.items;
+    final total = ref.watch(cartTotalProvider);
 
-    final cartItems = ref.watch(CartProvider);
-    final total = ref.watch(CartTotalProvider);
     final currentCustomer = ref.watch(currentCustomerProvider);
     final asyncCustomers = ref.watch(allCustomersProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -803,21 +648,22 @@ class _CartSectionState extends ConsumerState<CartSection> {
                   itemBuilder: (context, index) {
                     final item = cartItems[index];
                     return ListTile(
-                      title: Text(item.product.name,
+                      title: Text(item.productName,
                           style: const TextStyle(fontWeight: FontWeight.w500)),
                       subtitle: Text("x${item.quantity}"),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text("\$${item.total.toStringAsFixed(2)}",
+                          Text(
+                              "\$${(item.price * item.quantity).toStringAsFixed(2)}",
                               style: const TextStyle(fontSize: 15)),
                           IconButton(
                             icon: Icon(Icons.close,
                                 color: isDark ? Colors.redAccent : Colors.red,
                                 size: 20),
                             onPressed: () => ref
-                                .read(CartProvider.notifier)
-                                .removeItem(item.product),
+                                .read(cartProvider.notifier)
+                                .removeItem(item.productId),
                           )
                         ],
                       ),
@@ -844,23 +690,82 @@ class _CartSectionState extends ConsumerState<CartSection> {
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
                       color: isDark ? Colors.greenAccent[400] : Colors.green)),
-              _isProcessing
+              cartState.isLoading
                   ? const CircularProgressIndicator()
-                  : ElevatedButton(
-                      onPressed: cartItems.isEmpty
-                          ? null
-                          : () => _showCheckoutDialog(context, ref, total),
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          disabledBackgroundColor:
-                              isDark ? Colors.grey[800] : Colors.grey[300],
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 32, vertical: 16)),
-                      child: const Text("PAY",
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold)),
+                  : Row(
+                      children: [
+                        ElevatedButton(
+                          onPressed: cartItems.isEmpty
+                              ? null
+                              : () async {
+                                  final companyId =
+                                      ref.read(selectedCompanyProvider)?.id;
+                                  if (companyId == null) return;
+                                  try {
+                                    final apiClient = ApiClient();
+                                    final success = await ref
+                                        .read(cartProvider.notifier)
+                                        .saveOrderToServer(
+                                            apiClient, companyId);
+                                    if (success && context.mounted) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(const SnackBar(
+                                              content:
+                                                  Text('Order Saved to Table!'),
+                                              backgroundColor: Colors.blue));
+                                      Navigator.pushAndRemoveUntil(
+                                          context,
+                                          MaterialPageRoute(
+                                              builder: (_) =>
+                                                  const FloorPlanScreen()),
+                                          (route) => false);
+                                    }
+                                  } catch (e) {
+                                    if (context.mounted)
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(SnackBar(
+                                              content: Text('Error saving: $e'),
+                                              backgroundColor: Colors.red));
+                                  }
+                                },
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blueGrey,
+                              disabledBackgroundColor:
+                                  isDark ? Colors.grey[800] : Colors.grey[300],
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 24, vertical: 16)),
+                          child: const Text("SAVE",
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                        const SizedBox(width: 12),
+                        // EXISTING PAY BUTTON
+                        ElevatedButton(
+                          onPressed: cartItems.isEmpty
+                              ? null
+                              : () {
+                                  showDialog(
+                                    context: context,
+                                    barrierDismissible: false,
+                                    builder: (context) =>
+                                        const CheckoutDialog(),
+                                  );
+                                },
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              disabledBackgroundColor:
+                                  isDark ? Colors.grey[800] : Colors.grey[300],
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 32, vertical: 16)),
+                          child: const Text("PAY",
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold)),
+                        ),
+                      ],
                     )
             ],
           ),

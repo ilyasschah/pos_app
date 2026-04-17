@@ -1,135 +1,152 @@
-import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'checkout_models.dart';
 import 'api_client.dart';
 
-class CartProvider extends ChangeNotifier {
-  // --- STATE ---
-  int? activePosOrderId;
-  int activeWarehouseId = 1; // You can update this when the user logs in
-  List<CartItem> _items = [];
-  bool isLoading = false;
+// --- THE STATE OBJECT ---
+class CartState {
+  final int? activePosOrderId;
+  final int activeWarehouseId;
+  final List<CartItem> items;
+  final bool isLoading;
 
-  // --- GETTERS ---
-  List<CartItem> get items => _items;
+  CartState({
+    this.activePosOrderId,
+    this.activeWarehouseId = 1,
+    this.items = const [],
+    this.isLoading = false,
+  });
 
-  // 1. Subtotal (Price * Quantity)
-  double get subtotal {
-    return _items.fold(0, (sum, item) => sum + (item.price * item.quantity));
+  CartState copyWith({
+    int? activePosOrderId,
+    int? activeWarehouseId,
+    List<CartItem>? items,
+    bool? isLoading,
+  }) {
+    return CartState(
+      activePosOrderId: activePosOrderId ?? this.activePosOrderId,
+      activeWarehouseId: activeWarehouseId ?? this.activeWarehouseId,
+      items: items ?? this.items,
+      isLoading: isLoading ?? this.isLoading,
+    );
   }
+}
 
-  // 2. Total Discounts Applied
-  double get discountTotal {
-    return _items.fold(0, (sum, item) => sum + (item.discount * item.quantity));
-  }
+class CartNotifier extends Notifier<CartState> {
+  @override
+  CartState build() => CartState();
 
-  // 3. Complex Tax Calculation
+  double get subtotal =>
+      state.items.fold(0, (sum, item) => sum + (item.price * item.quantity));
+
+  double get discountTotal =>
+      state.items.fold(0, (sum, item) => sum + (item.discount * item.quantity));
+
   double get taxTotal {
-    double totalTax = 0;
-    for (var item in _items) {
-      // Base price for this item's row after discounts
+    double total = 0;
+    for (var item in state.items) {
       double itemTotalAfterDiscount =
           (item.price - item.discount) * item.quantity;
-
       for (var tax in item.appliedTaxes) {
         if (tax.isFixed) {
-          totalTax += tax.rate *
-              item.quantity; // Fixed amount per item (e.g., $1 bottle tax)
+          total += tax.rate * item.quantity;
         } else {
-          totalTax += itemTotalAfterDiscount * (tax.rate / 100); // Percentage
+          total += itemTotalAfterDiscount * (tax.rate / 100);
         }
       }
     }
-    return totalTax;
+    return total;
   }
 
-  // 4. Grand Total
-  double get grandTotal {
-    // Note: If your system uses Tax Inclusive pricing, you might not add taxTotal here.
-    // Assuming Tax Exclusive for this calculation:
-    return subtotal - discountTotal + taxTotal;
-  }
-
-  // --- ACTIONS ---
+  double get grandTotal => subtotal - discountTotal + taxTotal;
 
   void setOrderContext(int orderId, int warehouseId) {
-    activePosOrderId = orderId;
-    activeWarehouseId = warehouseId;
-    notifyListeners();
+    state = state.copyWith(
+        activePosOrderId: orderId, activeWarehouseId: warehouseId);
   }
 
   void addItem(MenuProduct product, {double quantity = 1}) {
-    if (activePosOrderId == null)
-      return; // Cannot add items without an active order
+    if (state.activePosOrderId == null) return;
 
-    // 1. Check if item already exists in cart
-    final existingIndex = _items.indexWhere((i) => i.productId == product.id);
+    final items = List<CartItem>.from(state.items);
+    final existingIndex = items.indexWhere((i) => i.productId == product.id);
 
     if (existingIndex >= 0) {
-      // 2. Validate Stock before incrementing
-      final currentQty = _items[existingIndex].quantity;
-      if (currentQty + quantity > product.stockQuantity) {
-        throw Exception("Not enough stock in Warehouse $activeWarehouseId!");
+      if (items[existingIndex].quantity + quantity > product.stockQuantity) {
+        throw Exception("Not enough stock!");
       }
-      _items[existingIndex].quantity += quantity;
+      items[existingIndex].quantity += quantity;
     } else {
-      // 3. Validate Stock before adding new
       if (quantity > product.stockQuantity) {
-        throw Exception("Not enough stock in Warehouse $activeWarehouseId!");
+        throw Exception("Not enough stock!");
       }
-
-      // 4. Add the new item
-      _items.add(
+      items.add(
         CartItem(
-          posOrderId: activePosOrderId!,
+          posOrderId: state.activePosOrderId!,
           productId: product.id,
           price: product.price,
           quantity: quantity,
-          productName: product.name, // Used for UI only
-          appliedTaxes: product.taxes, // Used for local tax math
+          productName: product.name,
+          appliedTaxes: product.taxes,
         ),
       );
     }
-    notifyListeners(); // Instantly updates the UI!
-  }
-
-  void updateQuantity(int productId, double newQuantity) {
-    final index = _items.indexWhere((i) => i.productId == productId);
-    if (index >= 0) {
-      if (newQuantity <= 0) {
-        _items.removeAt(index);
-      } else {
-        _items[index].quantity = newQuantity;
-      }
-      notifyListeners();
-    }
+    state = state.copyWith(items: items);
   }
 
   void removeItem(int productId) {
-    _items.removeWhere((i) => i.productId == productId);
-    notifyListeners();
+    final items = List<CartItem>.from(state.items)
+      ..removeWhere((i) => i.productId == productId);
+    state = state.copyWith(items: items);
   }
 
   void clearCart() {
-    _items.clear();
-    activePosOrderId = null;
-    notifyListeners();
+    state = CartState();
   }
 
-  // --- API INTEGRATION ---
+  Future<bool> loadExistingOrder(
+      ApiClient apiClient, int companyId, int tableId, int warehouseId) async {
+    state = state.copyWith(isLoading: true);
+    try {
+      final order = await apiClient.getActiveOrderForTable(companyId, tableId);
+      if (order == null) return false;
 
-  // Called when the waiter clicks "Save Order"
+      final posOrderId = order['id'] ?? order['Id'];
+
+      final itemsData = await apiClient.getOrderItems(companyId, posOrderId);
+
+      final List<CartItem> loadedItems = itemsData.map((item) {
+        return CartItem(
+          posOrderId: posOrderId,
+          productId: item['productId'] ?? item['ProductId'],
+          price: (item['price'] ?? item['Price'] ?? 0).toDouble(),
+          quantity: (item['quantity'] ?? item['Quantity'] ?? 1).toDouble(),
+          discount: (item['discount'] ?? item['Discount'] ?? 0).toDouble(),
+          productName: item['productName'] ?? item['ProductName'] ?? 'Item',
+          appliedTaxes: [],
+        );
+      }).toList();
+
+      state = CartState(
+        activePosOrderId: posOrderId,
+        activeWarehouseId: warehouseId,
+        items: loadedItems,
+        isLoading: false,
+      );
+      return true;
+    } catch (e) {
+      state = state.copyWith(isLoading: false);
+      rethrow;
+    }
+  }
+
   Future<bool> saveOrderToServer(ApiClient apiClient, int companyId) async {
-    if (_items.isEmpty) return false;
-
-    isLoading = true;
-    notifyListeners();
+    if (state.items.isEmpty) return false;
+    state = state.copyWith(isLoading: true);
 
     try {
-      // Fires the massive JSON array to our C# BulkAdd endpoint
-      final success = await apiClient.bulkAddPosOrderItems(companyId, _items);
-
+      final success =
+          await apiClient.bulkAddPosOrderItems(companyId, state.items);
       if (success) {
-        // Once safely in the DB, clear the local memory
         clearCart();
         return true;
       }
@@ -137,8 +154,83 @@ class CartProvider extends ChangeNotifier {
     } catch (e) {
       rethrow;
     } finally {
-      isLoading = false;
-      notifyListeners();
+      state = state.copyWith(isLoading: false);
+    }
+  }
+
+  Future<bool> loadOrderById(ApiClient apiClient, int companyId, int posOrderId,
+      int warehouseId) async {
+    state = state.copyWith(isLoading: true);
+    try {
+      final itemsData = await apiClient.getOrderItems(companyId, posOrderId);
+
+      final List<CartItem> loadedItems = itemsData.map((item) {
+        return CartItem(
+          posOrderId: posOrderId,
+          productId: item['productId'] ?? item['ProductId'],
+          price: (item['price'] ?? item['Price'] ?? 0).toDouble(),
+          quantity: (item['quantity'] ?? item['Quantity'] ?? 1).toDouble(),
+          discount: (item['discount'] ?? item['Discount'] ?? 0).toDouble(),
+          productName: item['productName'] ?? item['ProductName'] ?? 'Item',
+          appliedTaxes: [],
+        );
+      }).toList();
+
+      // 3. Update the cart
+      state = CartState(
+        activePosOrderId: posOrderId,
+        activeWarehouseId: warehouseId,
+        items: loadedItems,
+        isLoading: false,
+      );
+      return true;
+    } catch (e) {
+      state = state.copyWith(isLoading: false);
+      rethrow;
+    }
+  }
+
+  Future<bool> checkoutOrder({
+    required ApiClient apiClient,
+    required int companyId,
+    required int userId,
+    required int paymentTypeId,
+    required double amountPaid,
+    required int documentTypeId,
+  }) async {
+    if (state.activePosOrderId == null || state.items.isEmpty) return false;
+
+    state = state.copyWith(isLoading: true);
+
+    try {
+      await apiClient.bulkAddPosOrderItems(companyId, state.items);
+      final request = CheckoutRequest(
+        posOrderId: state.activePosOrderId!,
+        paymentTypeId: paymentTypeId,
+        amountPaid: amountPaid,
+        documentTypeId: documentTypeId,
+        warehouseId: state.activeWarehouseId,
+      );
+
+      final success =
+          await apiClient.checkoutPosOrder(companyId, userId, request);
+
+      if (success) {
+        clearCart();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      rethrow;
+    } finally {
+      state = state.copyWith(isLoading: false);
     }
   }
 }
+
+final cartProvider =
+    NotifierProvider<CartNotifier, CartState>(() => CartNotifier());
+
+final cartTotalProvider = Provider<double>((ref) {
+  return ref.watch(cartProvider.notifier).grandTotal;
+});
