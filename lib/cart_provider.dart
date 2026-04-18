@@ -93,9 +93,23 @@ class CartNotifier extends Notifier<CartState> {
     state = state.copyWith(items: items);
   }
 
+  void incrementItem(int productId) {
+    final items = List<CartItem>.from(state.items);
+    final index = items.indexWhere((i) => i.productId == productId);
+    if (index >= 0) items[index].quantity += 1;
+    state = state.copyWith(items: items);
+  }
+
+  void decrementItem(int productId) {
+    final items = List<CartItem>.from(state.items);
+    final index = items.indexWhere((i) => i.productId == productId);
+    if (index >= 0 && items[index].quantity > 1) items[index].quantity -= 1;
+    state = state.copyWith(items: items);
+  }
+
   void removeItem(int productId) {
-    final items = List<CartItem>.from(state.items)
-      ..removeWhere((i) => i.productId == productId);
+    final items = List<CartItem>.from(state.items);
+    items.removeWhere((i) => i.productId == productId);
     state = state.copyWith(items: items);
   }
 
@@ -123,6 +137,7 @@ class CartNotifier extends Notifier<CartState> {
           discount: (item['discount'] ?? item['Discount'] ?? 0).toDouble(),
           productName: item['productName'] ?? item['ProductName'] ?? 'Item',
           appliedTaxes: [],
+          isSaved: true,
         );
       }).toList();
 
@@ -140,9 +155,8 @@ class CartNotifier extends Notifier<CartState> {
   }
 
   Future<bool> saveOrderToServer(ApiClient apiClient, int companyId) async {
-    if (state.items.isEmpty) return false;
+    if (state.items.isEmpty) return true;
     state = state.copyWith(isLoading: true);
-
     try {
       final success =
           await apiClient.bulkAddPosOrderItems(companyId, state.items);
@@ -173,10 +187,10 @@ class CartNotifier extends Notifier<CartState> {
           discount: (item['discount'] ?? item['Discount'] ?? 0).toDouble(),
           productName: item['productName'] ?? item['ProductName'] ?? 'Item',
           appliedTaxes: [],
+          isSaved: true,
         );
       }).toList();
 
-      // 3. Update the cart
       state = CartState(
         activePosOrderId: posOrderId,
         activeWarehouseId: warehouseId,
@@ -199,11 +213,11 @@ class CartNotifier extends Notifier<CartState> {
     required int documentTypeId,
   }) async {
     if (state.activePosOrderId == null || state.items.isEmpty) return false;
-
     state = state.copyWith(isLoading: true);
 
     try {
       await apiClient.bulkAddPosOrderItems(companyId, state.items);
+
       final request = CheckoutRequest(
         posOrderId: state.activePosOrderId!,
         paymentTypeId: paymentTypeId,
@@ -232,5 +246,26 @@ final cartProvider =
     NotifierProvider<CartNotifier, CartState>(() => CartNotifier());
 
 final cartTotalProvider = Provider<double>((ref) {
-  return ref.watch(cartProvider.notifier).grandTotal;
+  final cartState = ref.watch(cartProvider);
+  if (cartState.items.isEmpty) return 0.0;
+
+  double subtotal = cartState.items
+      .fold(0, (sum, item) => sum + (item.price * item.quantity));
+  double discountTotal = cartState.items
+      .fold(0, (sum, item) => sum + (item.discount * item.quantity));
+
+  double taxTotal = 0;
+  for (var item in cartState.items) {
+    double itemTotalAfterDiscount =
+        (item.price - item.discount) * item.quantity;
+    for (var tax in item.appliedTaxes) {
+      if (tax.isFixed) {
+        taxTotal += tax.rate * item.quantity;
+      } else {
+        taxTotal += itemTotalAfterDiscount * (tax.rate / 100);
+      }
+    }
+  }
+
+  return subtotal - discountTotal + taxTotal;
 });

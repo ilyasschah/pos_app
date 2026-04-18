@@ -94,6 +94,7 @@ class CartItem {
   int discountType;
   String? comment;
   String? bundle;
+  bool isSaved;
   final String productName;
   final List<MenuTax> appliedTaxes;
 
@@ -107,6 +108,7 @@ class CartItem {
     this.discountType = 0,
     this.comment,
     this.bundle,
+    this.isSaved = false,
     required this.productName,
     required this.appliedTaxes,
   });

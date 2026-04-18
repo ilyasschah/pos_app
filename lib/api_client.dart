@@ -75,7 +75,6 @@ class ApiClient {
     }
   }
 
-  // 3. Checkout & Pay (Converts cart to document, frees the table!)
   Future<bool> checkoutPosOrder(
       int companyId, int userId, CheckoutRequest request) async {
     try {
@@ -104,23 +103,21 @@ class ApiClient {
       final response = await _dio.post(
         '/PosOrder/Create',
         queryParameters: {'companyId': companyId},
-        // ✨ FIX: Sending a complete JSON payload to satisfy ASP.NET Core validation!
         data: {
           "userId": userId,
-          "number": "ORD-TEMP", // Your C# backend overrides this anyway!
+          "number": "ORD-TEMP",
           "discount": 0.0,
           "discountType": 0,
           "total": 0.0,
           "customerId": null,
           "serviceType": serviceType,
-          "serviceStatus": 1, // 1 = Open/Occupied
+          "serviceStatus": 1,
           "floorPlanTableId": floorPlanTableId,
           "bookingId": null
         },
       );
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        // Your C# backend returns the whole PosOrder object, so we extract the ID
         final data = response.data;
         if (data is int) return data;
         if (data['id'] != null) return data['id'];
@@ -175,28 +172,54 @@ class ApiClient {
     }
   }
 
+  Future<bool> deletePosOrder(int companyId, int posOrderId) async {
+    try {
+      final response = await _dio.delete(
+        '/PosOrder/Delete',
+        queryParameters: {'id': posOrderId, 'companyId': companyId},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      throw Exception('Failed to delete order: $e');
+    }
+  }
+
+  Future<List<dynamic>> getKitchenOrders(int companyId) async {
+    try {
+      final response = await _dio.get(
+        '/PosOrder/GetKitchenOrders',
+        queryParameters: {'companyId': companyId},
+      );
+      if (response.statusCode == 200) {
+        return response.data as List<dynamic>;
+      }
+      return [];
+    } on DioException catch (e) {
+      throw Exception('Failed to fetch kitchen orders: ${e.message}');
+    }
+  }
+
   Future<List<dynamic>> getAllActiveOrders(int companyId) async {
     try {
-      final response = await _dio
-          .get('/PosOrder/GetAll', queryParameters: {'companyId': companyId});
-
+      final response = await _dio.get(
+        '/PosOrder/GetAll',
+        queryParameters: {'companyId': companyId},
+      );
       if (response.statusCode == 200) {
         final List<dynamic> orders = response.data;
         final activeOrders = orders
             .where((o) => (o['serviceStatus'] ?? o['ServiceStatus']) == 1)
             .toList();
-
         activeOrders.sort((a, b) {
           final idA = a['id'] ?? a['Id'] ?? 0;
           final idB = b['id'] ?? b['Id'] ?? 0;
-          return idB.compareTo(idA);
+          return (idB as int).compareTo(idA as int);
         });
-
         return activeOrders;
       }
       return [];
-    } catch (e) {
-      throw Exception('Failed to fetch active orders: $e');
+    } on DioException catch (e) {
+      throw Exception('Failed to fetch active orders: ${e.message}');
     }
   }
 }

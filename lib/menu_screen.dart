@@ -232,7 +232,10 @@ class MenuScreen extends ConsumerWidget {
             icon: const Icon(Icons.kitchen, color: Colors.purple),
             tooltip: "Open Kitchen Screen",
             onPressed: () async {
-              final Uri url = Uri.parse('/#/kitchen');
+              // ✨ FIX: Pass the company ID into the URL!
+              final companyId = selectedCompany?.id ?? 0;
+              final Uri url = Uri.parse('/#/kitchen?companyId=$companyId');
+
               if (!await launchUrl(url, webOnlyWindowName: '_blank')) {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                     content: Text("Could not launch kitchen screen")));
@@ -605,7 +608,6 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final cartState = ref.watch(cartProvider);
     final cartItems = cartState.items;
     final total = ref.watch(cartTotalProvider);
-
     final currentCustomer = ref.watch(currentCustomerProvider);
     final asyncCustomers = ref.watch(allCustomersProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -621,19 +623,61 @@ class _CartSectionState extends ConsumerState<CartSection> {
             children: [
               const Text("Order Details",
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              asyncCustomers.when(
-                loading: () => const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2)),
-                error: (_, __) => const Icon(Icons.error, color: Colors.red),
-                data: (customers) => TextButton.icon(
-                  icon: const Icon(Icons.edit, size: 16),
-                  label: Text(currentCustomer?.name ?? "Select Customer"),
-                  onPressed: () => _showCustomerDialog(context, ref, customers),
-                ),
+
+              // ✨ MOVED: The SAVE Button is now cleanly in the header
+              ElevatedButton.icon(
+                onPressed: cartItems.isEmpty
+                    ? null
+                    : () async {
+                        final companyId = ref.read(selectedCompanyProvider)?.id;
+                        if (companyId == null) return;
+                        try {
+                          final success = await ref
+                              .read(cartProvider.notifier)
+                              .saveOrderToServer(ApiClient(), companyId);
+                          if (success && context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                    content: Text('Order Saved to Table!'),
+                                    backgroundColor: Colors.blue));
+                            Navigator.pushAndRemoveUntil(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => const FloorPlanScreen()),
+                                (route) => false);
+                          }
+                        } catch (e) {
+                          if (context.mounted)
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                content: Text('Error saving: $e'),
+                                backgroundColor: Colors.red));
+                        }
+                      },
+                icon: const Icon(Icons.save, size: 18, color: Colors.white),
+                label: const Text("SAVE",
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold)),
+                style:
+                    ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
               ),
             ],
+          ),
+        ),
+        // Customer Selector Row
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          color: Theme.of(context).colorScheme.surface,
+          child: asyncCustomers.when(
+            loading: () => const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2)),
+            error: (_, __) => const Icon(Icons.error, color: Colors.red),
+            data: (customers) => TextButton.icon(
+              icon: const Icon(Icons.person, size: 16),
+              label: Text(currentCustomer?.name ?? "Select Customer"),
+              onPressed: () => _showCustomerDialog(context, ref, customers),
+            ),
           ),
         ),
         Expanded(
@@ -654,13 +698,37 @@ class _CartSectionState extends ConsumerState<CartSection> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          // ➖ Minus Button
+                          IconButton(
+                            icon: const Icon(Icons.remove_circle_outline,
+                                color: Colors.blueGrey),
+                            onPressed: () => ref
+                                .read(cartProvider.notifier)
+                                .decrementItem(item.productId),
+                          ),
+                          // Quantity Text
+                          Text("${item.quantity.toInt()}",
+                              style: const TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.bold)),
+                          // ➕ Plus Button
+                          IconButton(
+                            icon: const Icon(Icons.add_circle_outline,
+                                color: Colors.blueGrey),
+                            onPressed: () => ref
+                                .read(cartProvider.notifier)
+                                .incrementItem(item.productId),
+                          ),
+                          const SizedBox(width: 8),
+                          // Price
                           Text(
                               "\$${(item.price * item.quantity).toStringAsFixed(2)}",
-                              style: const TextStyle(fontSize: 15)),
+                              style: const TextStyle(
+                                  fontSize: 15, fontWeight: FontWeight.bold)),
+                          // ❌ Remove Row Button
                           IconButton(
                             icon: Icon(Icons.close,
                                 color: isDark ? Colors.redAccent : Colors.red,
-                                size: 20),
+                                size: 24),
                             onPressed: () => ref
                                 .read(cartProvider.notifier)
                                 .removeItem(item.productId),
@@ -695,46 +763,41 @@ class _CartSectionState extends ConsumerState<CartSection> {
                   : Row(
                       children: [
                         ElevatedButton(
-                          onPressed: cartItems.isEmpty
-                              ? null
-                              : () async {
-                                  final companyId =
-                                      ref.read(selectedCompanyProvider)?.id;
-                                  if (companyId == null) return;
-                                  try {
-                                    final apiClient = ApiClient();
-                                    final success = await ref
-                                        .read(cartProvider.notifier)
-                                        .saveOrderToServer(
-                                            apiClient, companyId);
-                                    if (success && context.mounted) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(const SnackBar(
-                                              content:
-                                                  Text('Order Saved to Table!'),
-                                              backgroundColor: Colors.blue));
-                                      Navigator.pushAndRemoveUntil(
-                                          context,
-                                          MaterialPageRoute(
-                                              builder: (_) =>
-                                                  const FloorPlanScreen()),
-                                          (route) => false);
-                                    }
-                                  } catch (e) {
-                                    if (context.mounted)
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(SnackBar(
-                                              content: Text('Error saving: $e'),
-                                              backgroundColor: Colors.red));
-                                  }
-                                },
+                          onPressed: () async {
+                            final companyId =
+                                ref.read(selectedCompanyProvider)?.id;
+                            if (companyId == null ||
+                                cartState.activePosOrderId == null) return;
+                            try {
+                              await ApiClient().deletePosOrder(
+                                  companyId, cartState.activePosOrderId!);
+                              ref.read(cartProvider.notifier).clearCart();
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content:
+                                            Text('Order Deleted from Database'),
+                                        backgroundColor: Colors.red));
+                                Navigator.pushAndRemoveUntil(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (_) =>
+                                            const FloorPlanScreen()),
+                                    (route) => false);
+                              }
+                            } catch (e) {
+                              if (context.mounted)
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                        content: Text('Error: $e'),
+                                        backgroundColor: Colors.red));
+                            }
+                          },
                           style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blueGrey,
-                              disabledBackgroundColor:
-                                  isDark ? Colors.grey[800] : Colors.grey[300],
+                              backgroundColor: Colors.redAccent,
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 24, vertical: 16)),
-                          child: const Text("SAVE",
+                          child: const Text("REMOVE",
                               style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 16,
