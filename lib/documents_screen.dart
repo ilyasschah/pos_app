@@ -40,8 +40,8 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
   List<DocumentType> _docTypes = [];
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
-  String? _filterCustomer;
-  String? _filterUser;
+  // String? _filterCustomer;
+  // String? _filterUser;
   int? _filterPaidStatus; // null = all
 
   @override
@@ -299,139 +299,139 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
   }
 }
 
-class _ExpandableDocumentRow extends ConsumerWidget {
-  final Document document;
+// class _ExpandableDocumentRow extends ConsumerWidget {
+//   final Document document;
 
-  const _ExpandableDocumentRow({super.key, required this.document});
+//   const _ExpandableDocumentRow({super.key, required this.document});
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // 1. Watch the items for this specific document
-    final itemsAsync = ref.watch(documentItemsByDocIdProvider(document.id));
+//   @override
+//   Widget build(BuildContext context, WidgetRef ref) {
+//     // 1. Watch the items for this specific document
+//     final itemsAsync = ref.watch(documentItemsByDocIdProvider(document.id));
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: ExpansionTile(
-        title: Text(document.number,
-            style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(
-          "${document.customerName ?? 'Unknown'} • ${document.documentTypeName ?? ''}",
-          style: TextStyle(color: Colors.grey[600]),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // --- 2. DYNAMIC FRONTEND TOTAL CALCULATION ---
-            itemsAsync.when(
-              data: (items) {
-                // Sum up the items
-                double computedTotal =
-                    items.fold<double>(0, (sum, item) => sum + item.total);
+//     return Card(
+//       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+//       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+//       child: ExpansionTile(
+//         title: Text(document.number,
+//             style: const TextStyle(fontWeight: FontWeight.bold)),
+//         subtitle: Text(
+//           "${document.customerName ?? 'Unknown'} • ${document.documentTypeName ?? ''}",
+//           style: TextStyle(color: Colors.grey[600]),
+//         ),
+//         trailing: Row(
+//           mainAxisSize: MainAxisSize.min,
+//           children: [
+//             // --- 2. DYNAMIC FRONTEND TOTAL CALCULATION ---
+//             itemsAsync.when(
+//               data: (items) {
+//                 // Sum up the items
+//                 double computedTotal =
+//                     items.fold<double>(0, (sum, item) => sum + item.total);
 
-                // Apply the parent document's discount
-                if (document.discountType == 1) {
-                  // Fixed amount
-                  computedTotal -= document.discount;
-                } else if (document.discountType == 0) {
-                  // Percentage
-                  computedTotal -= computedTotal * (document.discount / 100);
-                }
+//                 // Apply the parent document's discount
+//                 if (document.discountType == 1) {
+//                   // Fixed amount
+//                   computedTotal -= document.discount;
+//                 } else if (document.discountType == 0) {
+//                   // Percentage
+//                   computedTotal -= computedTotal * (document.discount / 100);
+//                 }
 
-                if (computedTotal < 0) computedTotal = 0;
+//                 if (computedTotal < 0) computedTotal = 0;
 
-                return Text(
-                  "\$${computedTotal.toStringAsFixed(2)}",
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Colors.green),
-                );
-              },
-              loading: () => const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2)),
-              // Fallback to the backend total if there's an error fetching items
-              error: (e, _) => Text(
-                "\$${document.total.toStringAsFixed(2)}",
-                style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: Colors.red),
-              ),
-            ),
-            // ---------------------------------------------
-            const SizedBox(width: 16),
-            IconButton(
-              icon: const Icon(Icons.edit, color: Colors.blueGrey),
-              onPressed: () =>
-                  showDocumentEditor(context, ref, existingDocument: document),
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete, color: Colors.redAccent),
-              onPressed: () {
-                // Your delete logic
-              },
-            ),
-          ],
-        ),
-        children: [
-          Container(
-            width: double.infinity,
-            color: Colors.grey[50],
-            padding: const EdgeInsets.all(16),
-            child: itemsAsync.when(
-              loading: () => const Center(
-                  child: Padding(
-                      padding: EdgeInsets.all(16),
-                      child: CircularProgressIndicator())),
-              error: (e, _) => Text("Failed to load items: $e",
-                  style: const TextStyle(color: Colors.red)),
-              data: (items) {
-                if (items.isEmpty) {
-                  return const Text("No products inside this document.",
-                      style: TextStyle(
-                          color: Colors.grey, fontStyle: FontStyle.italic));
-                }
-                return DataTable(
-                  headingRowHeight: 32,
-                  dataRowMinHeight: 40,
-                  dataRowMaxHeight: 40,
-                  columns: const [
-                    DataColumn(
-                        label: Text("Product",
-                            style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(
-                        label: Text("Qty",
-                            style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(
-                        label: Text("Price",
-                            style: TextStyle(fontWeight: FontWeight.bold))),
-                    DataColumn(
-                        label: Text("Subtotal",
-                            style: TextStyle(fontWeight: FontWeight.bold))),
-                  ],
-                  rows: items
-                      .map((i) => DataRow(cells: [
-                            DataCell(Text(i.productName ?? '-')),
-                            DataCell(Text(i.quantity
-                                .toStringAsFixed(i.quantity % 1 == 0 ? 0 : 2))),
-                            DataCell(Text("\$${i.price.toStringAsFixed(2)}")),
-                            DataCell(Text("\$${i.total.toStringAsFixed(2)}",
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold))),
-                          ]))
-                      .toList(),
-                );
-              },
-            ),
-          )
-        ],
-      ),
-    );
-  }
-}
+//                 return Text(
+//                   "\$${computedTotal.toStringAsFixed(2)}",
+//                   style: const TextStyle(
+//                       fontWeight: FontWeight.bold,
+//                       fontSize: 16,
+//                       color: Colors.green),
+//                 );
+//               },
+//               loading: () => const SizedBox(
+//                   width: 16,
+//                   height: 16,
+//                   child: CircularProgressIndicator(strokeWidth: 2)),
+//               // Fallback to the backend total if there's an error fetching items
+//               error: (e, _) => Text(
+//                 "\$${document.total.toStringAsFixed(2)}",
+//                 style: const TextStyle(
+//                     fontWeight: FontWeight.bold,
+//                     fontSize: 16,
+//                     color: Colors.red),
+//               ),
+//             ),
+//             // ---------------------------------------------
+//             const SizedBox(width: 16),
+//             IconButton(
+//               icon: const Icon(Icons.edit, color: Colors.blueGrey),
+//               onPressed: () =>
+//                   showDocumentEditor(context, ref, existingDocument: document),
+//             ),
+//             IconButton(
+//               icon: const Icon(Icons.delete, color: Colors.redAccent),
+//               onPressed: () {
+//                 // Your delete logic
+//               },
+//             ),
+//           ],
+//         ),
+//         children: [
+//           Container(
+//             width: double.infinity,
+//             color: Colors.grey[50],
+//             padding: const EdgeInsets.all(16),
+//             child: itemsAsync.when(
+//               loading: () => const Center(
+//                   child: Padding(
+//                       padding: EdgeInsets.all(16),
+//                       child: CircularProgressIndicator())),
+//               error: (e, _) => Text("Failed to load items: $e",
+//                   style: const TextStyle(color: Colors.red)),
+//               data: (items) {
+//                 if (items.isEmpty) {
+//                   return const Text("No products inside this document.",
+//                       style: TextStyle(
+//                           color: Colors.grey, fontStyle: FontStyle.italic));
+//                 }
+//                 return DataTable(
+//                   headingRowHeight: 32,
+//                   dataRowMinHeight: 40,
+//                   dataRowMaxHeight: 40,
+//                   columns: const [
+//                     DataColumn(
+//                         label: Text("Product",
+//                             style: TextStyle(fontWeight: FontWeight.bold))),
+//                     DataColumn(
+//                         label: Text("Qty",
+//                             style: TextStyle(fontWeight: FontWeight.bold))),
+//                     DataColumn(
+//                         label: Text("Price",
+//                             style: TextStyle(fontWeight: FontWeight.bold))),
+//                     DataColumn(
+//                         label: Text("Subtotal",
+//                             style: TextStyle(fontWeight: FontWeight.bold))),
+//                   ],
+//                   rows: items
+//                       .map((i) => DataRow(cells: [
+//                             DataCell(Text(i.productName ?? '-')),
+//                             DataCell(Text(i.quantity
+//                                 .toStringAsFixed(i.quantity % 1 == 0 ? 0 : 2))),
+//                             DataCell(Text("\$${i.price.toStringAsFixed(2)}")),
+//                             DataCell(Text("\$${i.total.toStringAsFixed(2)}",
+//                                 style: const TextStyle(
+//                                     fontWeight: FontWeight.bold))),
+//                           ]))
+//                       .toList(),
+//                 );
+//               },
+//             ),
+//           )
+//         ],
+//       ),
+//     );
+//   }
+// }
 
 // --- DOCUMENT TABLE ---
 class _DocumentTable extends StatelessWidget {

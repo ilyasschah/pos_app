@@ -250,7 +250,7 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
                       child: _countriesLoading
                           ? const LinearProgressIndicator()
                           : DropdownButtonFormField<int>(
-                              value: _selectedCountryId,
+                              initialValue: _selectedCountryId,
                               decoration: const InputDecoration(
                                 labelText: "Country *",
                                 border: OutlineInputBorder(),

@@ -591,7 +591,7 @@ class _AddUserDialogState extends ConsumerState<_AddUserDialog> {
                       v == null || v.trim().isEmpty ? "Required" : null),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
-                value: _accessLevel,
+                initialValue: _accessLevel,
                 decoration: const InputDecoration(labelText: "Access Level"),
                 items: const [
                   DropdownMenuItem(value: 0, child: Text("Admin")),
@@ -744,7 +744,7 @@ class _EditUserDialogState extends ConsumerState<_EditUserDialog> {
                   keyboardType: TextInputType.emailAddress),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
-                value: _accessLevel,
+                initialValue: _accessLevel,
                 decoration: const InputDecoration(labelText: "Access Level"),
                 items: const [
                   DropdownMenuItem(value: 0, child: Text("Admin")),

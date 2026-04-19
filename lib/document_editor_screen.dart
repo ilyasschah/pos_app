@@ -625,7 +625,7 @@ class _HeaderForm extends ConsumerWidget {
   final VoidCallback onSave;
 
   const _HeaderForm({
-    super.key,
+    // super.key,
     required this.isEditing,
     required this.selectedDocTypeName,
     required this.selectedCustomerId,
@@ -735,7 +735,7 @@ class _HeaderForm extends ConsumerWidget {
                   final isValid = selectedCustomerId == null ||
                       filtered.any((c) => c.id == selectedCustomerId);
                   return DropdownButtonFormField<int>(
-                    value: isValid ? selectedCustomerId : null,
+                    initialValue: isValid ? selectedCustomerId : null,
                     decoration: InputDecoration(
                         labelText: isSupplier ? "Supplier *" : "Customer *",
                         border: const OutlineInputBorder()),
@@ -759,7 +759,7 @@ class _HeaderForm extends ConsumerWidget {
                   final isValidUser = selectedUserId == null ||
                       users.any((u) => u.id == selectedUserId);
                   return DropdownButtonFormField<int>(
-                    value: isValidUser ? selectedUserId : null,
+                    initialValue: isValidUser ? selectedUserId : null,
                     decoration: const InputDecoration(
                         labelText: "User *", border: OutlineInputBorder()),
                     items: users
@@ -782,7 +782,7 @@ class _HeaderForm extends ConsumerWidget {
                   final isValidWH = selectedWarehouseId == null ||
                       warehouses.any((w) => w.id == selectedWarehouseId);
                   return DropdownButtonFormField<int>(
-                    value: isValidWH ? selectedWarehouseId : null,
+                    initialValue: isValidWH ? selectedWarehouseId : null,
                     decoration: const InputDecoration(
                         labelText: "Warehouse *", border: OutlineInputBorder()),
                     items: warehouses
@@ -824,7 +824,7 @@ class _HeaderForm extends ConsumerWidget {
             Expanded(
               flex: 2,
               child: DropdownButtonFormField<int>(
-                value: discountType,
+                initialValue: discountType,
                 decoration: const InputDecoration(
                     border: OutlineInputBorder(),
                     contentPadding: EdgeInsets.symmetric(horizontal: 12)),
@@ -927,7 +927,7 @@ class _ItemsView extends ConsumerWidget {
   final ValueChanged<double> onItemsChanged;
 
   const _ItemsView({
-    super.key,
+    // super.key,
     required this.documentId,
     required this.companyId,
     required this.onItemsChanged,
@@ -1176,7 +1176,7 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
               loading: () => const CircularProgressIndicator(),
               error: (e, _) => Text("Error: $e"),
               data: (products) => DropdownButtonFormField<int>(
-                value: _selectedProductId,
+                initialValue: _selectedProductId,
                 decoration: const InputDecoration(
                     labelText: "Product *", border: OutlineInputBorder()),
                 items: products
@@ -1223,7 +1223,7 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
               const SizedBox(width: 12),
               Expanded(
                   child: DropdownButtonFormField<int>(
-                value: _discountType,
+                initialValue: _discountType,
                 decoration: const InputDecoration(border: OutlineInputBorder()),
                 items: const [
                   DropdownMenuItem(value: 0, child: Text("%")),
@@ -1476,7 +1476,7 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                       const SizedBox(width: 12),
                       Expanded(
                           child: DropdownButtonFormField<int>(
-                        value: _discountType,
+                        initialValue: _discountType,
                         decoration:
                             const InputDecoration(border: OutlineInputBorder()),
                         items: const [
@@ -1556,7 +1556,7 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                             loading: () => const LinearProgressIndicator(),
                             error: (_, __) => const Text("Error loading taxes"),
                             data: (taxes) => DropdownButtonFormField<int>(
-                                  value: _selectedTaxId,
+                                  initialValue: _selectedTaxId,
                                   decoration: const InputDecoration(
                                       labelText: "Select Tax",
                                       border: OutlineInputBorder(),
@@ -1873,9 +1873,9 @@ class _SummaryCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.5)),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Column(
         children: [
@@ -1968,7 +1968,7 @@ class _AddPaymentDialogState extends ConsumerState<_AddPaymentDialog> {
                     _selectedPaymentTypeId = types.first.id;
                   }
                   return DropdownButtonFormField<int>(
-                    value: _selectedPaymentTypeId,
+                    initialValue: _selectedPaymentTypeId,
                     decoration: const InputDecoration(
                         labelText: "Payment Type",
                         border: OutlineInputBorder()),

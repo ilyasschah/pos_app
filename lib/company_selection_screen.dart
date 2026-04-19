@@ -1,3 +1,5 @@
+// ignore_for_file: invalid_use_of_visible_for_testing_member, invalid_use_of_protected_member
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -38,7 +40,6 @@ class CompanySelectionScreen extends ConsumerWidget {
                       ref
                           .read(defaultCompanyIdProvider.notifier)
                           .setDefaultCompany(company.id);
-                      // Check if this company has any users
                       final dio = createDio();
                       List<User> users = [];
                       try {
@@ -212,7 +213,7 @@ class _CreateFirstUserDialogState
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
-                value: _accessLevel,
+                initialValue: _accessLevel,
                 decoration: const InputDecoration(labelText: "Access Level"),
                 items: const [
                   DropdownMenuItem(value: 0, child: Text("Admin")),

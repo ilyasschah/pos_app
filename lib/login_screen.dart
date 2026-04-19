@@ -1,3 +1,5 @@
+// ignore_for_file: invalid_use_of_visible_for_testing_member, invalid_use_of_protected_member
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'auth_provider.dart';
@@ -22,8 +24,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       final defaultCoId = ref.read(defaultCompanyIdProvider);
 
       if (selectedCo == null) {
-        final fallbackId = defaultCoId ??
-            2;
+        final fallbackId = defaultCoId ?? 2;
         ref.read(selectedCompanyProvider.notifier).state = Company(
             id: fallbackId, name: "Default Branch", countrySubentity: "DEF");
       }
@@ -44,13 +45,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       appBar: AppBar(
         title: const Text("POS Login"),
         actions: [
-          // Quick Settings Toggle on Login Screen
           IconButton(
             icon: Icon(ref.watch(themeModeProvider) == ThemeMode.dark
                 ? Icons.light_mode
                 : Icons.dark_mode),
             onPressed: () {
-              // Simply call our new built-in function to toggle and save!
               ref.read(themeModeProvider.notifier).toggleTheme();
             },
           ),

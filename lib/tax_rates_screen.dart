@@ -398,7 +398,10 @@ class _TaxFormDialogState extends ConsumerState<_TaxFormDialog> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label),
-          Switch(value: value, onChanged: onChanged, activeColor: Colors.green),
+          Switch(
+              value: value,
+              onChanged: onChanged,
+              activeThumbColor: Colors.green),
         ],
       ),
     );
@@ -510,7 +513,7 @@ class _SwitchTaxesDialogState extends ConsumerState<_SwitchTaxesDialog> {
 
             // Old Tax Dropdown
             DropdownButtonFormField<int>(
-              value: _oldTaxId,
+              initialValue: _oldTaxId,
               decoration: const InputDecoration(
                 labelText: "Old Tax",
                 border: OutlineInputBorder(),
@@ -528,7 +531,7 @@ class _SwitchTaxesDialogState extends ConsumerState<_SwitchTaxesDialog> {
 
             // New Tax Dropdown
             DropdownButtonFormField<int>(
-              value: _newTaxId,
+              initialValue: _newTaxId,
               decoration: const InputDecoration(
                 labelText: "New Tax",
                 border: OutlineInputBorder(),

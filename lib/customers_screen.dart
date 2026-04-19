@@ -532,7 +532,7 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
                             style: TextStyle(color: Colors.red),
                           )
                         : DropdownButtonFormField<int>(
-                            value: _selectedCountryId,
+                            initialValue: _selectedCountryId,
                             decoration: const InputDecoration(
                               labelText: "Country",
                               border: OutlineInputBorder(),

@@ -37,7 +37,7 @@ class MenuScreen extends ConsumerWidget {
   const MenuScreen({super.key});
 
   void _handleLogout(BuildContext context, WidgetRef ref) {
-    ref.read(currentUserProvider.notifier).state = null;
+    ref.invalidate(currentUserProvider);
     ref.read(cartProvider.notifier).clearCart();
     Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }

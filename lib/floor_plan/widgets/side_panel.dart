@@ -99,7 +99,7 @@ class SidePanel extends ConsumerWidget {
         SwitchListTile(
           title: const Text("Show grid", style: TextStyle(color: Colors.white)),
           value: fpState.showGrid,
-          activeColor: Colors.greenAccent,
+          activeThumbColor: Colors.greenAccent,
           onChanged: (val) =>
               ref.read(floorPlanProvider.notifier).toggleShowGrid(val),
         ),

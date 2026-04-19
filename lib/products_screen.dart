@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -124,7 +126,7 @@ class _GroupTreeSidebar extends ConsumerWidget {
                 title: const Text("All Products",
                     style: TextStyle(fontWeight: FontWeight.bold)),
                 selected: ref.watch(selectedProductGroupIdProvider) == null,
-                selectedTileColor: Colors.blue.withOpacity(0.15),
+                selectedTileColor: Colors.blue.withValues(alpha: 0.15),
                 onTap: () => ref
                     .read(selectedProductGroupIdProvider.notifier)
                     .state = null,
@@ -177,8 +179,9 @@ class _TreeNodeState extends State<_TreeNode> {
               .read(selectedProductGroupIdProvider.notifier)
               .state = widget.group.id,
           child: Container(
-            color:
-                isSelected ? Colors.blue.withOpacity(0.15) : Colors.transparent,
+            color: isSelected
+                ? Colors.blue.withValues(alpha: 0.15)
+                : Colors.transparent,
             padding: EdgeInsets.only(
                 left: 8.0 + (widget.depth * 16.0),
                 right: 8.0,
@@ -808,7 +811,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                         loading: () => const LinearProgressIndicator(),
                         error: (_, __) => const Text("Error loading groups"),
                         data: (groups) => DropdownButtonFormField<int?>(
-                          value: _selectedGroupId,
+                          initialValue: _selectedGroupId,
                           decoration: const InputDecoration(
                               labelText: "Category / Group",
                               border: OutlineInputBorder()),
@@ -953,7 +956,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                       SwitchListTile(
                           title: const Text("Is Enabled (Visible)"),
                           value: _isEnabled,
-                          activeColor: Colors.green,
+                          activeThumbColor: Colors.green,
                           onChanged: (v) => setState(() => _isEnabled = v),
                           visualDensity: VisualDensity.compact),
                     ],
@@ -990,7 +993,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                             boxShadow: [
                               if (isSelected)
                                 BoxShadow(
-                                    color: color.withOpacity(0.4),
+                                    color: color.withValues(alpha: 0.4),
                                     blurRadius: 6,
                                     spreadRadius: 1)
                             ]),
@@ -1070,7 +1073,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
               error: (_, __) => const Text("Failed to load taxes"),
               data: (taxes) {
                 return DropdownButtonFormField<int?>(
-                  value: _selectedTaxId,
+                  initialValue: _selectedTaxId,
                   decoration: const InputDecoration(
                       labelText: "Primary Tax Rate",
                       border: OutlineInputBorder()),
@@ -1634,7 +1637,7 @@ class _StockControlRulesEditorState
                             suppliers.any((s) => s.id == _selectedSupplierId);
 
                         return DropdownButtonFormField<int?>(
-                          value: isValid ? _selectedSupplierId : null,
+                          initialValue: isValid ? _selectedSupplierId : null,
                           decoration: const InputDecoration(
                               labelText: "Preferred Supplier",
                               border: OutlineInputBorder()),

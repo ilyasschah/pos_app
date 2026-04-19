@@ -74,9 +74,9 @@ class _StockScreenState extends ConsumerState<StockScreen> {
   }
 
   Color _rowColor(double qty) {
-    if (qty > 0) return Colors.green.withOpacity(0.08);
-    if (qty < 0) return Colors.red.withOpacity(0.12);
-    return Colors.blue.withOpacity(0.08);
+    if (qty > 0) return Colors.green.withValues(alpha: 0.08);
+    if (qty < 0) return Colors.red.withValues(alpha: 0.12);
+    return Colors.blue.withValues(alpha: 0.08);
   }
 
   Color _quantityColor(double qty) {
@@ -312,7 +312,8 @@ class _StockScreenState extends ConsumerState<StockScreen> {
                                           (states) {
                                         if (states
                                             .contains(WidgetState.selected)) {
-                                          return Colors.pink.withOpacity(0.3);
+                                          return Colors.pink
+                                              .withValues(alpha: 0.3);
                                         }
                                         return _rowColor(s.quantity);
                                       }),
@@ -465,7 +466,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
             color: selected ? Colors.indigo : null,
           )),
       selected: selected,
-      selectedTileColor: Colors.indigo.withOpacity(0.08),
+      selectedTileColor: Colors.indigo.withValues(alpha: 0.08),
       onTap: onTap,
     );
   }
@@ -624,7 +625,7 @@ class _QuickInventoryDialogState extends ConsumerState<_QuickInventoryDialog> {
                 error: (e, _) => Text("Error loading products: $e",
                     style: const TextStyle(color: Colors.red)),
                 data: (products) => DropdownButtonFormField<int>(
-                  value: _selectedProductId,
+                  initialValue: _selectedProductId,
                   decoration: const InputDecoration(
                     labelText: "Product *",
                     border: OutlineInputBorder(),
@@ -650,7 +651,7 @@ class _QuickInventoryDialogState extends ConsumerState<_QuickInventoryDialog> {
                 error: (e, _) => Text("Error loading warehouses: $e",
                     style: const TextStyle(color: Colors.red)),
                 data: (warehouses) => DropdownButtonFormField<int>(
-                  value: _selectedWarehouseId,
+                  initialValue: _selectedWarehouseId,
                   decoration: const InputDecoration(
                     labelText: "Warehouse *",
                     border: OutlineInputBorder(),

@@ -100,7 +100,7 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
                   }
                   return DropdownButtonFormField<int>(
                     isExpanded: true,
-                    value: selectedPaymentTypeId,
+                    initialValue: selectedPaymentTypeId,
                     hint: const Text('Select Payment Method'),
                     items: paymentTypes.map((pt) {
                       return DropdownMenuItem<int>(

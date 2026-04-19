@@ -5,7 +5,6 @@ import 'package:pos_app/floor_plan_table.dart';
 import 'package:pos_app/floor_plan_table_provider.dart';
 import 'package:pos_app/api_client.dart';
 import 'package:pos_app/cart_provider.dart';
-import 'package:pos_app/menu_screen.dart';
 
 class TableWidget extends ConsumerStatefulWidget {
   final FloorPlanTable table;
@@ -90,29 +89,31 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
               if (widget.table.status == 1) {
                 final success = await ref
                     .read(cartProvider.notifier)
-                    .loadExistingOrder(
-                    apiClient, widget.companyId, widget.table.id,
-                    widget.warehouseId
-                );
+                    .loadExistingOrder(apiClient, widget.companyId,
+                        widget.table.id, widget.warehouseId);
 
                 if (success && mounted) {
                   Navigator.pushReplacementNamed(context, '/menu');
                 } else if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text(
-                          'Could not find active order for this table.'),
+                      content:
+                          Text('Could not find active order for this table.'),
                       backgroundColor: Colors.red));
                 }
               }
               // --- 2. IF TABLE IS FREE (GREEN) -> CREATE NEW ORDER ---
               else {
                 final int newOrderId = await apiClient.createPosOrder(
-                  widget.companyId, widget.userId, 1, widget.table.id,
+                  widget.companyId,
+                  widget.userId,
+                  1,
+                  widget.table.id,
                 );
 
                 if (mounted) {
-                  ref.read(cartProvider.notifier).setOrderContext(
-                      newOrderId, widget.warehouseId);
+                  ref
+                      .read(cartProvider.notifier)
+                      .setOrderContext(newOrderId, widget.warehouseId);
                   Navigator.pushReplacementNamed(context, '/menu');
                 }
               }
@@ -125,8 +126,7 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
               if (mounted) setState(() => isCreatingOrder = false);
             }
           }
-          },
-
+        },
         onPanUpdate: isEditMode
             ? (details) {
                 setState(() {

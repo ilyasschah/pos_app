@@ -109,7 +109,7 @@ class CurrenciesScreen extends ConsumerWidget {
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                   leading: CircleAvatar(
-                    backgroundColor: Colors.indigo.withOpacity(0.1),
+                    backgroundColor: Colors.indigo.withValues(alpha: 0.1),
                     radius: 25,
                     child: Text(
                       currency.symbol, // Displays the cool symbol!

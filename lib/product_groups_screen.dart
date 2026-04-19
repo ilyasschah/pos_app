@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -174,7 +176,7 @@ class ProductGroupsScreen extends ConsumerWidget {
                       flex: 3,
                       child: Container(
                         color: group.imageBytes == null
-                            ? group.flutterColor.withOpacity(0.15)
+                            ? group.flutterColor.withValues(alpha: 0.15)
                             : Colors.grey[200],
                         child: group.imageBytes != null
                             ? Image.memory(group.imageBytes!, fit: BoxFit.cover)
@@ -199,8 +201,8 @@ class ProductGroupsScreen extends ConsumerWidget {
                                       style: TextStyle(
                                         fontSize: 15,
                                         fontWeight: FontWeight.bold,
-                                        color:
-                                            group.flutterColor.withOpacity(0.9),
+                                        color: group.flutterColor
+                                            .withValues(alpha: 0.9),
                                       ),
                                     ),
                                   ),
@@ -289,7 +291,10 @@ class ProductGroupsScreen extends ConsumerWidget {
 // --- ADD/EDIT DIALOG ---
 class _GroupEditorDialog extends ConsumerStatefulWidget {
   final ProductGroup? existingGroup;
-  const _GroupEditorDialog({super.key, this.existingGroup});
+  const _GroupEditorDialog(
+      {
+      // super.key,
+      this.existingGroup});
 
   @override
   ConsumerState<_GroupEditorDialog> createState() => _GroupEditorDialogState();
@@ -447,7 +452,7 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
                                     g.id != widget.existingGroup!.id)
                                 .toList();
                             return DropdownButtonFormField<int?>(
-                              value: _selectedParentId,
+                              initialValue: _selectedParentId,
                               decoration: const InputDecoration(
                                   labelText: "Parent Folder",
                                   border: OutlineInputBorder()),
@@ -551,7 +556,7 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
                             boxShadow: [
                               if (isSelected)
                                 BoxShadow(
-                                    color: color.withOpacity(0.4),
+                                    color: color.withValues(alpha: 0.4),
                                     blurRadius: 8,
                                     spreadRadius: 2)
                             ]),
