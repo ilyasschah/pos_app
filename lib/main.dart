@@ -9,15 +9,12 @@ import 'menu_screen.dart';
 import 'settings_provider.dart';
 
 void main() async {
-  // 1. Ensure Flutter bindings are initialized before calling native code
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 2. Load SharedPreferences into memory
   final prefs = await SharedPreferences.getInstance();
 
   runApp(
     ProviderScope(
-      // 3. Inject the loaded preferences directly into our Riverpod tree
       overrides: [
         sharedPreferencesProvider.overrideWithValue(prefs),
       ],
@@ -31,13 +28,12 @@ class MyApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Watch the current theme mode
     final themeMode = ref.watch(themeModeProvider);
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'POS System',
-      themeMode: themeMode, // Apply the toggleable theme
+      themeMode: themeMode,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
             seedColor: Colors.blue, brightness: Brightness.light),

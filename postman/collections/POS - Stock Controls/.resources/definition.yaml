@@ -1,4 +1,4 @@
 $kind: collection
 description: Endpoints for managing Stock Control rules per product.
 variables:
-  baseUrl: https://localhost:7002
+  baseUrl: https://192.168.11.103:7002

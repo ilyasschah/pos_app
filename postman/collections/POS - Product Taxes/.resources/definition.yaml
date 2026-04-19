@@ -2,4 +2,4 @@ $kind: collection
 description: Endpoints for managing the Many-to-Many junction table between
   Products and Taxes.
 variables:
-  baseUrl: https://localhost:7002
+  baseUrl: https://192.168.11.103:7002

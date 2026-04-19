@@ -2,5 +2,5 @@ $kind: collection
 description: Endpoints for managing POS Orders (temporary carts) before they
   become Documents.
 variables:
-  baseUrl: https://localhost:7002
+  baseUrl: https://192.168.11.103:7002
   companyId: "2"

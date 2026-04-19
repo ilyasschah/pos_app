@@ -2,5 +2,5 @@ $kind: collection
 name: POS - Users
 description: Endpoints for managing Users in the POS system.
 variables:
-  baseUrl: https://localhost:7002
+  baseUrl: https://192.168.11.103:7002
   companyId: "1"

@@ -1,5 +1,5 @@
 $kind: http-request
-url: https://localhost:7002/api/Warehouses/Delete?id=7&companyId={{companyId}}
+url: https://192.168.11.103:7002/api/Warehouses/Delete?id=7&companyId={{companyId}}
 method: DELETE
 queryParams:
   id: "7"

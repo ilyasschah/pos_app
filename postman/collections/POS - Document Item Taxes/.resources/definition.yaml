@@ -1,5 +1,5 @@
 $kind: collection
 description: Endpoints for managing taxes applied to specific document items.
 variables:
-  baseUrl: https://localhost:7002
+  baseUrl: https://192.168.11.103:7002
   companyId: "2"

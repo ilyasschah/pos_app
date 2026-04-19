@@ -7,7 +7,7 @@ import 'checkout_models.dart';
 Dio createDio() {
   final dio = Dio();
 
-  dio.options.baseUrl = 'https://localhost:7002/api';
+  dio.options.baseUrl = 'https://192.168.11.103:7002/api';
   dio.options.connectTimeout = const Duration(seconds: 10);
   dio.options.receiveTimeout = const Duration(seconds: 10);
 
