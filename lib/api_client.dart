@@ -7,7 +7,7 @@ import 'checkout_models.dart';
 Dio createDio() {
   final dio = Dio();
 
-  dio.options.baseUrl = 'https://192.168.11.103:7002/api';
+  dio.options.baseUrl = 'http://192.168.11.103:5002/api';
   dio.options.connectTimeout = const Duration(seconds: 10);
   dio.options.receiveTimeout = const Duration(seconds: 10);
 
@@ -37,10 +37,7 @@ class ApiClient {
     try {
       final response = await _dio.get(
         '/Menu',
-        queryParameters: {
-          'companyId': companyId,
-          'warehouseId': warehouseId,
-        },
+        queryParameters: {'companyId': companyId, 'warehouseId': warehouseId},
       );
 
       if (response.statusCode == 200) {
@@ -56,8 +53,9 @@ class ApiClient {
 
   Future<bool> bulkAddPosOrderItems(int companyId, List<CartItem> items) async {
     try {
-      final List<Map<String, dynamic>> jsonList =
-          items.map((item) => item.toJson()).toList();
+      final List<Map<String, dynamic>> jsonList = items
+          .map((item) => item.toJson())
+          .toList();
 
       final response = await _dio.post(
         '/PosOrderItem/BulkAdd',
@@ -76,14 +74,14 @@ class ApiClient {
   }
 
   Future<bool> checkoutPosOrder(
-      int companyId, int userId, CheckoutRequest request) async {
+    int companyId,
+    int userId,
+    CheckoutRequest request,
+  ) async {
     try {
       final response = await _dio.post(
         '/PosOrder/Checkout',
-        queryParameters: {
-          'companyId': companyId,
-          'userId': userId,
-        },
+        queryParameters: {'companyId': companyId, 'userId': userId},
         data: request.toJson(),
       );
 
@@ -98,7 +96,11 @@ class ApiClient {
   }
 
   Future<int> createPosOrder(
-      int companyId, int userId, int serviceType, int floorPlanTableId) async {
+    int companyId,
+    int userId,
+    int serviceType,
+    int floorPlanTableId,
+  ) async {
     try {
       final response = await _dio.post(
         '/PosOrder/Create',
@@ -113,7 +115,7 @@ class ApiClient {
           "serviceType": serviceType,
           "serviceStatus": 1,
           "floorPlanTableId": floorPlanTableId,
-          "bookingId": null
+          "bookingId": null,
         },
       );
 
@@ -126,7 +128,8 @@ class ApiClient {
         throw Exception('Could not find Order ID in response');
       } else {
         throw Exception(
-            'Failed to create order. Status: ${response.statusCode}');
+          'Failed to create order. Status: ${response.statusCode}',
+        );
       }
     } catch (e) {
       throw Exception('Error creating order: $e');
@@ -134,10 +137,14 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>?> getActiveOrderForTable(
-      int companyId, int tableId) async {
+    int companyId,
+    int tableId,
+  ) async {
     try {
-      final response = await _dio
-          .get('/PosOrder/GetAll', queryParameters: {'companyId': companyId});
+      final response = await _dio.get(
+        '/PosOrder/GetAll',
+        queryParameters: {'companyId': companyId},
+      );
       if (response.statusCode == 200) {
         final List<dynamic> orders = response.data;
         orders.sort((a, b) {
@@ -161,11 +168,10 @@ class ApiClient {
 
   Future<List<dynamic>> getOrderItems(int companyId, int posOrderId) async {
     try {
-      final response =
-          await _dio.get('/PosOrderItem/GetByOrderId', queryParameters: {
-        'posOrderId': posOrderId,
-        'companyId': companyId,
-      });
+      final response = await _dio.get(
+        '/PosOrderItem/GetByOrderId',
+        queryParameters: {'posOrderId': posOrderId, 'companyId': companyId},
+      );
       return response.data as List<dynamic>;
     } catch (e) {
       throw Exception('Failed to fetch order items: $e');

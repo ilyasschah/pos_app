@@ -12,7 +12,7 @@
         "--web-port",
         "8080",
         "--web-hostname",
-        "192.168.11.103"
+        "localhost"
       ],
       "isBackground": true,
       "problemMatcher": {

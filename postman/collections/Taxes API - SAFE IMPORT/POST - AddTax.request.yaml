@@ -1,5 +1,5 @@
 $kind: http-request
-url: https://192.168.11.103:7002/api/Taxes/AddTax?companyId={{companyId}}
+url: http://192.168.11.103:5002/api/Taxes/AddTax?companyId={{companyId}}
 method: POST
 headers:
   Content-Type: application/json
