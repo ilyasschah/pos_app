@@ -28,6 +28,7 @@ import 'package:pos_app/floor_plan/floor_plan_screen.dart';
 import 'package:pos_app/checkout_models.dart';
 import 'package:pos_app/checkout_dialog.dart';
 import 'api_client.dart';
+import 'tax_provider.dart';
 
 final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
 final searchQueryProvider = StateProvider<String>((ref) => "");
@@ -58,8 +59,11 @@ class MenuScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  const Icon(Icons.point_of_sale,
-                      color: Colors.white, size: 36),
+                  const Icon(
+                    Icons.point_of_sale,
+                    color: Colors.white,
+                    size: 36,
+                  ),
                   const SizedBox(height: 8),
                   Text(
                     selectedCompany?.name ?? "POS System",
@@ -77,135 +81,156 @@ class MenuScreen extends ConsumerWidget {
               ),
             ),
             ListTile(
-                leading: const Icon(Icons.business),
-                title: const Text("My Company"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const MyCompanyScreen()));
-                }),
+              leading: const Icon(Icons.business),
+              title: const Text("My Company"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MyCompanyScreen()),
+                );
+              },
+            ),
             ListTile(
-                leading: const Icon(Icons.description),
-                title: const Text("Documents"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const DocumentsScreen()));
-                }),
+              leading: const Icon(Icons.description),
+              title: const Text("Documents"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DocumentsScreen()),
+                );
+              },
+            ),
             ListTile(
-                leading: const Icon(Icons.people),
-                title: const Text("Customers"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const CustomersScreen()));
-                }),
+              leading: const Icon(Icons.people),
+              title: const Text("Customers"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CustomersScreen()),
+                );
+              },
+            ),
             ListTile(
-                leading: const Icon(Icons.payment),
-                title: const Text("Payment Types"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const PaymentTypesScreen()));
-                }),
+              leading: const Icon(Icons.payment),
+              title: const Text("Payment Types"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PaymentTypesScreen()),
+                );
+              },
+            ),
             ListTile(
-                leading: const Icon(Icons.inventory),
-                title: const Text("Stock"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const StockScreen()));
-                }),
+              leading: const Icon(Icons.inventory),
+              title: const Text("Stock"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const StockScreen()),
+                );
+              },
+            ),
             ListTile(
-                leading: const Icon(Icons.currency_exchange),
-                title: const Text("Currencies"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const CurrenciesScreen()));
-                }),
+              leading: const Icon(Icons.currency_exchange),
+              title: const Text("Currencies"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const CurrenciesScreen()),
+                );
+              },
+            ),
             ListTile(
-                leading: const Icon(Icons.percent),
-                title: const Text("Tax Rates"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const TaxRatesScreen()));
-                }),
+              leading: const Icon(Icons.percent),
+              title: const Text("Tax Rates"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const TaxRatesScreen()),
+                );
+              },
+            ),
             ListTile(
-                leading: const Icon(Icons.warehouse),
-                title: const Text("Warehouses"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const WarehousesScreen()));
-                }),
+              leading: const Icon(Icons.warehouse),
+              title: const Text("Warehouses"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const WarehousesScreen()),
+                );
+              },
+            ),
             ListTile(
-                leading: const Icon(Icons.fastfood),
-                title: const Text("Products"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const ProductsScreen()));
-                }),
+              leading: const Icon(Icons.fastfood),
+              title: const Text("Products"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ProductsScreen()),
+                );
+              },
+            ),
             ListTile(
-                leading: const Icon(Icons.folder_special),
-                title: const Text("Product Groups"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const ProductGroupsScreen()));
-                }),
+              leading: const Icon(Icons.folder_special),
+              title: const Text("Product Groups"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ProductGroupsScreen(),
+                  ),
+                );
+              },
+            ),
             ListTile(
-                leading: const Icon(Icons.manage_accounts),
-                title: const Text("Users"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const UsersScreen()));
-                }),
+              leading: const Icon(Icons.manage_accounts),
+              title: const Text("Users"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const UsersScreen()),
+                );
+              },
+            ),
             ListTile(
-                leading: const Icon(Icons.bar_chart),
-                title: const Text("Reports"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const ReportsScreen()));
-                }),
+              leading: const Icon(Icons.bar_chart),
+              title: const Text("Reports"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ReportsScreen()),
+                );
+              },
+            ),
             ListTile(
-                leading: const Icon(Icons.lock_clock),
-                title: const Text("End of Day"),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const EndOfDayScreen()));
-                }),
+              leading: const Icon(Icons.lock_clock),
+              title: const Text("End of Day"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const EndOfDayScreen()),
+                );
+              },
+            ),
             const Divider(),
             ListTile(
-                leading: const Icon(Icons.logout, color: Colors.red),
-                title:
-                    const Text("Logout", style: TextStyle(color: Colors.red)),
-                onTap: () => _handleLogout(context, ref)),
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: const Text("Logout", style: TextStyle(color: Colors.red)),
+              onTap: () => _handleLogout(context, ref),
+            ),
           ],
         ),
       ),
@@ -216,16 +241,20 @@ class MenuScreen extends ConsumerWidget {
             onPressed: () {
               ref.read(cartProvider.notifier).clearCart();
               Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
-                  (route) => false);
+                context,
+                MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
+                (route) => false,
+              );
             },
             icon: const Icon(Icons.grid_view, color: Colors.white),
-            label: const Text("Tables",
-                style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16)),
+            label: const Text(
+              "Tables",
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
           ),
           const SizedBox(width: 16),
           IconButton(
@@ -237,8 +266,11 @@ class MenuScreen extends ConsumerWidget {
               final Uri url = Uri.parse('/#/kitchen?companyId=$companyId');
 
               if (!await launchUrl(url, webOnlyWindowName: '_blank')) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text("Could not launch kitchen screen")));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text("Could not launch kitchen screen"),
+                  ),
+                );
               }
             },
           ),
@@ -246,38 +278,46 @@ class MenuScreen extends ConsumerWidget {
             Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Text("User: ${currentUser?.displayName ?? 'Unknown'}",
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 16)),
+                child: Text(
+                  "User: ${currentUser?.displayName ?? 'Unknown'}",
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
               ),
             ),
           IconButton(
-              icon: const Icon(Icons.logout, color: Colors.red),
-              tooltip: "Logout",
-              onPressed: () => _handleLogout(context, ref)),
+            icon: const Icon(Icons.logout, color: Colors.red),
+            tooltip: "Logout",
+            onPressed: () => _handleLogout(context, ref),
+          ),
           const SizedBox(width: 8),
         ],
       ),
       body: Row(
         children: [
           Expanded(
-              flex: 2,
-              child: Container(
-                  color: Theme.of(context).scaffoldBackgroundColor,
-                  child: const BrowserSection())),
+            flex: 2,
+            child: Container(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              child: const BrowserSection(),
+            ),
+          ),
           const VerticalDivider(width: 1, thickness: 1),
           Expanded(
-              flex: 1,
-              child: Container(
-                  color: Theme.of(context).colorScheme.surface,
-                  child: const CartSection())),
+            flex: 1,
+            child: Container(
+              color: Theme.of(context).colorScheme.surface,
+              child: const CartSection(),
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-// --- BROWSER SECTION ---
 class BrowserSection extends ConsumerWidget {
   const BrowserSection({super.key});
 
@@ -292,8 +332,8 @@ class BrowserSection extends ConsumerWidget {
 
     if (selectedCompany == null)
       return const Center(
-          child:
-              Text("No company selected. Open the menu and pick a company."));
+        child: Text("No company selected. Open the menu and pick a company."),
+      );
     if (asyncGroups.isLoading || asyncProducts.isLoading)
       return const Center(child: CircularProgressIndicator());
     if (asyncGroups.hasError || asyncProducts.hasError)
@@ -312,8 +352,9 @@ class BrowserSection extends ConsumerWidget {
             (p.code?.toLowerCase().contains(query) ?? false);
       }).toList();
     } else {
-      final visibleGroups =
-          allGroups.where((g) => g.parentGroupId == currentGroup?.id).toList();
+      final visibleGroups = allGroups
+          .where((g) => g.parentGroupId == currentGroup?.id)
+          .toList();
       final visibleProducts = allProducts
           .where((p) => p.productGroupId == currentGroup?.id)
           .toList();
@@ -335,13 +376,17 @@ class BrowserSection extends ConsumerWidget {
                   ? IconButton(
                       icon: const Icon(Icons.clear),
                       onPressed: () =>
-                          ref.read(searchQueryProvider.notifier).state = "")
+                          ref.read(searchQueryProvider.notifier).state = "",
+                    )
                   : null,
               border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide.none),
-              contentPadding:
-                  const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+                borderRadius: BorderRadius.circular(8),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                vertical: 0,
+                horizontal: 12,
+              ),
             ),
             onChanged: (value) =>
                 ref.read(searchQueryProvider.notifier).state = value,
@@ -361,7 +406,8 @@ class BrowserSection extends ConsumerWidget {
                     } else {
                       try {
                         final parent = allGroups.firstWhere(
-                            (g) => g.id == currentGroup.parentGroupId);
+                          (g) => g.id == currentGroup.parentGroupId,
+                        );
                         ref.read(currentGroupProvider.notifier).state = parent;
                       } catch (e) {
                         ref.read(currentGroupProvider.notifier).state = null;
@@ -370,25 +416,33 @@ class BrowserSection extends ConsumerWidget {
                   },
                 ),
                 const SizedBox(width: 8),
-                Text(currentGroup.name,
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.bold)),
+                Text(
+                  currentGroup.name,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ],
             ),
           ),
         Expanded(
           child: itemsToDisplay.isEmpty
               ? Center(
-                  child: Text(isSearching
-                      ? "No products found matching '$searchQuery'"
-                      : "Empty Folder"))
+                  child: Text(
+                    isSearching
+                        ? "No products found matching '$searchQuery'"
+                        : "Empty Folder",
+                  ),
+                )
               : GridView.builder(
                   padding: const EdgeInsets.all(16),
                   gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 180,
-                      childAspectRatio: 0.9,
-                      crossAxisSpacing: 16,
-                      mainAxisSpacing: 16),
+                    maxCrossAxisExtent: 180,
+                    childAspectRatio: 0.9,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                  ),
                   itemCount: itemsToDisplay.length,
                   itemBuilder: (context, index) {
                     final item = itemsToDisplay[index];
@@ -405,15 +459,20 @@ class BrowserSection extends ConsumerWidget {
   }
 
   Widget _buildGroupCard(
-      BuildContext context, WidgetRef ref, ProductGroup group) {
+    BuildContext context,
+    WidgetRef ref,
+    ProductGroup group,
+  ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseColor = (group.flutterColor == Colors.transparent ||
+    final baseColor =
+        (group.flutterColor == Colors.transparent ||
             group.flutterColor == Colors.white)
         ? Colors.blueGrey
         : group.flutterColor;
     final bgColor = isDark ? baseColor.withAlpha(51) : baseColor.withAlpha(38);
-    final borderColor =
-        isDark ? baseColor.withAlpha(128) : baseColor.withAlpha(76);
+    final borderColor = isDark
+        ? baseColor.withAlpha(128)
+        : baseColor.withAlpha(76);
 
     return InkWell(
       onTap: () {
@@ -423,9 +482,10 @@ class BrowserSection extends ConsumerWidget {
       borderRadius: BorderRadius.circular(12),
       child: Container(
         decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: borderColor, width: 1.5)),
+          color: bgColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: borderColor, width: 1.5),
+        ),
         clipBehavior: Clip.antiAlias,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -435,10 +495,12 @@ class BrowserSection extends ConsumerWidget {
               child: group.imageBytes != null
                   ? Image.memory(group.imageBytes!, fit: BoxFit.cover)
                   : Center(
-                      child: Icon(Icons.folder,
-                          size: 54,
-                          color:
-                              isDark ? baseColor.withAlpha(204) : baseColor)),
+                      child: Icon(
+                        Icons.folder,
+                        size: 54,
+                        color: isDark ? baseColor.withAlpha(204) : baseColor,
+                      ),
+                    ),
             ),
             Expanded(
               flex: 2,
@@ -451,9 +513,10 @@ class BrowserSection extends ConsumerWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14,
-                      color: isDark ? Colors.white : Colors.black87),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
                 ),
               ),
             ),
@@ -464,7 +527,10 @@ class BrowserSection extends ConsumerWidget {
   }
 
   Widget _buildProductCard(
-      BuildContext context, WidgetRef ref, Product product) {
+    BuildContext context,
+    WidgetRef ref,
+    Product product,
+  ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return InkWell(
@@ -505,14 +571,17 @@ class BrowserSection extends ConsumerWidget {
           color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-              color: isDark ? Colors.grey[800]! : Colors.grey[300]!, width: 1),
+            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+            width: 1,
+          ),
           boxShadow: isDark
               ? []
               : [
                   BoxShadow(
-                      color: Colors.black.withAlpha(13),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2))
+                    color: Colors.black.withAlpha(13),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
                 ],
         ),
         clipBehavior: Clip.antiAlias,
@@ -525,34 +594,45 @@ class BrowserSection extends ConsumerWidget {
                   ? Image.memory(product.imageBytes!, fit: BoxFit.cover)
                   : Container(
                       color: isDark ? Colors.grey[850] : Colors.grey[100],
-                      child: Icon(Icons.inventory_2,
-                          size: 48,
-                          color: isDark ? Colors.grey[600] : Colors.grey[400]),
+                      child: Icon(
+                        Icons.inventory_2,
+                        size: 48,
+                        color: isDark ? Colors.grey[600] : Colors.grey[400],
+                      ),
                     ),
             ),
             Expanded(
               flex: 2,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8.0,
+                  vertical: 4.0,
+                ),
                 color: isDark ? Colors.grey[900] : Colors.white,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(product.name,
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 13)),
+                    Text(
+                      product.name,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
                     const SizedBox(height: 4),
-                    Text("\$${product.price.toStringAsFixed(2)}",
-                        style: TextStyle(
-                            color: isDark
-                                ? Colors.greenAccent[400]
-                                : Colors.green[700],
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14)),
+                    Text(
+                      "\$${product.price.toStringAsFixed(2)}",
+                      style: TextStyle(
+                        color: isDark
+                            ? Colors.greenAccent[400]
+                            : Colors.green[700],
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -564,7 +644,6 @@ class BrowserSection extends ConsumerWidget {
   }
 }
 
-// --- CART SECTION ---
 class CartSection extends ConsumerStatefulWidget {
   const CartSection({super.key});
 
@@ -574,7 +653,10 @@ class CartSection extends ConsumerStatefulWidget {
 
 class _CartSectionState extends ConsumerState<CartSection> {
   void _showCustomerDialog(
-      BuildContext context, WidgetRef ref, List<Customer> customers) {
+    BuildContext context,
+    WidgetRef ref,
+    List<Customer> customers,
+  ) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -611,7 +693,27 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final currentCustomer = ref.watch(currentCustomerProvider);
     final asyncCustomers = ref.watch(allCustomersProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
+    final subtotal = cartItems.fold<double>(
+      0,
+      (sum, item) => sum + (item.price * item.quantity),
+    );
+    final discountTotal = cartItems.fold<double>(
+      0,
+      (sum, item) => sum + (item.discount * item.quantity),
+    );
+    double taxTotal = 0;
+    for (var item in cartItems) {
+      double itemTotalAfterDiscount =
+          (item.price - item.discount) * item.quantity;
+      for (var tax in item.appliedTaxes) {
+        if (tax.isFixed) {
+          taxTotal += tax.rate * item.quantity;
+        } else {
+          taxTotal += itemTotalAfterDiscount * (tax.rate / 100);
+        }
+      }
+    }
+    final grandTotal = subtotal - discountTotal + taxTotal;
     return Column(
       children: [
         Container(
@@ -621,10 +723,11 @@ class _CartSectionState extends ConsumerState<CartSection> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text("Order Details",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const Text(
+                "Order Details",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
 
-              // ✨ MOVED: The SAVE Button is now cleanly in the header
               ElevatedButton.icon(
                 onPressed: cartItems.isEmpty
                     ? null
@@ -637,41 +740,54 @@ class _CartSectionState extends ConsumerState<CartSection> {
                               .saveOrderToServer(ApiClient(), companyId);
                           if (success && context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                    content: Text('Order Saved to Table!'),
-                                    backgroundColor: Colors.blue));
+                              const SnackBar(
+                                content: Text('Order Saved to Table!'),
+                                backgroundColor: Colors.blue,
+                              ),
+                            );
                             Navigator.pushAndRemoveUntil(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (_) => const FloorPlanScreen()),
-                                (route) => false);
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const FloorPlanScreen(),
+                              ),
+                              (route) => false,
+                            );
                           }
                         } catch (e) {
                           if (context.mounted)
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
                                 content: Text('Error saving: $e'),
-                                backgroundColor: Colors.red));
+                                backgroundColor: Colors.red,
+                              ),
+                            );
                         }
                       },
                 icon: const Icon(Icons.save, size: 18, color: Colors.white),
-                label: const Text("SAVE",
-                    style: TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold)),
-                style:
-                    ElevatedButton.styleFrom(backgroundColor: Colors.blueGrey),
+                label: const Text(
+                  "SAVE",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blueGrey,
+                ),
               ),
             ],
           ),
         ),
-        // Customer Selector Row
+
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           color: Theme.of(context).colorScheme.surface,
           child: asyncCustomers.when(
             loading: () => const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2)),
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
             error: (_, __) => const Icon(Icons.error, color: Colors.red),
             data: (customers) => TextButton.icon(
               icon: const Icon(Icons.person, size: 16),
@@ -683,37 +799,71 @@ class _CartSectionState extends ConsumerState<CartSection> {
         Expanded(
           child: cartItems.isEmpty
               ? Center(
-                  child: Text("Cart is empty",
-                      style: TextStyle(
-                          color: isDark ? Colors.grey[600] : Colors.grey)))
+                  child: Text(
+                    "Cart is empty",
+                    style: TextStyle(
+                      color: isDark ? Colors.grey[600] : Colors.grey,
+                    ),
+                  ),
+                )
               : ListView.separated(
                   itemCount: cartItems.length,
                   separatorBuilder: (ctx, i) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final item = cartItems[index];
                     return ListTile(
-                      title: Text(item.productName,
-                          style: const TextStyle(fontWeight: FontWeight.w500)),
-                      subtitle: Text("x${item.quantity}"),
+                      onTap: () {
+                        showDialog(
+                          context: context,
+                          builder: (_) => _ItemTaxDialog(item: item),
+                        );
+                      },
+                      title: Row(
+                        children: [
+                          Text(
+                            item.productName,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          if (item.appliedTaxes.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8.0),
+                              child: Icon(
+                                Icons.local_offer,
+                                size: 14,
+                                color: Colors.pink[300],
+                              ),
+                            ),
+                        ],
+                      ),
+
+                      subtitle: Text(
+                        "x${item.quantity.toInt()} (Tap to modify taxes)",
+                      ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          // ➖ Minus Button
                           IconButton(
-                            icon: const Icon(Icons.remove_circle_outline,
-                                color: Colors.blueGrey),
+                            icon: const Icon(
+                              Icons.remove_circle_outline,
+                              color: Colors.blueGrey,
+                            ),
                             onPressed: () => ref
                                 .read(cartProvider.notifier)
                                 .decrementItem(item.productId),
                           ),
-                          // Quantity Text
-                          Text("${item.quantity.toInt()}",
-                              style: const TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.bold)),
-                          // ➕ Plus Button
+
+                          Text(
+                            "${item.quantity.toInt()}",
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                           IconButton(
-                            icon: const Icon(Icons.add_circle_outline,
-                                color: Colors.blueGrey),
+                            icon: const Icon(
+                              Icons.add_circle_outline,
+                              color: Colors.blueGrey,
+                            ),
                             onPressed: () => ref
                                 .read(cartProvider.notifier)
                                 .incrementItem(item.productId),
@@ -721,18 +871,23 @@ class _CartSectionState extends ConsumerState<CartSection> {
                           const SizedBox(width: 8),
                           // Price
                           Text(
-                              "\$${(item.price * item.quantity).toStringAsFixed(2)}",
-                              style: const TextStyle(
-                                  fontSize: 15, fontWeight: FontWeight.bold)),
-                          // ❌ Remove Row Button
+                            "\$${(item.price * item.quantity).toStringAsFixed(2)}",
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+
                           IconButton(
-                            icon: Icon(Icons.close,
-                                color: isDark ? Colors.redAccent : Colors.red,
-                                size: 24),
+                            icon: Icon(
+                              Icons.close,
+                              color: isDark ? Colors.redAccent : Colors.red,
+                              size: 24,
+                            ),
                             onPressed: () => ref
                                 .read(cartProvider.notifier)
                                 .removeItem(item.productId),
-                          )
+                          ),
                         ],
                       ),
                     );
@@ -742,96 +897,241 @@ class _CartSectionState extends ConsumerState<CartSection> {
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
+            color: isDark
+                ? const Color(0xFF1E293B)
+                : Colors.blueGrey[50], // Dark Slate Background
             boxShadow: [
               BoxShadow(
-                  color: isDark ? Colors.black38 : Colors.black12,
-                  blurRadius: 10,
-                  offset: const Offset(0, -4))
+                color: isDark ? Colors.black38 : Colors.black12,
+                blurRadius: 10,
+                offset: const Offset(0, -4),
+              ),
             ],
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: Column(
             children: [
-              Text("Total: \$${total.toStringAsFixed(2)}",
-                  style: TextStyle(
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("Subtotal", style: TextStyle(fontSize: 16)),
+                  Text(
+                    "\$${subtotal.toStringAsFixed(2)}",
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("Taxes", style: TextStyle(fontSize: 16)),
+                  Text(
+                    "\$${taxTotal.toStringAsFixed(2)}",
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ],
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Divider(height: 1, thickness: 1),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    "Total Due",
+                    style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.greenAccent[400] : Colors.green)),
-              cartState.isLoading
-                  ? const CircularProgressIndicator()
-                  : Row(
-                      children: [
-                        ElevatedButton(
-                          onPressed: () async {
-                            final companyId =
-                                ref.read(selectedCompanyProvider)?.id;
-                            if (companyId == null ||
-                                cartState.activePosOrderId == null) return;
-                            try {
-                              await ApiClient().deletePosOrder(
-                                  companyId, cartState.activePosOrderId!);
-                              ref.read(cartProvider.notifier).clearCart();
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                        content:
-                                            Text('Order Deleted from Database'),
-                                        backgroundColor: Colors.red));
-                                Navigator.pushAndRemoveUntil(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (_) =>
-                                            const FloorPlanScreen()),
-                                    (route) => false);
-                              }
-                            } catch (e) {
-                              if (context.mounted)
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                        content: Text('Error: $e'),
-                                        backgroundColor: Colors.red));
-                            }
+                      color: isDark ? Colors.greenAccent[400] : Colors.green,
+                    ),
+                  ),
+                  Text(
+                    "\$${grandTotal.toStringAsFixed(2)}",
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.greenAccent[400] : Colors.green,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  ElevatedButton(
+                    onPressed: () async {
+                      final companyId = ref.read(selectedCompanyProvider)?.id;
+                      if (companyId == null ||
+                          cartState.activePosOrderId == null)
+                        return;
+                      try {
+                        await ApiClient().deletePosOrder(
+                          companyId,
+                          cartState.activePosOrderId!,
+                        );
+                        ref.read(cartProvider.notifier).clearCart();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Order Deleted from Database'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          Navigator.pushAndRemoveUntil(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const FloorPlanScreen(),
+                            ),
+                            (route) => false,
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted)
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Error: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.redAccent,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 16,
+                      ),
+                    ),
+                    child: const Text(
+                      "VOID",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton(
+                    onPressed: cartItems.isEmpty
+                        ? null
+                        : () {
+                            showDialog(
+                              context: context,
+                              barrierDismissible: false,
+                              builder: (context) => const CheckoutDialog(),
+                            );
                           },
-                          style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.redAccent,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 24, vertical: 16)),
-                          child: const Text("REMOVE",
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold)),
-                        ),
-                        const SizedBox(width: 12),
-                        // EXISTING PAY BUTTON
-                        ElevatedButton(
-                          onPressed: cartItems.isEmpty
-                              ? null
-                              : () {
-                                  showDialog(
-                                    context: context,
-                                    barrierDismissible: false,
-                                    builder: (context) =>
-                                        const CheckoutDialog(),
-                                  );
-                                },
-                          style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              disabledBackgroundColor:
-                                  isDark ? Colors.grey[800] : Colors.grey[300],
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 32, vertical: 16)),
-                          child: const Text("PAY",
-                              style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold)),
-                        ),
-                      ],
-                    )
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      disabledBackgroundColor: isDark
+                          ? Colors.grey[800]
+                          : Colors.grey[300],
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 16,
+                      ),
+                    ),
+                    child: const Text(
+                      "PAY",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ItemTaxDialog extends ConsumerStatefulWidget {
+  final CartItem item;
+  const _ItemTaxDialog({required this.item});
+
+  @override
+  ConsumerState<_ItemTaxDialog> createState() => _ItemTaxDialogState();
+}
+
+class _ItemTaxDialogState extends ConsumerState<_ItemTaxDialog> {
+  late List<MenuTax> _selectedTaxes;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedTaxes = List.from(widget.item.appliedTaxes);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final allTaxesAsync = ref.watch(allTaxesProvider);
+
+    return AlertDialog(
+      title: Text("Taxes: ${widget.item.productName}"),
+      content: SizedBox(
+        width: 300,
+        child: allTaxesAsync.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (e, _) => Text("Error: $e"),
+          data: (taxes) {
+            if (taxes.isEmpty)
+              return const Text("No taxes available in system.");
+            return ListView.builder(
+              shrinkWrap: true,
+              itemCount: taxes.length,
+              itemBuilder: (ctx, i) {
+                final tax = taxes[i];
+                final isSelected = _selectedTaxes.any((t) => t.id == tax.id);
+
+                return CheckboxListTile(
+                  title: Text(tax.name),
+                  subtitle: Text("${tax.rate}${tax.isFixed ? '' : '%'}"),
+                  value: isSelected,
+                  activeColor: Colors.pink,
+                  onChanged: (val) {
+                    setState(() {
+                      if (val == true) {
+                        _selectedTaxes.add(
+                          MenuTax(
+                            id: tax.id,
+                            name: tax.name,
+                            rate: tax.rate,
+                            isFixed: tax.isFixed,
+                            isTaxOnTotal: tax.isTaxOnTotal,
+                          ),
+                        );
+                      } else {
+                        _selectedTaxes.removeWhere((t) => t.id == tax.id);
+                      }
+                    });
+                  },
+                );
+              },
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Cancel"),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            ref
+                .read(cartProvider.notifier)
+                .updateItemTaxes(widget.item.productId, _selectedTaxes);
+            Navigator.pop(context);
+          },
+          child: const Text("Apply Taxes"),
         ),
       ],
     );

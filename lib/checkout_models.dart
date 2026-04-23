@@ -53,7 +53,7 @@ class MenuProduct {
       stockQuantity: (json['stockQuantity'] ?? 0).toDouble(),
       taxes:
           (json['taxes'] as List?)?.map((t) => MenuTax.fromJson(t)).toList() ??
-              [],
+          [],
     );
   }
 }
@@ -76,7 +76,8 @@ class MenuCategory {
       id: json['id'],
       name: json['name'] ?? '',
       color: json['color'] ?? 'Transparent',
-      products: (json['products'] as List?)
+      products:
+          (json['products'] as List?)
               ?.map((p) => MenuProduct.fromJson(p))
               .toList() ??
           [],
@@ -96,7 +97,7 @@ class CartItem {
   String? bundle;
   bool isSaved;
   final String productName;
-  final List<MenuTax> appliedTaxes;
+  List<MenuTax> appliedTaxes;
 
   CartItem({
     required this.posOrderId,
@@ -141,6 +142,8 @@ class CartItem {
       'IsLocked': false,
       'isFeatured': false,
       'IsFeatured': false,
+      'appliedTaxIds': appliedTaxes.map((t) => t.id).toList(),
+      'AppliedTaxIds': appliedTaxes.map((t) => t.id).toList(),
     };
   }
 }

@@ -2,7 +2,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'checkout_models.dart';
 import 'api_client.dart';
 
-// --- THE STATE OBJECT ---
 class CartState {
   final int? activePosOrderId;
   final int activeWarehouseId;
@@ -61,7 +60,9 @@ class CartNotifier extends Notifier<CartState> {
 
   void setOrderContext(int orderId, int warehouseId) {
     state = state.copyWith(
-        activePosOrderId: orderId, activeWarehouseId: warehouseId);
+      activePosOrderId: orderId,
+      activeWarehouseId: warehouseId,
+    );
   }
 
   void addItem(MenuProduct product, {double quantity = 1}) {
@@ -113,12 +114,25 @@ class CartNotifier extends Notifier<CartState> {
     state = state.copyWith(items: items);
   }
 
+  void updateItemTaxes(int productId, List<MenuTax> newTaxes) {
+    final items = List<CartItem>.from(state.items);
+    final index = items.indexWhere((i) => i.productId == productId);
+    if (index >= 0) {
+      items[index].appliedTaxes = newTaxes;
+    }
+    state = state.copyWith(items: items);
+  }
+
   void clearCart() {
     state = CartState();
   }
 
   Future<bool> loadExistingOrder(
-      ApiClient apiClient, int companyId, int tableId, int warehouseId) async {
+    ApiClient apiClient,
+    int companyId,
+    int tableId,
+    int warehouseId,
+  ) async {
     state = state.copyWith(isLoading: true);
     try {
       final order = await apiClient.getActiveOrderForTable(companyId, tableId);
@@ -158,8 +172,10 @@ class CartNotifier extends Notifier<CartState> {
     if (state.items.isEmpty) return true;
     state = state.copyWith(isLoading: true);
     try {
-      final success =
-          await apiClient.bulkAddPosOrderItems(companyId, state.items);
+      final success = await apiClient.bulkAddPosOrderItems(
+        companyId,
+        state.items,
+      );
       if (success) {
         clearCart();
         return true;
@@ -172,8 +188,12 @@ class CartNotifier extends Notifier<CartState> {
     }
   }
 
-  Future<bool> loadOrderById(ApiClient apiClient, int companyId, int posOrderId,
-      int warehouseId) async {
+  Future<bool> loadOrderById(
+    ApiClient apiClient,
+    int companyId,
+    int posOrderId,
+    int warehouseId,
+  ) async {
     state = state.copyWith(isLoading: true);
     try {
       final itemsData = await apiClient.getOrderItems(companyId, posOrderId);
@@ -226,8 +246,11 @@ class CartNotifier extends Notifier<CartState> {
         warehouseId: state.activeWarehouseId,
       );
 
-      final success =
-          await apiClient.checkoutPosOrder(companyId, userId, request);
+      final success = await apiClient.checkoutPosOrder(
+        companyId,
+        userId,
+        request,
+      );
 
       if (success) {
         clearCart();
@@ -242,17 +265,22 @@ class CartNotifier extends Notifier<CartState> {
   }
 }
 
-final cartProvider =
-    NotifierProvider<CartNotifier, CartState>(() => CartNotifier());
+final cartProvider = NotifierProvider<CartNotifier, CartState>(
+  () => CartNotifier(),
+);
 
 final cartTotalProvider = Provider<double>((ref) {
   final cartState = ref.watch(cartProvider);
   if (cartState.items.isEmpty) return 0.0;
 
-  double subtotal = cartState.items
-      .fold(0, (sum, item) => sum + (item.price * item.quantity));
-  double discountTotal = cartState.items
-      .fold(0, (sum, item) => sum + (item.discount * item.quantity));
+  double subtotal = cartState.items.fold(
+    0,
+    (sum, item) => sum + (item.price * item.quantity),
+  );
+  double discountTotal = cartState.items.fold(
+    0,
+    (sum, item) => sum + (item.discount * item.quantity),
+  );
 
   double taxTotal = 0;
   for (var item in cartState.items) {
