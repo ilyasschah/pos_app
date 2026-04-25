@@ -1,4 +1,5 @@
 $kind: http-request
+name: Add Customer Discount
 url: http://192.168.11.103:5002/api/CustomerDiscounts/Add?companyId=2
 method: POST
 headers:
@@ -6,10 +7,10 @@ headers:
 queryParams:
   companyId: "2"
 body:
-  type: text
+  type: json
   content: "{\r
 
-    \  \"customerId\": 1,\r
+    \  \"customerId\": 8,\r
 
     \  \"type\": 0,\r
 

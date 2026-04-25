@@ -1,4 +1,5 @@
 $kind: http-request
+name: Update Promotion Item
 url: http://192.168.11.103:5002/api/PromotionItems/Update?companyId=2
 method: PATCH
 headers:
@@ -6,7 +7,7 @@ headers:
 queryParams:
   companyId: "2"
 body:
-  type: text
+  type: json
   content: "{\r
 
     \  \"id\": 1,\r

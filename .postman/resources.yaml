@@ -38,7 +38,7 @@ cloudResources:
     ..\postman\collections\POS - Orders: 41814350-487e83b6-fb99-4e10-aa0d-8a7e7fc16404
     ..\postman\collections\POS - Users: 41814350-db5c0078-e0d2-47bd-91c8-1d395a449861
     ..\postman\collections\POS - FloorPlanTables: 41814350-c57d8d3e-a1b7-478c-bf70-f2522769ed88
-    ..\postman\collections\Discounts & Promotions API: 6d18c5a0-9b31-4137-acad-8a6035e12647
-    ..\postman\collections\Promotion Items API: 16868b6b-c806-4401-a587-11b7f3add59d
+    ..\postman\collections\Promotion Items API: 41814350-b0e220bd-cf53-473c-859e-07eecfb50b20
+    ..\postman\collections\Discounts & Promotions API: 41814350-ab4f1303-0cc6-422a-8304-64c69358ae17
   environments:
     ..\postman\environments\New Environment.environment.yaml: 0ff322dd-64bf-472c-93d0-3e882d21cd5f
