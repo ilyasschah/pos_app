@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pos_app/floor_plan_provider.dart';
-import 'package:pos_app/floor_plan_table.dart';
-import 'package:pos_app/floor_plan_table_provider.dart';
+import 'package:pos_app/floor_plan/floor_plan_provider.dart';
+import 'package:pos_app/floor_plan/floor_plan_table.dart';
+import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
 import 'package:pos_app/floor_plan/active_orders_screen.dart';
 
 class SidePanel extends ConsumerWidget {

@@ -16,7 +16,7 @@ dependencies:
   dio: ^5.7.0
   
   # Data Models & JSON
-  json_annotation: ^4.9.0
+  json_annotation: ^4.11.0
   freezed_annotation: ^3.1.0
   
   # Utilities

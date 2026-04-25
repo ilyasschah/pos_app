@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pos_app/floor_plan_provider.dart';
-import 'package:pos_app/floor_plan_table_provider.dart';
-import 'package:pos_app/auth_provider.dart';
-import 'package:pos_app/company_provider.dart';
+import 'package:pos_app/floor_plan/floor_plan_provider.dart';
+import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
+import 'package:pos_app/auth/auth_provider.dart';
+import 'package:pos_app/company/company_provider.dart';
 import 'widgets/table_widget.dart';
 import 'widgets/side_panel.dart';
 

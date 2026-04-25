@@ -1,0 +1,21 @@
+$kind: http-request
+url: http://192.168.11.103:5002/api/CustomerDiscounts/Add?companyId=2
+method: POST
+headers:
+  Content-Type: application/json
+queryParams:
+  companyId: "2"
+body:
+  type: text
+  content: "{\r
+
+    \  \"customerId\": 1,\r
+
+    \  \"type\": 0,\r
+
+    \  \"uid\": 0,\r
+
+    \  \"value\": 10.0\r
+
+    }"
+order: 2000

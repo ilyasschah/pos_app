@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pos_app/api_client.dart';
-import 'package:pos_app/company_provider.dart';
-import 'package:pos_app/cart_provider.dart';
-import 'package:pos_app/menu_screen.dart';
+import 'package:pos_app/api/api_client.dart';
+import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/cart/cart_provider.dart';
+import 'package:pos_app/menu/menu_screen.dart';
 
 // Riverpod Provider to fetch the orders automatically
 final activeOrdersListProvider =

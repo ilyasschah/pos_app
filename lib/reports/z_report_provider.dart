@@ -1,0 +1,26 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
+import 'package:pos_app/api/api_client.dart';
+import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/reports/z_report_model.dart';
+import 'package:pos_app/utils/api_error_parser.dart';
+
+final allZReportsProvider =
+    FutureProvider.autoDispose<List<ZReportModel>>((ref) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return [];
+
+  try {
+    final dio = createDio();
+    final response = await dio.get(
+      '/ZReports/GetAll',
+      queryParameters: {'companyId': companyId},
+    );
+    return (response.data as List)
+        .map((j) => ZReportModel.fromJson(j))
+        .toList();
+  } on DioException catch (e, st) {
+    rethrowApiError(e, st);
+    return [];
+  }
+});

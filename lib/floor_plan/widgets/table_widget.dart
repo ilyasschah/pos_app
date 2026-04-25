@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pos_app/floor_plan_provider.dart';
-import 'package:pos_app/floor_plan_table.dart';
-import 'package:pos_app/floor_plan_table_provider.dart';
-import 'package:pos_app/api_client.dart';
-import 'package:pos_app/cart_provider.dart';
+import 'package:pos_app/floor_plan/floor_plan_provider.dart';
+import 'package:pos_app/floor_plan/floor_plan_table.dart';
+import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
+import 'package:pos_app/api/api_client.dart';
+import 'package:pos_app/cart/cart_provider.dart';
 
 class TableWidget extends ConsumerStatefulWidget {
   final FloorPlanTable table;

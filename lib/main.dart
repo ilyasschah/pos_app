@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'login_screen.dart';
-import 'kitchen_screen.dart';
-import 'company_selection_screen.dart';
-import 'menu_screen.dart';
-import 'settings_provider.dart';
+import 'package:pos_app/auth/login_screen.dart';
+import 'package:pos_app/kitchen/kitchen_screen.dart';
+import 'package:pos_app/company/company_selection_screen.dart';
+import 'package:pos_app/menu/menu_screen.dart';
+import 'package:pos_app/settings/settings_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
