@@ -4,15 +4,41 @@ class ServiceStatusHelper {
   static Color getColor(int status) {
     switch (status) {
       case 0:
-        return Colors.green.withAlpha(50); // Free
+        return const Color(0xFF10B981).withValues(alpha: 0.15); // Vibrant Green (Soft)
       case 1:
-        return Colors.blue; // Occupied
+        return const Color(0xFF3B82F6); // Vibrant Blue
       case 2:
-        return Colors.orange; // In Preparation
+        return const Color(0xFFF59E0B); // Amber/Orange
       case 3:
-        return Colors.teal; // In Kitchen / Ready
+        return const Color(0xFF14B8A6); // Teal
       default:
-        return Colors.grey;
+        return Colors.blueGrey;
+    }
+  }
+
+  static LinearGradient getGradient(int status) {
+    switch (status) {
+      case 0:
+        return LinearGradient(
+          colors: [
+            const Color(0xFF10B981).withValues(alpha: 0.2),
+            const Color(0xFF10B981).withValues(alpha: 0.05),
+          ],
+        );
+      case 1:
+        return const LinearGradient(
+          colors: [Color(0xFF3B82F6), Color(0xFF2563EB)],
+        );
+      case 2:
+        return const LinearGradient(
+          colors: [Color(0xFFF59E0B), Color(0xFFD97706)],
+        );
+      case 3:
+        return const LinearGradient(
+          colors: [Color(0xFF14B8A6), Color(0xFF0D9488)],
+        );
+      default:
+        return const LinearGradient(colors: [Colors.blueGrey, Colors.grey]);
     }
   }
 

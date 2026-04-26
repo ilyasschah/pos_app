@@ -208,6 +208,7 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                   serviceType,
                   widget.table.id,
                   widget.table.name,
+                  widget.warehouseId,
                 );
 
                 if (mounted) {
@@ -263,12 +264,20 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
             : null,
         child: Container(
           decoration: BoxDecoration(
-            color: tableColor,
+            gradient: ServiceStatusHelper.getGradient(widget.table.status),
             shape: widget.table.isRound ? BoxShape.circle : BoxShape.rectangle,
+            borderRadius: widget.table.isRound ? null : BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? Colors.white : Colors.green[800]!,
-              width: isSelected ? 3 : 2,
+              color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.2),
+              width: isSelected ? 3 : 1.5,
             ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 8,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           child: Center(
             child: isCreatingOrder

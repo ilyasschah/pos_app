@@ -99,6 +99,7 @@ class CartItem {
   bool isSaved;
   final String productName;
   List<MenuTax> appliedTaxes;
+  int? warehouseId; // Add optional warehouseId for split sourcing
 
   CartItem({
     required this.posOrderId,
@@ -114,6 +115,7 @@ class CartItem {
     this.isSaved = false,
     required this.productName,
     required this.appliedTaxes,
+    this.warehouseId,
   });
 
   Map<String, dynamic> toJson() {
@@ -136,6 +138,8 @@ class CartItem {
       'Discount': discount,
       'discountType': discountType,
       'DiscountType': discountType,
+      'promotionalDiscount': promotionalDiscount,
+      'PromotionalDiscount': promotionalDiscount,
       'comment': comment,
       'Comment': comment,
       'bundle': bundle,
@@ -146,6 +150,8 @@ class CartItem {
       'IsFeatured': false,
       'appliedTaxIds': appliedTaxes.map((t) => t.id).toList(),
       'AppliedTaxIds': appliedTaxes.map((t) => t.id).toList(),
+      'warehouseId': warehouseId, // Include warehouseId in JSON
+      'WarehouseId': warehouseId,
     };
   }
 }

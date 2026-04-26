@@ -7,6 +7,7 @@ import 'package:pos_app/product/product_model.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/customer/customer_provider.dart';
+import 'package:pos_app/stock/warehouse_provider.dart';
 import 'package:pos_app/utils/status_helper.dart';
 import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/document/documents_screen.dart';
@@ -323,6 +324,64 @@ class MenuScreen extends ConsumerWidget {
                 ),
               ),
             ),
+
+          // --- Warehouse Switcher ---
+          Consumer(
+            builder: (context, ref, child) {
+              final selectedWarehouse = ref.watch(selectedWarehouseProvider);
+              final warehouses = ref.watch(allWarehousesProvider);
+
+              return Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: PopupMenuButton<int>(
+                  tooltip: "Select Warehouse",
+                  onSelected: (id) {
+                    warehouses.whenData((list) {
+                      final wh = list.firstWhere((w) => w.id == id);
+                      ref.read(selectedWarehouseProvider.notifier).state = wh;
+                    });
+                  },
+                  itemBuilder: (ctx) => warehouses.when(
+                    data: (list) => list
+                        .map(
+                          (w) =>
+                              PopupMenuItem(value: w.id, child: Text(w.name)),
+                        )
+                        .toList(),
+                    loading: () => [],
+                    error: (_, __) => [],
+                  ),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.blueGrey.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blueGrey, width: 1),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.warehouse, color: Colors.blueGrey),
+                        const SizedBox(width: 8),
+                        Text(
+                          selectedWarehouse?.name ?? "Warehouse",
+                          style: const TextStyle(
+                            color: Colors.blueGrey,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Icon(
+                          Icons.arrow_drop_down,
+                          color: Colors.blueGrey,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+
           TextButton.icon(
             onPressed: () {
               ref.read(cartProvider.notifier).clearCart();
@@ -748,57 +807,17 @@ class BrowserSection extends ConsumerWidget {
                       style: const TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 14,
-                        letterSpacing: -0.2,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color:
-                            (isDark
-                                    ? Colors.greenAccent[700]
-                                    : Colors.green[50])
-                                ?.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        "\$${product.price.toStringAsFixed(2)}",
-                        style: TextStyle(
-                          color: isDark
-                              ? Colors.greenAccent[400]
-                              : Colors.green[800],
-                          fontWeight: FontWeight.w900,
-                          fontSize: 15,
-                        ),
+                    const SizedBox(height: 4),
+                    Text(
+                      "\$${product.price.toStringAsFixed(2)}",
+                      style: TextStyle(
+                        color: isDark ? Colors.greenAccent[400] : Colors.green[800],
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15,
                       ),
                     ),
-                    if (getActivePromotionCountForProduct(ref, product.id) > 0)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(
-                              Icons.stars_rounded,
-                              color: Colors.amber,
-                              size: 14,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              "PROMO",
-                              style: TextStyle(
-                                color: Colors.amber[700],
-                                fontWeight: FontWeight.w900,
-                                fontSize: 10,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                   ],
                 ),
               ),
@@ -855,6 +874,138 @@ class _CartSectionState extends ConsumerState<CartSection> {
     );
   }
 
+  Future<void> _handleSave(BuildContext context, WidgetRef ref) async {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    if (companyId == null) return;
+    final currentUser = ref.read(currentUserProvider);
+    final List<String> capturedWarnings = [];
+
+    try {
+      final result = await ref
+          .read(cartProvider.notifier)
+          .saveOrderToServer(
+            apiClient: ApiClient(),
+            companyId: companyId,
+            userId: currentUser?.id ?? 0,
+            onWarnings: (warnings) {
+              capturedWarnings.addAll(warnings);
+            },
+          );
+
+      if (!context.mounted) return;
+
+      if (result['success'] == true) {
+        if (capturedWarnings.isNotEmpty) {
+          await showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: Row(
+                children: const [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.amber,
+                    size: 28,
+                  ),
+                  SizedBox(width: 10),
+                  Text("Stock Warning"),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: capturedWarnings
+                    .map(
+                      (w) => Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4.0),
+                        child: Text("• $w"),
+                      ),
+                    )
+                    .toList(),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text("OK"),
+                ),
+              ],
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Order Saved to Table!'),
+              backgroundColor: Colors.blue,
+            ),
+          );
+        }
+
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
+          (route) => false,
+        );
+      } else {
+        // success == false
+        final fallbackWarehouses = result['fallbackWarehouses'] as List?;
+
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Row(
+              children: const [
+                Icon(Icons.inventory, color: Colors.orange, size: 28),
+                SizedBox(width: 10),
+                Text("Inventory Notice"),
+              ],
+            ),
+            content: Text(result['message'] ?? "Unknown inventory error."),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("Cancel"),
+              ),
+              if (fallbackWarehouses != null)
+                ...fallbackWarehouses.map(
+                  (wh) => ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      // Update active warehouse state
+                      ref.read(cartProvider.notifier).setWarehouseId(wh['id']);
+                      // Automatically retry save
+                      _handleSave(context, ref);
+                    },
+                    child: Text("Switch to ${wh['name']} & Retry"),
+                  ),
+                ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Row(
+              children: const [
+                Icon(Icons.error_outline, color: Colors.red, size: 28),
+                SizedBox(width: 10),
+                Text("Error"),
+              ],
+            ),
+            content: Text(e.toString()),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("CLOSE"),
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cartState = ref.watch(cartProvider);
@@ -886,43 +1037,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
               ElevatedButton.icon(
                 onPressed: cartItems.isEmpty
                     ? null
-                    : () async {
-                        final companyId = ref.read(selectedCompanyProvider)?.id;
-                        if (companyId == null) return;
-                        try {
-                          final currentUser = ref.read(currentUserProvider);
-                          final success = await ref
-                              .read(cartProvider.notifier)
-                              .saveOrderToServer(
-                                apiClient: ApiClient(),
-                                companyId: companyId,
-                                userId: currentUser?.id ?? 0,
-                              );
-                          if (success && context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Order Saved to Table!'),
-                                backgroundColor: Colors.blue,
-                              ),
-                            );
-                            Navigator.pushAndRemoveUntil(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => const FloorPlanScreen(),
-                              ),
-                              (route) => false,
-                            );
-                          }
-                        } catch (e) {
-                          if (context.mounted)
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Error saving: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                        }
-                      },
+                    : () => _handleSave(context, ref),
                 icon: const Icon(Icons.save, size: 18, color: Colors.white),
                 label: const Text(
                   "SAVE",
@@ -1223,11 +1338,59 @@ class _CartSectionState extends ConsumerState<CartSection> {
                                 .decrementItem(item.productId),
                           ),
 
-                          Text(
-                            "${item.quantity.toInt()}",
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                          InkWell(
+                            onTap: () {
+                              final controller = TextEditingController(
+                                text: item.quantity.toInt().toString(),
+                              );
+                              showDialog(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text("Enter Quantity"),
+                                  content: TextField(
+                                    controller: controller,
+                                    keyboardType: TextInputType.number,
+                                    autofocus: true,
+                                    decoration: const InputDecoration(
+                                      labelText: "Quantity",
+                                    ),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx),
+                                      child: const Text("Cancel"),
+                                    ),
+                                    ElevatedButton(
+                                      onPressed: () {
+                                        final newQty = double.tryParse(controller.text);
+                                        if (newQty != null && newQty >= 0) {
+                                          ref.read(cartProvider.notifier).addItem(
+                                            MenuProduct(
+                                              id: item.productId,
+                                              name: item.productName,
+                                              price: item.price,
+                                              isTaxInclusivePrice: true, // fallback
+                                              color: "Transparent",
+                                              stockQuantity: 9999,
+                                              taxes: item.appliedTaxes,
+                                            ),
+                                            quantity: newQty - item.quantity,
+                                          );
+                                        }
+                                        Navigator.pop(ctx);
+                                      },
+                                      child: const Text("Set"),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                            child: Text(
+                              "${item.quantity.toInt()}",
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                           IconButton(
@@ -1446,6 +1609,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                         await ApiClient().deletePosOrder(
                           companyId,
                           cartState.activePosOrderId!,
+                          cartState.activeWarehouseId ?? 1,
                         );
                         ref.read(cartProvider.notifier).clearCart();
                         if (context.mounted) {

@@ -35,17 +35,19 @@ class ProductsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text("Inventory / Products"),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        backgroundColor: theme.colorScheme.surface,
         actions: [
           ElevatedButton.icon(
             icon: const Icon(Icons.add),
             label: const Text("Add Product"),
             style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+                backgroundColor: theme.colorScheme.primary,
+                foregroundColor: theme.colorScheme.onPrimary),
 
             // --- TWO-PHASE CREATION FLOW ---
             onPressed: () async {
@@ -76,17 +78,16 @@ class ProductsScreen extends ConsumerWidget {
           // LEFT SIDEBAR
           Container(
             width: 280,
-            color: Colors.white,
+            color: theme.colorScheme.surface,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Container(
                   padding: const EdgeInsets.all(16),
-                  color: Colors.blueGrey[50],
-                  child: const Text("CATEGORIES",
-                      style: TextStyle(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  child: Text("CATEGORIES",
+                      style: theme.textTheme.labelMedium?.copyWith(
                           fontWeight: FontWeight.bold,
-                          fontSize: 14,
                           letterSpacing: 1.2)),
                 ),
                 const Expanded(child: _GroupTreeSidebar()),
@@ -122,16 +123,16 @@ class _GroupTreeSidebar extends ConsumerWidget {
           return ListView(
             children: [
               ListTile(
-                leading: const Icon(Icons.all_inbox, color: Colors.blueGrey),
+                leading: Icon(Icons.all_inbox, color: Theme.of(context).colorScheme.primary),
                 title: const Text("All Products",
                     style: TextStyle(fontWeight: FontWeight.bold)),
                 selected: ref.watch(selectedProductGroupIdProvider) == null,
-                selectedTileColor: Colors.blue.withValues(alpha: 0.15),
+                selectedTileColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
                 onTap: () => ref
                     .read(selectedProductGroupIdProvider.notifier)
                     .state = null,
               ),
-              const Divider(height: 1),
+              Divider(height: 1, color: Theme.of(context).dividerColor.withValues(alpha: 0.1)),
               ...rootGroups.map((g) =>
                   _TreeNode(group: g, allGroups: groups, depth: 0, ref: ref)),
             ],
@@ -180,7 +181,7 @@ class _TreeNodeState extends State<_TreeNode> {
               .state = widget.group.id,
           child: Container(
             color: isSelected
-                ? Colors.blue.withValues(alpha: 0.15)
+                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1)
                 : Colors.transparent,
             padding: EdgeInsets.only(
                 left: 8.0 + (widget.depth * 16.0),
@@ -217,7 +218,9 @@ class _TreeNodeState extends State<_TreeNode> {
                       style: TextStyle(
                           fontWeight:
                               isSelected ? FontWeight.bold : FontWeight.normal,
-                          color: isSelected ? Colors.blue[900] : Colors.black87,
+                          color: isSelected
+                              ? Theme.of(context).colorScheme.primary
+                              : Theme.of(context).textTheme.bodyMedium?.color,
                           fontSize: 14)),
                 ),
               ],
@@ -278,6 +281,7 @@ class _ProductListContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
     final asyncProducts = ref.watch(productsByGroupProvider);
     final groups = ref.watch(allProductGroupsProvider).value ?? [];
 
@@ -293,12 +297,16 @@ class _ProductListContent extends ConsumerWidget {
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Card(
-              elevation: 2,
-              clipBehavior: Clip.antiAlias,
+              elevation: 0,
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.1)),
+              ),
+              color: theme.cardColor,
+              clipBehavior: Clip.antiAlias,
               child: DataTable(
-                headingRowColor: WidgetStateProperty.all(Colors.blueGrey[50]),
+                headingRowColor: WidgetStateProperty.all(
+                    theme.colorScheme.surfaceContainerHighest),
                 dataRowMaxHeight: 65,
                 columns: const [
                   DataColumn(label: Text("Image")),
@@ -318,7 +326,7 @@ class _ProductListContent extends ConsumerWidget {
 
                   return DataRow(
                       color: WidgetStateProperty.all(
-                          p.isEnabled ? Colors.transparent : Colors.grey[200]),
+                          p.isEnabled ? Colors.transparent : theme.disabledColor.withValues(alpha: 0.05)),
                       cells: [
                         DataCell(Container(
                           width: 45,
@@ -348,11 +356,11 @@ class _ProductListContent extends ConsumerWidget {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                              color: Colors.blue[50],
+                              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
                               borderRadius: BorderRadius.circular(6)),
                           child: Text(groupName,
                               style: TextStyle(
-                                  color: Colors.blue[900],
+                                  color: theme.colorScheme.primary,
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold)),
                         )),
@@ -366,8 +374,8 @@ class _ProductListContent extends ConsumerWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconButton(
-                              icon: const Icon(Icons.edit,
-                                  color: Colors.blueGrey, size: 20),
+                              icon: Icon(Icons.edit,
+                                  color: theme.colorScheme.primary, size: 20),
                               onPressed: () => showDialog(
                                   context: context,
                                   builder: (_) => _ProductEditorDialog(
@@ -687,6 +695,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     // 1. Determine Dialog Title and Button Text
     String title = "New Product";
     String buttonText = "Next: Taxes & Stock";
@@ -739,9 +748,9 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
             child: Column(
               children: [
                 TabBar(
-                  labelColor: Colors.indigo,
-                  unselectedLabelColor: Colors.grey,
-                  indicatorColor: Colors.indigo,
+                  labelColor: theme.colorScheme.primary,
+                  unselectedLabelColor: theme.disabledColor,
+                  indicatorColor: theme.colorScheme.primary,
                   tabs: dialogTabs,
                 ),
                 Expanded(child: TabBarView(children: dialogTabViews)),
@@ -771,8 +780,8 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
           else
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.indigo,
-                  foregroundColor: Colors.white,
+                  backgroundColor: theme.colorScheme.primary,
+                  foregroundColor: theme.colorScheme.onPrimary,
                   padding:
                       const EdgeInsets.symmetric(horizontal: 32, vertical: 12)),
               onPressed: _submit,
@@ -786,6 +795,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   // --- SUB-WIDGETS TO KEEP THE BUILD TREE CLEAN ---
 
   Widget _buildGeneralTab() {
+    final theme = Theme.of(context);
     final allGroupsAsync = ref.watch(allProductGroupsProvider);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -802,9 +812,11 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                     Expanded(
                         child: TextFormField(
                             controller: _nameCtrl,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                                 labelText: "Product Name *",
-                                border: OutlineInputBorder()))),
+                                filled: true,
+                                fillColor: theme.colorScheme.surface,
+                                border: const OutlineInputBorder()))),
                     const SizedBox(width: 16),
                     Expanded(
                       child: allGroupsAsync.when(
@@ -812,9 +824,11 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                         error: (_, __) => const Text("Error loading groups"),
                         data: (groups) => DropdownButtonFormField<int?>(
                           initialValue: _selectedGroupId,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                               labelText: "Category / Group",
-                              border: OutlineInputBorder()),
+                              filled: true,
+                              fillColor: theme.colorScheme.surface,
+                              border: const OutlineInputBorder()),
                           items: [
                             const DropdownMenuItem(
                                 value: null,
@@ -835,15 +849,20 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                     Expanded(
                         child: TextFormField(
                             controller: _codeCtrl,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                                 labelText: "Product Code / SKU",
-                                border: OutlineInputBorder()))),
+                                filled: true,
+                                fillColor: theme.colorScheme.surface,
+                                border: const OutlineInputBorder()))),
                     const SizedBox(width: 16),
                     Expanded(
                         child: TextFormField(
                             controller: _pluCtrl,
-                            decoration: const InputDecoration(
-                                labelText: "PLU", border: OutlineInputBorder()),
+                            decoration: InputDecoration(
+                                labelText: "PLU",
+                                filled: true,
+                                fillColor: theme.colorScheme.surface,
+                                border: const OutlineInputBorder()),
                             keyboardType: TextInputType.number)),
                   ],
                 ),
@@ -853,17 +872,21 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                     Expanded(
                         child: TextFormField(
                             controller: _measurementUnitCtrl,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                                 labelText: "Measurement Unit",
-                                border: OutlineInputBorder(),
+                                filled: true,
+                                fillColor: theme.colorScheme.surface,
+                                border: const OutlineInputBorder(),
                                 hintText: "e.g. kg, pcs"))),
                     const SizedBox(width: 16),
                     Expanded(
                         child: TextFormField(
                             controller: _ageRestrictionCtrl,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                                 labelText: "Age Restriction",
-                                border: OutlineInputBorder(),
+                                filled: true,
+                                fillColor: theme.colorScheme.surface,
+                                border: const OutlineInputBorder(),
                                 hintText: "e.g. 18"),
                             keyboardType: TextInputType.number)),
                   ],
@@ -874,9 +897,11 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                     Expanded(
                         child: TextFormField(
                             controller: _priceCtrl,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                                 labelText: "Selling Price *",
-                                border: OutlineInputBorder(),
+                                filled: true,
+                                fillColor: theme.colorScheme.surface,
+                                border: const OutlineInputBorder(),
                                 prefixText: "\$"),
                             keyboardType: const TextInputType.numberWithOptions(
                                 decimal: true))),
@@ -884,9 +909,11 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                     Expanded(
                         child: TextFormField(
                             controller: _costCtrl,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                                 labelText: "Purchase Cost",
-                                border: OutlineInputBorder(),
+                                filled: true,
+                                fillColor: theme.colorScheme.surface,
+                                border: const OutlineInputBorder(),
                                 prefixText: "\$"),
                             keyboardType: const TextInputType.numberWithOptions(
                                 decimal: true))),
@@ -898,9 +925,11 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                     Expanded(
                         child: TextFormField(
                             controller: _markupCtrl,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                                 labelText: "Margin / Markup (%)",
-                                border: OutlineInputBorder(),
+                                filled: true,
+                                fillColor: theme.colorScheme.surface,
+                                border: const OutlineInputBorder(),
                                 suffixText: "%"),
                             keyboardType: const TextInputType.numberWithOptions(
                                 decimal: true))),
@@ -908,9 +937,11 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                     Expanded(
                         child: TextFormField(
                             controller: _rankCtrl,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                                 labelText: "Rank (Display Order)",
-                                border: OutlineInputBorder()),
+                                filled: true,
+                                fillColor: theme.colorScheme.surface,
+                                border: const OutlineInputBorder()),
                             keyboardType: TextInputType.number)),
                   ],
                 ),
@@ -918,9 +949,11 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                 TextFormField(
                     controller: _descriptionCtrl,
                     maxLines: 3,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                         labelText: "Description",
-                        border: OutlineInputBorder(),
+                        filled: true,
+                        fillColor: theme.colorScheme.surface,
+                        border: const OutlineInputBorder(),
                         alignLabelWithHint: true)),
               ],
             ),
@@ -933,7 +966,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
               children: [
                 Container(
                   decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey[300]!),
+                      border: Border.all(color: theme.dividerColor),
                       borderRadius: BorderRadius.circular(8)),
                   child: Column(
                     children: [
@@ -963,9 +996,9 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                const Text("Product Color Marker",
+                Text("Product Color Marker",
                     style: TextStyle(
-                        fontWeight: FontWeight.bold, color: Colors.grey)),
+                        fontWeight: FontWeight.bold, color: theme.hintColor)),
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
@@ -1006,9 +1039,9 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                   }).toList(),
                 ),
                 const SizedBox(height: 24),
-                const Text("Product Image",
+                Text("Product Image",
                     style: TextStyle(
-                        fontWeight: FontWeight.bold, color: Colors.grey)),
+                        fontWeight: FontWeight.bold, color: theme.hintColor)),
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -1016,9 +1049,9 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                       width: 100,
                       height: 100,
                       decoration: BoxDecoration(
-                          color: Colors.grey[200],
+                          color: theme.colorScheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey[400]!)),
+                          border: Border.all(color: theme.dividerColor)),
                       child: _selectedImageBase64 != null &&
                               _selectedImageBase64!.isNotEmpty
                           ? ClipRRect(
@@ -1059,6 +1092,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   }
 
   Widget _buildTaxesTab() {
+    final theme = Theme.of(context);
     final allTaxesAsync = ref.watch(allTaxesProvider);
     return Padding(
       padding: const EdgeInsets.all(32.0),
@@ -1074,9 +1108,11 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
               data: (taxes) {
                 return DropdownButtonFormField<int?>(
                   initialValue: _selectedTaxId,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                       labelText: "Primary Tax Rate",
-                      border: OutlineInputBorder()),
+                      filled: true,
+                      fillColor: theme.colorScheme.surface,
+                      border: const OutlineInputBorder()),
                   items: [
                     const DropdownMenuItem(value: null, child: Text("No Tax")),
                     ...taxes.map((t) => DropdownMenuItem(
@@ -1091,6 +1127,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   }
 
   Widget _buildCommentsTab() {
+    final theme = Theme.of(context);
     // Safety check - we know the product exists because this tab is only shown in Edit/Phase 2 mode!
     if (widget.existingProduct == null) return const SizedBox();
 
@@ -1105,9 +1142,9 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
         children: [
           const Text("Product Modifiers & Comments",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const Text(
+          Text(
               "Add specific notes like 'Extra Spicy' or 'Contains Nuts'.",
-              style: TextStyle(color: Colors.grey)),
+              style: TextStyle(color: theme.hintColor)),
           const SizedBox(height: 24),
 
           // INPUT ROW
@@ -1116,10 +1153,12 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
               Expanded(
                 child: TextField(
                   controller: _newCommentCtrl,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: "New Modifier / Comment",
                     hintText: "e.g. No Onions",
-                    border: OutlineInputBorder(),
+                    filled: true,
+                    fillColor: theme.colorScheme.surface,
+                    border: const OutlineInputBorder(),
                   ),
                 ),
               ),
@@ -1128,8 +1167,8 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                   icon: const Icon(Icons.add),
                   label: const Text("Add"),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.indigo,
-                    foregroundColor: Colors.white,
+                    backgroundColor: theme.colorScheme.primary,
+                    foregroundColor: theme.colorScheme.onPrimary,
                     padding: const EdgeInsets.symmetric(
                         horizontal: 24, vertical: 20),
                   ),
@@ -1170,14 +1209,14 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                         style: const TextStyle(color: Colors.red))),
                 data: (comments) {
                   if (comments.isEmpty)
-                    return const Center(
+                    return Center(
                         child: Text("No comments added yet.",
                             style:
-                                TextStyle(color: Colors.grey, fontSize: 16)));
+                                TextStyle(color: theme.hintColor, fontSize: 16)));
 
                   return Container(
                     decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey[300]!),
+                      border: Border.all(color: theme.dividerColor),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: ListView.separated(
@@ -1228,6 +1267,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   }
 
   Widget _buildBarcodesTab() {
+    final theme = Theme.of(context);
     if (widget.existingProduct == null) return const SizedBox();
 
     final productId = widget.existingProduct!.id;
@@ -1241,9 +1281,9 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
         children: [
           const Text("Product Barcodes",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const Text(
+          Text(
               "Assign multiple barcodes (e.g., individual item, box, or pallet).",
-              style: TextStyle(color: Colors.grey)),
+              style: TextStyle(color: theme.hintColor)),
           const SizedBox(height: 24),
 
           // INPUT ROW WITH GENERATOR
@@ -1268,6 +1308,8 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                         labelText: "Barcode",
                         hintText:
                             _isBarcodeChipActive ? "" : "Scan or enter barcode",
+                        filled: true,
+                        fillColor: theme.colorScheme.surface,
                         border: const OutlineInputBorder(),
                         prefixIcon: const Icon(Icons.qr_code_scanner),
                         prefix: _isBarcodeChipActive
@@ -1310,7 +1352,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                       style: TextStyle(
                         color: _isBarcodeChipActive
                             ? Colors.transparent
-                            : Colors.black,
+                            : theme.textTheme.bodyLarge?.color,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -1338,8 +1380,8 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                   icon: const Icon(Icons.add),
                   label: const Text("Add"),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.indigo,
-                    foregroundColor: Colors.white,
+                    backgroundColor: theme.colorScheme.primary,
+                    foregroundColor: theme.colorScheme.onPrimary,
                     padding: const EdgeInsets.symmetric(
                         horizontal: 24, vertical: 20),
                   ),
@@ -1383,14 +1425,14 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                         style: const TextStyle(color: Colors.red))),
                 data: (barcodes) {
                   if (barcodes.isEmpty)
-                    return const Center(
+                    return Center(
                         child: Text("No barcodes assigned yet.",
                             style:
-                                TextStyle(color: Colors.grey, fontSize: 16)));
+                                TextStyle(color: theme.hintColor, fontSize: 16)));
 
                   return Container(
                     decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey[300]!),
+                      border: Border.all(color: theme.dividerColor),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: ListView.separated(
@@ -1441,6 +1483,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   }
 
   Widget _buildStockControlTab() {
+    final theme = Theme.of(context);
     if (widget.existingProduct == null) return const SizedBox();
     final productId = widget.existingProduct!.id;
 
@@ -1454,7 +1497,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
           const SizedBox(height: 16),
           Container(
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey[300]!),
+              border: Border.all(color: theme.dividerColor),
               borderRadius: BorderRadius.circular(8),
             ),
             child: SwitchListTile(
@@ -1468,9 +1511,9 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
           const SizedBox(height: 32),
           const Text("Advanced Stock Rules",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const Text(
+          Text(
               "Configure reorder points, low stock warnings, and preferred suppliers.",
-              style: TextStyle(color: Colors.grey)),
+              style: TextStyle(color: theme.hintColor)),
           const SizedBox(height: 16),
           Expanded(
             child: _StockControlRulesEditor(productId: productId),
@@ -1564,6 +1607,7 @@ class _StockControlRulesEditorState
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final companyId = ref.watch(selectedCompanyProvider)?.id;
     final asyncRules =
         ref.watch(stockControlByProductIdProvider(widget.productId));
@@ -1592,7 +1636,7 @@ class _StockControlRulesEditorState
           return Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey[300]!),
+              border: Border.all(color: theme.dividerColor),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Form(
@@ -1605,9 +1649,11 @@ class _StockControlRulesEditorState
                       Expanded(
                         child: TextFormField(
                           controller: _reorderPointCtrl,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                               labelText: "Reorder Point",
-                              border: OutlineInputBorder()),
+                              filled: true,
+                              fillColor: theme.colorScheme.surface,
+                              border: const OutlineInputBorder()),
                           keyboardType: TextInputType.number,
                         ),
                       ),
@@ -1615,9 +1661,11 @@ class _StockControlRulesEditorState
                       Expanded(
                         child: TextFormField(
                           controller: _preferredQtyCtrl,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                               labelText: "Preferred Order Qty",
-                              border: OutlineInputBorder()),
+                              filled: true,
+                              fillColor: theme.colorScheme.surface,
+                              border: const OutlineInputBorder()),
                           keyboardType: TextInputType.number,
                         ),
                       ),
@@ -1638,9 +1686,11 @@ class _StockControlRulesEditorState
 
                         return DropdownButtonFormField<int?>(
                           initialValue: isValid ? _selectedSupplierId : null,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                               labelText: "Preferred Supplier",
-                              border: OutlineInputBorder()),
+                              filled: true,
+                              fillColor: theme.colorScheme.surface,
+                              border: const OutlineInputBorder()),
                           items: [
                             const DropdownMenuItem(
                                 value: null, child: Text("None")),
@@ -1655,7 +1705,7 @@ class _StockControlRulesEditorState
                   const SizedBox(height: 16),
                   Container(
                     decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey[300]!),
+                        border: Border.all(color: theme.dividerColor),
                         borderRadius: BorderRadius.circular(8)),
                     child: SwitchListTile(
                       title: const Text("Low Stock Warning Enabled"),
@@ -1667,9 +1717,11 @@ class _StockControlRulesEditorState
                   if (_isWarningEnabled)
                     TextFormField(
                       controller: _lowStockWarningQtyCtrl,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                           labelText: "Warning Threshold Qty",
-                          border: OutlineInputBorder()),
+                          filled: true,
+                          fillColor: theme.colorScheme.surface,
+                          border: const OutlineInputBorder()),
                       keyboardType: TextInputType.number,
                     ),
 
@@ -1682,8 +1734,8 @@ class _StockControlRulesEditorState
                             icon: const Icon(Icons.save),
                             label: const Text("Save Stock Rules"),
                             style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.indigo,
-                                foregroundColor: Colors.white),
+                                backgroundColor: theme.colorScheme.primary,
+                                foregroundColor: theme.colorScheme.onPrimary),
                             onPressed: () {
                               if (companyId != null) _saveRules(companyId);
                             },

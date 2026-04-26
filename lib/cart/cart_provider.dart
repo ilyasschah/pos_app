@@ -7,10 +7,10 @@ import 'package:pos_app/api/customer_discount_models.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
 import 'package:pos_app/promotions/promotion_provider.dart';
+import 'package:pos_app/stock/warehouse_provider.dart';
 
 class CartState {
   final int? activePosOrderId;
-  final int activeWarehouseId;
   final List<CartItem> items;
   final String? orderNumber;
   final bool isLoading;
@@ -25,10 +25,10 @@ class CartState {
   final int serviceType; // 0 for Dine In, 1 for Takeaway
   final int serviceStatus; // 1 for Active, etc.
   final int? floorPlanTableId;
+  final int? activeWarehouseId;
 
   CartState({
     this.activePosOrderId,
-    this.activeWarehouseId = 1,
     this.items = const [],
     this.orderNumber,
     this.isLoading = false,
@@ -42,11 +42,11 @@ class CartState {
     this.serviceType = 0,
     this.serviceStatus = 1,
     this.floorPlanTableId,
+    this.activeWarehouseId,
   });
 
   CartState copyWith({
     int? activePosOrderId,
-    int? activeWarehouseId,
     List<CartItem>? items,
     bool? isLoading,
     Customer? selectedCustomer,
@@ -60,10 +60,10 @@ class CartState {
     int? serviceType,
     int? serviceStatus,
     int? floorPlanTableId,
+    int? activeWarehouseId,
   }) {
     return CartState(
       activePosOrderId: activePosOrderId ?? this.activePosOrderId,
-      activeWarehouseId: activeWarehouseId ?? this.activeWarehouseId,
       items: items ?? this.items,
       orderNumber: orderNumber ?? this.orderNumber,
       isLoading: isLoading ?? this.isLoading,
@@ -80,6 +80,7 @@ class CartState {
       serviceType: serviceType ?? this.serviceType,
       serviceStatus: serviceStatus ?? this.serviceStatus,
       floorPlanTableId: floorPlanTableId ?? this.floorPlanTableId,
+      activeWarehouseId: activeWarehouseId ?? this.activeWarehouseId,
     );
   }
 }
@@ -87,6 +88,8 @@ class CartState {
 class CartNotifier extends Notifier<CartState> {
   @override
   CartState build() => CartState();
+
+  int get effectiveWarehouseId => ref.read(selectedWarehouseProvider)?.id ?? 1;
 
   double get subtotal =>
       state.items.fold(0, (sum, item) => sum + (item.price * item.quantity));
@@ -188,10 +191,16 @@ class CartNotifier extends Notifier<CartState> {
   }) {
     state = state.copyWith(
       activePosOrderId: orderId,
-      activeWarehouseId: warehouseId,
       floorPlanTableId: tableId,
       orderNumber: orderNumber,
+      activeWarehouseId: warehouseId,
     );
+    // Sync global warehouse
+    final warehouses = ref.read(allWarehousesProvider).value ?? [];
+    final wh = warehouses.where((w) => w.id == warehouseId).firstOrNull;
+    if (wh != null) {
+      ref.read(selectedWarehouseProvider.notifier).state = wh;
+    }
   }
 
   Future<void> setCustomer(int companyId, Customer customer) async {
@@ -207,6 +216,16 @@ class CartNotifier extends Notifier<CartState> {
     );
     // Auto-update current customer provider if not already set
     ref.read(currentCustomerProvider.notifier).setCustomer(customer);
+  }
+
+  void setWarehouseId(int warehouseId) {
+    state = state.copyWith(activeWarehouseId: warehouseId);
+    // Sync global provider
+    final warehouses = ref.read(allWarehousesProvider).value ?? [];
+    final wh = warehouses.where((w) => w.id == warehouseId).firstOrNull;
+    if (wh != null) {
+      ref.read(selectedWarehouseProvider.notifier).state = wh;
+    }
   }
 
   void setCartDiscount(double discount, int type) {
@@ -232,7 +251,6 @@ class CartNotifier extends Notifier<CartState> {
   void clearCart({bool keepCustomer = false}) {
     state = CartState(
       activePosOrderId: state.activePosOrderId,
-      activeWarehouseId: state.activeWarehouseId,
       items: const [],
       isLoading: false,
       selectedCustomer: keepCustomer ? state.selectedCustomer : null,
@@ -384,7 +402,6 @@ class CartNotifier extends Notifier<CartState> {
 
       state = state.copyWith(
         activePosOrderId: posOrderId,
-        activeWarehouseId: warehouseId,
         items: loadedItems,
         orderNumber: orderNumber,
         manualCartDiscount: discount,
@@ -392,8 +409,17 @@ class CartNotifier extends Notifier<CartState> {
         serviceType: serviceType,
         serviceStatus: serviceStatus,
         floorPlanTableId: floorPlanTableId,
+        activeWarehouseId: warehouseId,
         isLoading: false,
       );
+
+      // Sync global warehouse
+      final warehouses = ref.read(allWarehousesProvider).value ?? [];
+      final wh = warehouses.where((w) => w.id == warehouseId).firstOrNull;
+      if (wh != null) {
+        ref.read(selectedWarehouseProvider.notifier).state = wh;
+      }
+
       return true;
     } catch (e) {
       state = state.copyWith(isLoading: false);
@@ -401,16 +427,32 @@ class CartNotifier extends Notifier<CartState> {
     }
   }
 
-  Future<bool> saveOrderToServer({
+  Future<Map<String, dynamic>> saveOrderToServer({
     required ApiClient apiClient,
     required int companyId,
     required int userId,
+    required void Function(List<String> warnings) onWarnings,
   }) async {
-    if (state.items.isEmpty || state.activePosOrderId == null) return true;
+    if (state.items.isEmpty || state.activePosOrderId == null) {
+      return {'success': true};
+    }
     state = state.copyWith(isLoading: true);
     try {
       // 1. Save items
-      await apiClient.bulkAddPosOrderItems(companyId, state.items);
+      final response = await apiClient.bulkAddPosOrderItems(
+        companyId,
+        effectiveWarehouseId,
+        state.items,
+      );
+
+      if (response['success'] != true) {
+        return response;
+      }
+
+      final warnings = List<String>.from(response['warnings'] ?? []);
+      if (warnings.isNotEmpty) {
+        onWarnings(warnings);
+      }
 
       // 2. Sync Order Header (Discounts & Total)
       String orderNumber = state.orderNumber ?? "ORD- Takeaway";
@@ -436,14 +478,18 @@ class CartNotifier extends Notifier<CartState> {
         "serviceType": state.serviceType,
         "serviceStatus": state.serviceStatus,
         "floorPlanTableId": state.floorPlanTableId,
+        "warehouseId": effectiveWarehouseId,
       };
 
-      final success = await apiClient.updatePosOrder(companyId, updateRequest);
-      if (success) {
+      final headerSuccess = await apiClient.updatePosOrder(
+        companyId,
+        updateRequest,
+      );
+      if (headerSuccess) {
         clearCart();
-        return true;
+        return {'success': true, 'warnings': warnings};
       }
-      return false;
+      return {'success': false, 'message': 'Failed to update order header.'};
     } catch (e) {
       rethrow;
     } finally {
@@ -508,7 +554,6 @@ class CartNotifier extends Notifier<CartState> {
 
       state = state.copyWith(
         activePosOrderId: posOrderId,
-        activeWarehouseId: warehouseId,
         items: loadedItems,
         orderNumber: orderNumber,
         manualCartDiscount: discount,
@@ -516,8 +561,17 @@ class CartNotifier extends Notifier<CartState> {
         serviceType: serviceType,
         serviceStatus: serviceStatus,
         floorPlanTableId: floorPlanTableId,
+        activeWarehouseId: warehouseId,
         isLoading: false,
       );
+
+      // Sync global warehouse
+      final warehouses = ref.read(allWarehousesProvider).value ?? [];
+      final wh = warehouses.where((w) => w.id == warehouseId).firstOrNull;
+      if (wh != null) {
+        ref.read(selectedWarehouseProvider.notifier).state = wh;
+      }
+
       return true;
     } catch (e) {
       state = state.copyWith(isLoading: false);
@@ -537,7 +591,17 @@ class CartNotifier extends Notifier<CartState> {
     state = state.copyWith(isLoading: true);
 
     try {
-      await apiClient.bulkAddPosOrderItems(companyId, state.items);
+      final response = await apiClient.bulkAddPosOrderItems(
+        companyId,
+        effectiveWarehouseId,
+        state.items,
+      );
+
+      if (response['success'] != true) {
+        throw Exception(
+          response['message'] ?? "Failed to save cart before checkout.",
+        );
+      }
 
       List<CheckoutItemDto> checkoutItems = [];
       for (var item in state.items) {
@@ -575,7 +639,7 @@ class CartNotifier extends Notifier<CartState> {
         paymentTypeId: paymentTypeId,
         amountPaid: amountPaid,
         documentTypeId: documentTypeId,
-        warehouseId: state.activeWarehouseId,
+        warehouseId: effectiveWarehouseId,
         items: checkoutItems,
         grandTotal: grandTotal,
       );

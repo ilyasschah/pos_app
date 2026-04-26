@@ -19,54 +19,60 @@ import 'package:pos_app/cart/payment_type_provider.dart';
 
 final documentCategoriesProvider =
     FutureProvider.autoDispose<List<DocumentCategory>>((ref) async {
-  final company = ref.watch(selectedCompanyProvider);
-  if (company == null) return [];
-  final dio = createDio();
-  final response = await dio.get('/DocumentCategory/GetAll',
-      queryParameters: {'companyId': company.id});
-  return (response.data as List)
-      .map((j) => DocumentCategory.fromJson(j))
-      .toList();
-});
+      final company = ref.watch(selectedCompanyProvider);
+      if (company == null) return [];
+      final dio = createDio();
+      final response = await dio.get(
+        '/DocumentCategory/GetAll',
+        queryParameters: {'companyId': company.id},
+      );
+      return (response.data as List)
+          .map((j) => DocumentCategory.fromJson(j))
+          .toList();
+    });
 
 final documentItemsByDocIdProvider = FutureProvider.autoDispose
     .family<List<DocumentItem>, int>((ref, documentId) async {
-  final company = ref.watch(selectedCompanyProvider);
-  if (company == null) return [];
-  final dio = createDio();
-  final response =
-      await dio.get('/DocumentItems/GetByDocumentId', queryParameters: {
-    'documentId': documentId,
-    'companyId': company.id,
-  });
-  return (response.data as List).map((j) => DocumentItem.fromJson(j)).toList();
-});
+      final company = ref.watch(selectedCompanyProvider);
+      if (company == null) return [];
+      final dio = createDio();
+      final response = await dio.get(
+        '/DocumentItems/GetByDocumentId',
+        queryParameters: {'documentId': documentId, 'companyId': company.id},
+      );
+      return (response.data as List)
+          .map((j) => DocumentItem.fromJson(j))
+          .toList();
+    });
 
 final documentItemTaxesProvider = FutureProvider.autoDispose
     .family<List<DocumentItemTaxModel>, int>((ref, documentItemId) async {
-  final companyId = ref.watch(selectedCompanyProvider)?.id;
-  if (companyId == null) return [];
+      final companyId = ref.watch(selectedCompanyProvider)?.id;
+      if (companyId == null) return [];
 
-  try {
-    final dio = createDio();
-    final res = await dio.get(
-      '/DocumentItemTaxes/GetByDocumentItemId',
-      queryParameters: {
-        'documentItemId': documentItemId,
-        'companyId': companyId
-      },
-    );
-    return (res.data as List)
-        .map((x) => DocumentItemTaxModel.fromJson(x))
-        .toList();
-  } catch (e) {
-    return [];
-  }
-});
+      try {
+        final dio = createDio();
+        final res = await dio.get(
+          '/DocumentItemTaxes/GetByDocumentItemId',
+          queryParameters: {
+            'documentItemId': documentItemId,
+            'companyId': companyId,
+          },
+        );
+        return (res.data as List)
+            .map((x) => DocumentItemTaxModel.fromJson(x))
+            .toList();
+      } catch (e) {
+        return [];
+      }
+    });
 
 // --- ENTRY POINT ---
-Future<void> showDocumentEditor(BuildContext context, WidgetRef ref,
-    {Document? existingDocument}) async {
+Future<void> showDocumentEditor(
+  BuildContext context,
+  WidgetRef ref, {
+  Document? existingDocument,
+}) async {
   await showDialog(
     context: context,
     useRootNavigator: true,
@@ -196,9 +202,11 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
         finalTotal -= finalTotal * (_discount / 100);
       }
       if (finalTotal < 0) finalTotal = 0;
-      await dio.patch('/Document/Update',
-          queryParameters: {'companyId': companyId},
-          data: {'id': _savedDocumentId, 'total': finalTotal});
+      await dio.patch(
+        '/Document/Update',
+        queryParameters: {'companyId': companyId},
+        data: {'id': _savedDocumentId, 'total': finalTotal},
+      );
       ref.invalidate(allDocumentsProvider);
     } catch (e) {
       debugPrint("Sync failed: $e");
@@ -257,8 +265,11 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
           'serviceType': _serviceType,
         };
 
-        final response = await dio.post('/Document/Add',
-            queryParameters: {'companyId': company.id}, data: payload);
+        final response = await dio.post(
+          '/Document/Add',
+          queryParameters: {'companyId': company.id},
+          data: payload,
+        );
 
         int? newId;
 
@@ -270,14 +281,16 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
 
         if (data != null && data is Map) {
           newId = int.tryParse(
-              data['id']?.toString() ?? data['Id']?.toString() ?? '');
+            data['id']?.toString() ?? data['Id']?.toString() ?? '',
+          );
         } else if (data is int || data is num) {
           newId = (data as num).toInt();
         }
 
         if (newId == null || newId <= 0) {
           throw Exception(
-              "Server saved the document but returned an unreadable ID: $data");
+            "Server saved the document but returned an unreadable ID: $data",
+          );
         }
 
         final createdDoc = Document(
@@ -323,17 +336,23 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
           'discountApplyRule': _discountApplyRule,
         };
 
-        await dio.patch('/Document/Update',
-            queryParameters: {'companyId': company.id}, data: payload);
+        await dio.patch(
+          '/Document/Update',
+          queryParameters: {'companyId': company.id},
+          data: payload,
+        );
 
         ref.invalidate(documentItemsByDocIdProvider(_savedDocumentId!));
 
         setState(() => _isLoading = false);
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
               content: Text("Document updated!"),
-              backgroundColor: Colors.green));
+              backgroundColor: Colors.green,
+            ),
+          );
         }
       }
     } on DioException catch (e) {
@@ -351,6 +370,9 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     String title = "New Document";
     if (_isEditing) {
       title = "Edit Document — ${_numberCtrl.text}";
@@ -358,9 +380,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
       title = "Document — ${_numberCtrl.text}";
     }
 
-    final List<Widget> dialogTabs = [
-      const Tab(text: "General Header"),
-    ];
+    final List<Widget> dialogTabs = [const Tab(text: "General Header")];
 
     final List<Widget> dialogTabViews = [
       SingleChildScrollView(
@@ -404,26 +424,29 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
           onWarehouseChanged: (v) => setState(() => _selectedWarehouseId = v),
           onDatePick: () async {
             final picked = await showDatePicker(
-                context: context,
-                initialDate: _date,
-                firstDate: DateTime(2020),
-                lastDate: DateTime(2030));
+              context: context,
+              initialDate: _date,
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2030),
+            );
             if (picked != null) setState(() => _date = picked);
           },
           onDueDatePick: () async {
             final picked = await showDatePicker(
-                context: context,
-                initialDate: _dueDate,
-                firstDate: DateTime(2020),
-                lastDate: DateTime(2030));
+              context: context,
+              initialDate: _dueDate,
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2030),
+            );
             if (picked != null) setState(() => _dueDate = picked);
           },
           onStockDatePick: () async {
             final picked = await showDatePicker(
-                context: context,
-                initialDate: _stockDate,
-                firstDate: DateTime(2020),
-                lastDate: DateTime(2030));
+              context: context,
+              initialDate: _stockDate,
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2030),
+            );
             if (picked != null) setState(() => _stockDate = picked);
           },
           onDiscountChanged: (v) => setState(() => _discount = v),
@@ -454,7 +477,8 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
           child: _PaymentsView(
             documentId: _savedDocumentId!,
             companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
-            userId: _selectedUserId ??
+            userId:
+                _selectedUserId ??
                 0, // Passed to assign the payment to the user
             documentTotal: _savedDocument!.total,
           ),
@@ -463,8 +487,9 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
     }
 
     return DefaultTabController(
-      key:
-          ValueKey(dialogTabs.length), // Forces rebuild when tab length changes
+      key: ValueKey(
+        dialogTabs.length,
+      ), // Forces rebuild when tab length changes
       length: dialogTabs.length,
       child: AlertDialog(
         contentPadding: EdgeInsets.zero,
@@ -473,14 +498,14 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
         content: Form(
           key: _formKey,
           child: SizedBox(
-            width: 1000,
-            height: 700,
+            width: MediaQuery.of(context).size.width * 0.9,
+            height: MediaQuery.of(context).size.height * 0.9,
             child: Column(
               children: [
                 TabBar(
-                  labelColor: Colors.indigo,
-                  unselectedLabelColor: Colors.grey,
-                  indicatorColor: Colors.indigo,
+                  labelColor: theme.colorScheme.primary,
+                  unselectedLabelColor: theme.disabledColor,
+                  indicatorColor: theme.colorScheme.primary,
                   tabs: dialogTabs,
                 ),
                 Expanded(child: TabBarView(children: dialogTabViews)),
@@ -490,8 +515,9 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Close")),
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close"),
+          ),
         ],
       ),
     );
@@ -514,6 +540,7 @@ class _SelectDocumentTypeDialogState
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final asyncCategories = ref.watch(documentCategoriesProvider);
     final asyncTypes = ref.watch(allDocumentTypesProvider);
 
@@ -541,35 +568,51 @@ class _SelectDocumentTypeDialogState
                   Container(
                     width: 160,
                     decoration: BoxDecoration(
-                        border: Border(
-                            right: BorderSide(color: Colors.grey.shade300))),
+                      border: Border(
+                        right: BorderSide(
+                          color: Theme.of(context).dividerColor,
+                        ),
+                      ),
+                    ),
                     child: ListView(
                       children: categories
-                          .map((cat) => ListTile(
-                                dense: true,
-                                title: Text(cat.name),
-                                selected: _selectedCategoryId == cat.id,
-                                selectedTileColor: Colors.pink,
-                                selectedColor: Colors.white,
-                                onTap: () => setState(() {
-                                  _selectedCategoryId = cat.id;
-                                  _selectedType = null;
-                                }),
-                              ))
+                          .map(
+                            (cat) => ListTile(
+                              dense: true,
+                              title: Text(cat.name),
+                              selected: _selectedCategoryId == cat.id,
+                              selectedTileColor: Theme.of(
+                                context,
+                              ).colorScheme.secondary,
+                              selectedColor: Theme.of(
+                                context,
+                              ).colorScheme.onSecondary,
+                              onTap: () => setState(() {
+                                _selectedCategoryId = cat.id;
+                                _selectedType = null;
+                              }),
+                            ),
+                          )
                           .toList(),
                     ),
                   ),
                   Expanded(
                     child: ListView(
                       children: filteredTypes
-                          .map((t) => ListTile(
-                                dense: true,
-                                title: Text("${t.code} - ${t.name}"),
-                                selected: _selectedType?.id == t.id,
-                                selectedTileColor: Colors.pink,
-                                selectedColor: Colors.white,
-                                onTap: () => setState(() => _selectedType = t),
-                              ))
+                          .map(
+                            (t) => ListTile(
+                              dense: true,
+                              title: Text("${t.code} - ${t.name}"),
+                              selected: _selectedType?.id == t.id,
+                              selectedTileColor: Theme.of(
+                                context,
+                              ).colorScheme.secondary,
+                              selectedColor: Theme.of(
+                                context,
+                              ).colorScheme.onSecondary,
+                              onTap: () => setState(() => _selectedType = t),
+                            ),
+                          )
                           .toList(),
                     ),
                   ),
@@ -581,13 +624,15 @@ class _SelectDocumentTypeDialogState
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(context).pop(null),
-            child: const Text("Cancel")),
+          onPressed: () => Navigator.of(context).pop(null),
+          child: const Text("Cancel"),
+        ),
         ElevatedButton(
-            onPressed: _selectedType == null
-                ? null
-                : () => Navigator.of(context).pop(_selectedType),
-            child: const Text("OK")),
+          onPressed: _selectedType == null
+              ? null
+              : () => Navigator.of(context).pop(_selectedType),
+          child: const Text("OK"),
+        ),
       ],
     );
   }
@@ -656,37 +701,28 @@ class _HeaderForm extends ConsumerWidget {
     required this.onSave,
   });
 
-  String _fmt(DateTime dt) => "${dt.day.toString().padLeft(2, '0')}-${[
-        'Jan',
-        'Feb',
-        'Mar',
-        'Apr',
-        'May',
-        'Jun',
-        'Jul',
-        'Aug',
-        'Sep',
-        'Oct',
-        'Nov',
-        'Dec'
-      ][dt.month - 1]}-${dt.year}";
+  String _fmt(DateTime dt) =>
+      "${dt.day.toString().padLeft(2, '0')}-${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][dt.month - 1]}-${dt.year}";
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
     final asyncCustomers = ref.watch(allCustomersProvider);
     final asyncUsers = ref.watch(allUsersProvider);
     final asyncWarehouses = ref.watch(allWarehousesProvider);
     final isSupplier =
         selectedDocTypeName?.toLowerCase().contains('purchase') == true ||
-            selectedDocTypeName?.toLowerCase().contains('return') == true;
+        selectedDocTypeName?.toLowerCase().contains('return') == true;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            const Text("Document Type *",
-                style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              "Document Type *",
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(width: 16),
             OutlinedButton.icon(
               icon: const Icon(Icons.list_alt),
@@ -701,22 +737,33 @@ class _HeaderForm extends ConsumerWidget {
             Expanded(
               flex: 2,
               child: TextFormField(
-                  controller: numberCtrl,
-                  decoration: const InputDecoration(
-                      labelText: "Number", border: OutlineInputBorder())),
+                controller: numberCtrl,
+                decoration: const InputDecoration(
+                  labelText: "Number",
+                  border: OutlineInputBorder(),
+                ),
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
-                flex: 2, child: _datePicker("Date", date, onDatePick, _fmt)),
+              flex: 2,
+              child: _datePicker("Date", date, onDatePick, _fmt),
+            ),
             const SizedBox(width: 12),
             Expanded(
-                flex: 2,
-                child: _datePicker("Due Date", dueDate, onDueDatePick, _fmt)),
+              flex: 2,
+              child: _datePicker("Due Date", dueDate, onDueDatePick, _fmt),
+            ),
             const SizedBox(width: 12),
             Expanded(
-                flex: 2,
-                child: _datePicker(
-                    "Stock Date", stockDate, onStockDatePick, _fmt)),
+              flex: 2,
+              child: _datePicker(
+                "Stock Date",
+                stockDate,
+                onStockDatePick,
+                _fmt,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 16),
@@ -732,16 +779,22 @@ class _HeaderForm extends ConsumerWidget {
                   final filtered = isSupplier
                       ? customers.where((c) => c.isSupplier).toList()
                       : customers.where((c) => c.isCustomer).toList();
-                  final isValid = selectedCustomerId == null ||
+                  final isValid =
+                      selectedCustomerId == null ||
                       filtered.any((c) => c.id == selectedCustomerId);
                   return DropdownButtonFormField<int>(
                     initialValue: isValid ? selectedCustomerId : null,
                     decoration: InputDecoration(
-                        labelText: isSupplier ? "Supplier *" : "Customer *",
-                        border: const OutlineInputBorder()),
+                      labelText: isSupplier ? "Supplier *" : "Customer *",
+                      border: const OutlineInputBorder(),
+                    ),
                     items: filtered
-                        .map((c) =>
-                            DropdownMenuItem(value: c.id, child: Text(c.name)))
+                        .map(
+                          (c) => DropdownMenuItem(
+                            value: c.id,
+                            child: Text(c.name),
+                          ),
+                        )
                         .toList(),
                     onChanged: onCustomerChanged,
                   );
@@ -756,15 +809,22 @@ class _HeaderForm extends ConsumerWidget {
                 loading: () => const LinearProgressIndicator(),
                 error: (e, _) => Text("Error: $e"),
                 data: (users) {
-                  final isValidUser = selectedUserId == null ||
+                  final isValidUser =
+                      selectedUserId == null ||
                       users.any((u) => u.id == selectedUserId);
                   return DropdownButtonFormField<int>(
                     initialValue: isValidUser ? selectedUserId : null,
                     decoration: const InputDecoration(
-                        labelText: "User *", border: OutlineInputBorder()),
+                      labelText: "User *",
+                      border: OutlineInputBorder(),
+                    ),
                     items: users
-                        .map((u) => DropdownMenuItem(
-                            value: u.id, child: Text(u.displayName)))
+                        .map(
+                          (u) => DropdownMenuItem(
+                            value: u.id,
+                            child: Text(u.displayName),
+                          ),
+                        )
                         .toList(),
                     onChanged: onUserChanged,
                   );
@@ -779,15 +839,22 @@ class _HeaderForm extends ConsumerWidget {
                 loading: () => const LinearProgressIndicator(),
                 error: (e, _) => Text("Error: $e"),
                 data: (warehouses) {
-                  final isValidWH = selectedWarehouseId == null ||
+                  final isValidWH =
+                      selectedWarehouseId == null ||
                       warehouses.any((w) => w.id == selectedWarehouseId);
                   return DropdownButtonFormField<int>(
                     initialValue: isValidWH ? selectedWarehouseId : null,
                     decoration: const InputDecoration(
-                        labelText: "Warehouse *", border: OutlineInputBorder()),
+                      labelText: "Warehouse *",
+                      border: OutlineInputBorder(),
+                    ),
                     items: warehouses
-                        .map((w) =>
-                            DropdownMenuItem(value: w.id, child: Text(w.name)))
+                        .map(
+                          (w) => DropdownMenuItem(
+                            value: w.id,
+                            child: Text(w.name),
+                          ),
+                        )
                         .toList(),
                     onChanged: onWarehouseChanged,
                   );
@@ -802,10 +869,12 @@ class _HeaderForm extends ConsumerWidget {
             Expanded(
               flex: 3,
               child: TextFormField(
-                  controller: refDocCtrl,
-                  decoration: const InputDecoration(
-                      labelText: "Reference Document",
-                      border: OutlineInputBorder())),
+                controller: refDocCtrl,
+                decoration: const InputDecoration(
+                  labelText: "Reference Document",
+                  border: OutlineInputBorder(),
+                ),
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -813,10 +882,12 @@ class _HeaderForm extends ConsumerWidget {
               child: TextFormField(
                 initialValue: discount.toString(),
                 decoration: const InputDecoration(
-                    labelText: "Document Discount",
-                    border: OutlineInputBorder()),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                  labelText: "Document Discount",
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 onChanged: (v) => onDiscountChanged(double.tryParse(v) ?? 0),
               ),
             ),
@@ -826,8 +897,9 @@ class _HeaderForm extends ConsumerWidget {
               child: DropdownButtonFormField<int>(
                 initialValue: discountType,
                 decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12)),
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                ),
                 items: const [
                   DropdownMenuItem(value: 0, child: Text("%")),
                   DropdownMenuItem(value: 1, child: Text("Fixed")),
@@ -838,12 +910,15 @@ class _HeaderForm extends ConsumerWidget {
             const SizedBox(width: 12),
             Expanded(
               flex: 3,
-              child: Row(children: [
-                Checkbox(
+              child: Row(
+                children: [
+                  Checkbox(
                     value: discountApplyRule,
-                    onChanged: (v) => onDiscountApplyRuleChanged(v ?? true)),
-                const Text("Apply after tax"),
-              ]),
+                    onChanged: (v) => onDiscountApplyRuleChanged(v ?? true),
+                  ),
+                  const Text("Apply after tax"),
+                ],
+              ),
             ),
           ],
         ),
@@ -852,19 +927,24 @@ class _HeaderForm extends ConsumerWidget {
           children: [
             Expanded(
               child: TextFormField(
-                  controller: internalNoteCtrl,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                      labelText: "Internal Note",
-                      border: OutlineInputBorder())),
+                controller: internalNoteCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: "Internal Note",
+                  border: OutlineInputBorder(),
+                ),
+              ),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: TextFormField(
-                  controller: noteCtrl,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                      labelText: "Note", border: OutlineInputBorder())),
+                controller: noteCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: "Note",
+                  border: OutlineInputBorder(),
+                ),
+              ),
             ),
           ],
         ),
@@ -873,12 +953,16 @@ class _HeaderForm extends ConsumerWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.red[50],
+              color: Theme.of(context).colorScheme.errorContainer,
               borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.red),
+              border: Border.all(color: Theme.of(context).colorScheme.error),
             ),
-            child:
-                Text(errorMessage!, style: const TextStyle(color: Colors.red)),
+            child: Text(
+              errorMessage!,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onErrorContainer,
+              ),
+            ),
           ),
         ],
         const SizedBox(height: 24),
@@ -891,12 +975,16 @@ class _HeaderForm extends ConsumerWidget {
               ElevatedButton.icon(
                 icon: Icon(isEditing ? Icons.save : Icons.arrow_forward),
                 label: Text(
-                    isEditing ? "Save Header Changes" : "Create & Add Items"),
+                  isEditing ? "Save Header Changes" : "Create & Add Items",
+                ),
                 style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.indigo,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 24, vertical: 14)),
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 14,
+                  ),
+                ),
                 onPressed: onSave,
               ),
           ],
@@ -905,15 +993,20 @@ class _HeaderForm extends ConsumerWidget {
     );
   }
 
-  Widget _datePicker(String label, DateTime value, VoidCallback onTap,
-      String Function(DateTime) fmt) {
+  Widget _datePicker(
+    String label,
+    DateTime value,
+    VoidCallback onTap,
+    String Function(DateTime) fmt,
+  ) {
     return InkWell(
       onTap: onTap,
       child: InputDecorator(
         decoration: InputDecoration(
-            labelText: label,
-            border: const OutlineInputBorder(),
-            suffixIcon: const Icon(Icons.calendar_today, size: 16)),
+          labelText: label,
+          border: const OutlineInputBorder(),
+          suffixIcon: const Icon(Icons.calendar_today, size: 16),
+        ),
         child: Text(fmt(value)),
       ),
     );
@@ -935,6 +1028,8 @@ class _ItemsView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     ref.listen<AsyncValue<List<DocumentItem>>>(
       documentItemsByDocIdProvider(documentId),
       (previous, next) {
@@ -952,18 +1047,25 @@ class _ItemsView extends ConsumerWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text("Document Items",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              "Document Items",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             ElevatedButton.icon(
               icon: const Icon(Icons.add, size: 16),
               label: const Text("Add Product"),
               style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.pink, foregroundColor: Colors.white),
+                backgroundColor: Theme.of(context).colorScheme.secondary,
+                foregroundColor: Theme.of(context).colorScheme.onSecondary,
+              ),
               onPressed: () async {
                 await showDialog(
-                    context: context,
-                    builder: (_) => _AddItemDialog(
-                        documentId: documentId, companyId: companyId));
+                  context: context,
+                  builder: (_) => _AddItemDialog(
+                    documentId: documentId,
+                    companyId: companyId,
+                  ),
+                );
                 ref.invalidate(documentItemsByDocIdProvider(documentId));
               },
             ),
@@ -972,14 +1074,18 @@ class _ItemsView extends ConsumerWidget {
         const SizedBox(height: 16),
         asyncItems.when(
           loading: () => const CircularProgressIndicator(),
-          error: (e, _) =>
-              Text("Error: $e", style: const TextStyle(color: Colors.red)),
+          error: (e, _) => Text(
+            "Error: $e",
+            style: TextStyle(color: theme.colorScheme.error),
+          ),
           data: (items) {
             if (items.isEmpty) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 24),
-                child: Text("No items added yet.",
-                    style: TextStyle(color: Colors.grey)),
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Text(
+                  "No items added yet.",
+                  style: TextStyle(color: theme.disabledColor),
+                ),
               );
             }
 
@@ -991,8 +1097,10 @@ class _ItemsView extends ConsumerWidget {
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: DataTable(
-                    headingRowColor:
-                        WidgetStateProperty.all(Colors.blueGrey[50]),
+                    headingRowColor: WidgetStateProperty.all(
+                      Theme.of(context).colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.3),
+                    ),
                     columns: const [
                       DataColumn(label: Text("Product")),
                       DataColumn(label: Text("Qty"), numeric: true),
@@ -1003,61 +1111,98 @@ class _ItemsView extends ConsumerWidget {
                       DataColumn(label: Text("Actions")),
                     ],
                     rows: items
-                        .map((item) => DataRow(cells: [
+                        .map(
+                          (item) => DataRow(
+                            cells: [
                               DataCell(Text(item.productName ?? '-')),
-                              DataCell(Text(item.quantity.toStringAsFixed(
-                                  item.quantity % 1 == 0 ? 0 : 2))),
+                              DataCell(
+                                Text(
+                                  item.quantity.toStringAsFixed(
+                                    item.quantity % 1 == 0 ? 0 : 2,
+                                  ),
+                                ),
+                              ),
                               DataCell(Text(item.price.toStringAsFixed(2))),
-                              DataCell(Text(
-                                  "${item.discount.toStringAsFixed(0)}${item.discountType == 0 ? '%' : ''}")),
-                              DataCell(Text(item.priceBeforeTaxAfterDiscount
-                                  .toStringAsFixed(2))),
-                              DataCell(Text(
-                                item.total.toStringAsFixed(2),
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold),
-                              )),
-                              DataCell(Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                      icon: const Icon(Icons.edit,
-                                          color: Colors.blueGrey, size: 18),
+                              DataCell(
+                                Text(
+                                  "${item.discount.toStringAsFixed(0)}${item.discountType == 0 ? '%' : ''}",
+                                ),
+                              ),
+                              DataCell(
+                                Text(
+                                  item.priceBeforeTaxAfterDiscount
+                                      .toStringAsFixed(2),
+                                ),
+                              ),
+                              DataCell(
+                                Text(
+                                  item.total.toStringAsFixed(2),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              DataCell(
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: Icon(
+                                        Icons.edit,
+                                        color: theme.colorScheme.primary,
+                                        size: 18,
+                                      ),
                                       onPressed: () async {
                                         await showDialog(
-                                            context: context,
-                                            builder: (_) => _EditItemDialog(
-                                                item: item,
-                                                companyId: companyId));
+                                          context: context,
+                                          builder: (_) => _EditItemDialog(
+                                            item: item,
+                                            companyId: companyId,
+                                          ),
+                                        );
                                         ref.invalidate(
-                                            documentItemsByDocIdProvider(
-                                                documentId));
-                                      }),
-                                  IconButton(
-                                      icon: const Icon(Icons.delete,
-                                          color: Colors.red, size: 18),
+                                          documentItemsByDocIdProvider(
+                                            documentId,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    IconButton(
+                                      icon: Icon(
+                                        Icons.delete,
+                                        color: theme.colorScheme.error,
+                                        size: 18,
+                                      ),
                                       onPressed: () async {
                                         final confirm = await showDialog<bool>(
                                           context: context,
                                           builder: (ctx) => AlertDialog(
                                             title: const Text("Delete Item"),
                                             content: Text(
-                                                "Delete '${item.productName}'?"),
+                                              "Delete '${item.productName}'?",
+                                            ),
                                             actions: [
                                               TextButton(
-                                                  onPressed: () =>
-                                                      Navigator.of(ctx)
-                                                          .pop(false),
-                                                  child: const Text("Cancel")),
+                                                onPressed: () => Navigator.of(
+                                                  ctx,
+                                                ).pop(false),
+                                                child: const Text("Cancel"),
+                                              ),
                                               ElevatedButton(
                                                 style: ElevatedButton.styleFrom(
-                                                    backgroundColor:
-                                                        Colors.red),
+                                                  backgroundColor:
+                                                      theme.colorScheme.error,
+                                                ),
                                                 onPressed: () =>
                                                     Navigator.of(ctx).pop(true),
-                                                child: const Text("Delete",
-                                                    style: TextStyle(
-                                                        color: Colors.white)),
+                                                child: Text(
+                                                  "Delete",
+                                                  style: TextStyle(
+                                                    color: theme
+                                                        .colorScheme
+                                                        .onError,
+                                                  ),
+                                                ),
                                               ),
                                             ],
                                           ),
@@ -1065,29 +1210,41 @@ class _ItemsView extends ConsumerWidget {
                                         if (confirm == true) {
                                           final dio = createDio();
                                           await dio.delete(
-                                              '/DocumentItems/Delete',
-                                              queryParameters: {
-                                                'id': item.id,
-                                                'companyId': companyId
-                                              });
+                                            '/DocumentItems/Delete',
+                                            queryParameters: {
+                                              'id': item.id,
+                                              'companyId': companyId,
+                                            },
+                                          );
                                           ref.invalidate(
-                                              documentItemsByDocIdProvider(
-                                                  documentId));
+                                            documentItemsByDocIdProvider(
+                                              documentId,
+                                            ),
+                                          );
                                         }
-                                      }),
-                                ],
-                              )),
-                            ]))
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
                         .toList(),
                   ),
                 ),
                 Container(
                   padding: const EdgeInsets.all(16),
-                  color: Colors.grey[100],
+                  color: isDark
+                      ? theme.colorScheme.surfaceContainerHighest
+                      : Colors.grey[100],
                   alignment: Alignment.centerRight,
-                  child: Text("Items Base Total: \$${total.toStringAsFixed(2)}",
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16)),
+                  child: Text(
+                    "Items Base Total: \$${total.toStringAsFixed(2)}",
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                 ),
               ],
             );
@@ -1139,19 +1296,21 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
     });
     try {
       final dio = createDio();
-      await dio.post('/DocumentItems/Add', queryParameters: {
-        'companyId': widget.companyId
-      }, data: {
-        'documentId': widget.documentId,
-        'productId': _selectedProductId,
-        'quantity': double.tryParse(_qtyCtrl.text) ?? 1,
-        'expectedQuantity': double.tryParse(_qtyCtrl.text) ?? 1,
-        'priceBeforeTax': double.tryParse(_priceBeforeTaxCtrl.text) ?? 0,
-        'price': double.tryParse(_priceCtrl.text) ?? 0,
-        'discount': double.tryParse(_discountCtrl.text) ?? 0,
-        'discountType': _discountType,
-        'discountApplyRule': _discountApplyRule,
-      });
+      await dio.post(
+        '/DocumentItems/Add',
+        queryParameters: {'companyId': widget.companyId},
+        data: {
+          'documentId': widget.documentId,
+          'productId': _selectedProductId,
+          'quantity': double.tryParse(_qtyCtrl.text) ?? 1,
+          'expectedQuantity': double.tryParse(_qtyCtrl.text) ?? 1,
+          'priceBeforeTax': double.tryParse(_priceBeforeTaxCtrl.text) ?? 0,
+          'price': double.tryParse(_priceCtrl.text) ?? 0,
+          'discount': double.tryParse(_discountCtrl.text) ?? 0,
+          'discountType': _discountType,
+          'discountApplyRule': _discountApplyRule,
+        },
+      );
       if (!mounted) return;
       Navigator.of(context).pop();
     } on DioException catch (e) {
@@ -1165,6 +1324,9 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
   @override
   Widget build(BuildContext context) {
     final asyncProducts = ref.watch(allProductsListProvider);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return AlertDialog(
       title: const Text("Add Product"),
       content: SizedBox(
@@ -1178,14 +1340,19 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
               data: (products) => DropdownButtonFormField<int>(
                 initialValue: _selectedProductId,
                 decoration: const InputDecoration(
-                    labelText: "Product *", border: OutlineInputBorder()),
+                  labelText: "Product *",
+                  border: OutlineInputBorder(),
+                ),
                 items: products
-                    .map((p) => DropdownMenuItem(
+                    .map(
+                      (p) => DropdownMenuItem(
                         value: p.id,
                         child: Text(
                           "${p.name}${p.code != null ? ' (${p.code})' : ''}",
                           overflow: TextOverflow.ellipsis,
-                        )))
+                        ),
+                      ),
+                    )
                     .toList(),
                 onChanged: (v) {
                   final p = products.firstWhere((prod) => prod.id == v);
@@ -1198,52 +1365,72 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
               ),
             ),
             const SizedBox(height: 12),
-            Row(children: [
-              Expanded(
+            Row(
+              children: [
+                Expanded(
                   child: TextFormField(
-                      controller: _qtyCtrl,
-                      decoration: const InputDecoration(
-                          labelText: "Quantity",
-                          border: OutlineInputBorder()))),
-              const SizedBox(width: 12),
-              Expanded(
+                    controller: _qtyCtrl,
+                    decoration: const InputDecoration(
+                      labelText: "Quantity",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
                   child: TextFormField(
-                      controller: _priceCtrl,
-                      decoration: const InputDecoration(
-                          labelText: "Price", border: OutlineInputBorder()))),
-            ]),
+                    controller: _priceCtrl,
+                    decoration: const InputDecoration(
+                      labelText: "Price",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
-            Row(children: [
-              Expanded(
+            Row(
+              children: [
+                Expanded(
                   child: TextFormField(
-                      controller: _discountCtrl,
-                      decoration: const InputDecoration(
-                          labelText: "Item Discount",
-                          border: OutlineInputBorder()))),
-              const SizedBox(width: 12),
-              Expanded(
+                    controller: _discountCtrl,
+                    decoration: const InputDecoration(
+                      labelText: "Item Discount",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
                   child: DropdownButtonFormField<int>(
-                initialValue: _discountType,
-                decoration: const InputDecoration(border: OutlineInputBorder()),
-                items: const [
-                  DropdownMenuItem(value: 0, child: Text("%")),
-                  DropdownMenuItem(value: 1, child: Text("Fixed")),
-                ],
-                onChanged: (v) => setState(() => _discountType = v ?? 0),
-              )),
-            ]),
+                    initialValue: _discountType,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 0, child: Text("%")),
+                      DropdownMenuItem(value: 1, child: Text("Fixed")),
+                    ],
+                    onChanged: (v) => setState(() => _discountType = v ?? 0),
+                  ),
+                ),
+              ],
+            ),
             if (_errorMessage != null) ...[
               const SizedBox(height: 12),
-              Text(_errorMessage!,
-                  style: const TextStyle(color: Colors.red, fontSize: 13)),
+              Text(
+                _errorMessage!,
+                style: TextStyle(color: theme.colorScheme.error, fontSize: 13),
+              ),
             ],
           ],
         ),
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text("Cancel")),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text("Cancel"),
+        ),
         if (_isLoading)
           const Padding(
             padding: EdgeInsets.all(8),
@@ -1254,7 +1441,9 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
             icon: const Icon(Icons.add),
             label: const Text("Add"),
             style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+              backgroundColor: theme.colorScheme.primary,
+              foregroundColor: theme.colorScheme.onPrimary,
+            ),
             onPressed: _submit,
           ),
       ],
@@ -1291,8 +1480,9 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
     super.initState();
     _qtyCtrl = TextEditingController(text: widget.item.quantity.toString());
     _priceCtrl = TextEditingController(text: widget.item.price.toString());
-    _discountCtrl =
-        TextEditingController(text: widget.item.discount.toString());
+    _discountCtrl = TextEditingController(
+      text: widget.item.discount.toString(),
+    );
     _discountType = widget.item.discountType;
     _expirationDateCtrl = TextEditingController();
   }
@@ -1315,48 +1505,56 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
       final dio = createDio();
 
       // 1. Update the Document Item itself
-      await dio.patch('/DocumentItems/Update', queryParameters: {
-        'companyId': widget.companyId
-      }, data: {
-        'id': widget.item.id,
-        'documentId': widget.item.documentId,
-        'productId': widget.item.productId,
-        'quantity': double.tryParse(_qtyCtrl.text) ?? widget.item.quantity,
-        'expectedQuantity':
-            double.tryParse(_qtyCtrl.text) ?? widget.item.quantity,
-        'priceBeforeTax': widget.item.priceBeforeTax,
-        'price': double.tryParse(_priceCtrl.text) ?? widget.item.price,
-        'discount': double.tryParse(_discountCtrl.text) ?? widget.item.discount,
-        'discountType': _discountType,
-        'productCost': widget.item.productCost,
-        'discountApplyRule': widget.item.discountApplyRule,
-      });
+      await dio.patch(
+        '/DocumentItems/Update',
+        queryParameters: {'companyId': widget.companyId},
+        data: {
+          'id': widget.item.id,
+          'documentId': widget.item.documentId,
+          'productId': widget.item.productId,
+          'quantity': double.tryParse(_qtyCtrl.text) ?? widget.item.quantity,
+          'expectedQuantity':
+              double.tryParse(_qtyCtrl.text) ?? widget.item.quantity,
+          'priceBeforeTax': widget.item.priceBeforeTax,
+          'price': double.tryParse(_priceCtrl.text) ?? widget.item.price,
+          'discount':
+              double.tryParse(_discountCtrl.text) ?? widget.item.discount,
+          'discountType': _discountType,
+          'productCost': widget.item.productCost,
+          'discountApplyRule': widget.item.discountApplyRule,
+        },
+      );
 
       // 2. Handle the Expiration Date
       if (_expirationDate != null) {
         if (_hasInitialExpirationDate) {
-          await dio
-              .patch('/DocumentItemExpirationDates/Update', queryParameters: {
-            'companyId': widget.companyId
-          }, data: {
-            'documentItemId': widget.item.id,
-            'expirationDate': _expirationDate!.toIso8601String()
-          });
+          await dio.patch(
+            '/DocumentItemExpirationDates/Update',
+            queryParameters: {'companyId': widget.companyId},
+            data: {
+              'documentItemId': widget.item.id,
+              'expirationDate': _expirationDate!.toIso8601String(),
+            },
+          );
         } else {
-          await dio.post('/DocumentItemExpirationDates/Add', queryParameters: {
-            'companyId': widget.companyId
-          }, data: {
-            'documentItemId': widget.item.id,
-            'expirationDate': _expirationDate!.toIso8601String()
-          });
+          await dio.post(
+            '/DocumentItemExpirationDates/Add',
+            queryParameters: {'companyId': widget.companyId},
+            data: {
+              'documentItemId': widget.item.id,
+              'expirationDate': _expirationDate!.toIso8601String(),
+            },
+          );
         }
       } else if (_hasInitialExpirationDate && _expirationDate == null) {
         // Only trigger delete if an initial date actually existed and was cleared
-        await dio.delete('/DocumentItemExpirationDates/Delete',
-            queryParameters: {
-              'documentItemId': widget.item.id,
-              'companyId': widget.companyId
-            });
+        await dio.delete(
+          '/DocumentItemExpirationDates/Delete',
+          queryParameters: {
+            'documentItemId': widget.item.id,
+            'companyId': widget.companyId,
+          },
+        );
       }
 
       // Invalidate the provider so next time it is opened it fetches fresh
@@ -1376,18 +1574,18 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
     if (_selectedTaxId == null) return;
     try {
       final dio = createDio();
-      await dio.post('/DocumentItemTaxes/Add', queryParameters: {
-        'companyId': widget.companyId
-      }, data: {
-        'documentItemId': widget.item.id,
-        'taxId': _selectedTaxId,
-      });
+      await dio.post(
+        '/DocumentItemTaxes/Add',
+        queryParameters: {'companyId': widget.companyId},
+        data: {'documentItemId': widget.item.id, 'taxId': _selectedTaxId},
+      );
       ref.invalidate(documentItemTaxesProvider(widget.item.id));
       ref.invalidate(documentItemsByDocIdProvider(widget.item.documentId));
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(e.toString()), backgroundColor: Colors.red));
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+        );
       }
     }
   }
@@ -1395,23 +1593,32 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
   Future<void> _deleteTax(int taxId) async {
     try {
       final dio = createDio();
-      await dio.delete('/DocumentItemTaxes/Delete', queryParameters: {
-        'documentItemId': widget.item.id,
-        'taxId': taxId,
-        'companyId': widget.companyId
-      });
+      await dio.delete(
+        '/DocumentItemTaxes/Delete',
+        queryParameters: {
+          'documentItemId': widget.item.id,
+          'taxId': taxId,
+          'companyId': widget.companyId,
+        },
+      );
       ref.invalidate(documentItemTaxesProvider(widget.item.id));
       ref.invalidate(documentItemsByDocIdProvider(widget.item.documentId));
     } catch (e) {
       if (mounted) {
+        final theme = Theme.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(e.toString()), backgroundColor: Colors.red));
+          SnackBar(
+            content: Text(e.toString()),
+            backgroundColor: theme.colorScheme.error,
+          ),
+        );
       }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final allTaxesAsync = ref.watch(allTaxesProvider);
     final itemTaxesAsync = ref.watch(documentItemTaxesProvider(widget.item.id));
 
@@ -1426,8 +1633,10 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
               setState(() {
                 _hasInitialExpirationDate = true;
                 _expirationDate = expDateModel.expirationDate;
-                _expirationDateCtrl.text =
-                    _expirationDate!.toIso8601String().split('T').first;
+                _expirationDateCtrl.text = _expirationDate!
+                    .toIso8601String()
+                    .split('T')
+                    .first;
               });
             }
           }
@@ -1450,43 +1659,58 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Row(children: [
-                      Expanded(
+                    Row(
+                      children: [
+                        Expanded(
                           child: TextFormField(
-                              controller: _qtyCtrl,
-                              decoration: const InputDecoration(
-                                  labelText: "Quantity",
-                                  border: OutlineInputBorder()))),
-                      const SizedBox(width: 12),
-                      Expanded(
+                            controller: _qtyCtrl,
+                            decoration: const InputDecoration(
+                              labelText: "Quantity",
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
                           child: TextFormField(
-                              controller: _priceCtrl,
-                              decoration: const InputDecoration(
-                                  labelText: "Price",
-                                  border: OutlineInputBorder()))),
-                    ]),
+                            controller: _priceCtrl,
+                            decoration: const InputDecoration(
+                              labelText: "Price",
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 12),
-                    Row(children: [
-                      Expanded(
+                    Row(
+                      children: [
+                        Expanded(
                           child: TextFormField(
-                              controller: _discountCtrl,
-                              decoration: const InputDecoration(
-                                  labelText: "Discount",
-                                  border: OutlineInputBorder()))),
-                      const SizedBox(width: 12),
-                      Expanded(
+                            controller: _discountCtrl,
+                            decoration: const InputDecoration(
+                              labelText: "Discount",
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
                           child: DropdownButtonFormField<int>(
-                        initialValue: _discountType,
-                        decoration:
-                            const InputDecoration(border: OutlineInputBorder()),
-                        items: const [
-                          DropdownMenuItem(value: 0, child: Text("%")),
-                          DropdownMenuItem(value: 1, child: Text("Fixed")),
-                        ],
-                        onChanged: (v) =>
-                            setState(() => _discountType = v ?? 0),
-                      )),
-                    ]),
+                            initialValue: _discountType,
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                            ),
+                            items: const [
+                              DropdownMenuItem(value: 0, child: Text("%")),
+                              DropdownMenuItem(value: 1, child: Text("Fixed")),
+                            ],
+                            onChanged: (v) =>
+                                setState(() => _discountType = v ?? 0),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 12),
 
                     // FULLY WIRED Expiration Date Field
@@ -1503,8 +1727,10 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                         if (picked != null) {
                           setState(() {
                             _expirationDate = picked;
-                            _expirationDateCtrl.text =
-                                picked.toIso8601String().split('T').first;
+                            _expirationDateCtrl.text = picked
+                                .toIso8601String()
+                                .split('T')
+                                .first;
                           });
                         }
                       },
@@ -1527,16 +1753,20 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
 
                     if (_errorMessage != null) ...[
                       const SizedBox(height: 12),
-                      Text(_errorMessage!,
-                          style:
-                              const TextStyle(color: Colors.red, fontSize: 13)),
+                      Text(
+                        _errorMessage!,
+                        style: TextStyle(
+                          color: theme.colorScheme.error,
+                          fontSize: 13,
+                        ),
+                      ),
                     ],
                   ],
                 ),
               ),
             ),
             const SizedBox(width: 32),
-            const VerticalDivider(thickness: 1),
+            VerticalDivider(thickness: 1, color: theme.dividerColor),
             const SizedBox(width: 16),
 
             // RIGHT COLUMN (Item Taxes)
@@ -1545,94 +1775,120 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("Item Taxes",
-                      style:
-                          TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const Text(
+                    "Item Taxes",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
                         child: allTaxesAsync.when(
-                            loading: () => const LinearProgressIndicator(),
-                            error: (_, __) => const Text("Error loading taxes"),
-                            data: (taxes) => DropdownButtonFormField<int>(
-                                  initialValue: _selectedTaxId,
-                                  decoration: const InputDecoration(
-                                      labelText: "Select Tax",
-                                      border: OutlineInputBorder(),
-                                      contentPadding: EdgeInsets.symmetric(
-                                          horizontal: 12, vertical: 8)),
-                                  items: taxes
-                                      .map((t) => DropdownMenuItem(
-                                          value: t.id,
-                                          child:
-                                              Text("${t.name} (${t.rate}%)")))
-                                      .toList(),
-                                  onChanged: (v) =>
-                                      setState(() => _selectedTaxId = v),
-                                )),
+                          loading: () => const LinearProgressIndicator(),
+                          error: (_, __) => const Text("Error loading taxes"),
+                          data: (taxes) => DropdownButtonFormField<int>(
+                            initialValue: _selectedTaxId,
+                            decoration: const InputDecoration(
+                              labelText: "Select Tax",
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                            ),
+                            items: taxes
+                                .map(
+                                  (t) => DropdownMenuItem(
+                                    value: t.id,
+                                    child: Text("${t.name} (${t.rate}%)"),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) =>
+                                setState(() => _selectedTaxId = v),
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 8),
                       ElevatedButton(
                         onPressed: _selectedTaxId == null ? null : _addTax,
                         style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.indigo,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 18, horizontal: 16)),
+                          backgroundColor: theme.colorScheme.primary,
+                          foregroundColor: theme.colorScheme.onPrimary,
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 18,
+                            horizontal: 16,
+                          ),
+                        ),
                         child: const Text("Add"),
-                      )
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
                   Expanded(
-                      child: itemTaxesAsync.when(
-                          loading: () =>
-                              const Center(child: CircularProgressIndicator()),
-                          error: (e, _) => Text("Error: $e",
-                              style: const TextStyle(color: Colors.red)),
-                          data: (taxes) {
-                            if (taxes.isEmpty)
-                              return const Text("No taxes applied.",
-                                  style: TextStyle(color: Colors.grey));
+                    child: itemTaxesAsync.when(
+                      loading: () =>
+                          const Center(child: CircularProgressIndicator()),
+                      error: (e, _) => Text(
+                        "Error: $e",
+                        style: TextStyle(color: theme.colorScheme.error),
+                      ),
+                      data: (taxes) {
+                        if (taxes.isEmpty) {
+                          return Text(
+                            "No taxes applied.",
+                            style: TextStyle(color: theme.disabledColor),
+                          );
+                        }
 
-                            return Container(
-                              decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.grey[300]!),
-                                  borderRadius: BorderRadius.circular(8)),
-                              child: ListView.separated(
-                                itemCount: taxes.length,
-                                separatorBuilder: (_, __) =>
-                                    const Divider(height: 1),
-                                itemBuilder: (context, i) {
-                                  final t = taxes[i];
-                                  return ListTile(
-                                    dense: true,
-                                    title: Text(t.taxName,
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.bold)),
-                                    subtitle: Text(
-                                        "Tax Amount: \$${t.amount.toStringAsFixed(4)}"),
-                                    trailing: IconButton(
-                                      icon: const Icon(Icons.delete,
-                                          color: Colors.redAccent, size: 20),
-                                      onPressed: () => _deleteTax(t.taxId),
-                                    ),
-                                  );
-                                },
-                              ),
-                            );
-                          }))
+                        return Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: theme.dividerColor),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: ListView.separated(
+                            itemCount: taxes.length,
+                            separatorBuilder: (_, __) =>
+                                Divider(height: 1, color: theme.dividerColor),
+                            itemBuilder: (context, i) {
+                              final t = taxes[i];
+                              return ListTile(
+                                dense: true,
+                                title: Text(
+                                  t.taxName,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  "Tax Amount: \$${t.amount.toStringAsFixed(4)}",
+                                ),
+                                trailing: IconButton(
+                                  icon: Icon(
+                                    Icons.delete,
+                                    color: theme.colorScheme.error,
+                                    size: 20,
+                                  ),
+                                  onPressed: () => _deleteTax(t.taxId),
+                                ),
+                              );
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                 ],
               ),
-            )
+            ),
           ],
         ),
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text("Cancel")),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text("Cancel"),
+        ),
         if (_isLoading)
           const Padding(
             padding: EdgeInsets.all(8),
@@ -1643,7 +1899,9 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
             icon: const Icon(Icons.save),
             label: const Text("Update Item"),
             style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+              backgroundColor: theme.colorScheme.primary,
+              foregroundColor: theme.colorScheme.onPrimary,
+            ),
             onPressed: _submit,
           ),
       ],
@@ -1666,6 +1924,8 @@ class _PaymentsView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final asyncPayments = ref.watch(paymentsByDocumentIdProvider(documentId));
 
     return Column(
@@ -1673,21 +1933,26 @@ class _PaymentsView extends ConsumerWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text("Applied Payments",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              "Applied Payments",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             ElevatedButton.icon(
               icon: const Icon(Icons.payment, size: 16),
               label: const Text("Add Payment"),
               style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal, foregroundColor: Colors.white),
+                backgroundColor: theme.colorScheme.secondary,
+                foregroundColor: theme.colorScheme.onSecondary,
+              ),
               onPressed: () async {
                 await showDialog(
-                    context: context,
-                    builder: (_) => _AddPaymentDialog(
-                          documentId: documentId,
-                          companyId: companyId,
-                          userId: userId,
-                        ));
+                  context: context,
+                  builder: (_) => _AddPaymentDialog(
+                    documentId: documentId,
+                    companyId: companyId,
+                    userId: userId,
+                  ),
+                );
                 ref.invalidate(paymentsByDocumentIdProvider(documentId));
               },
             ),
@@ -1696,8 +1961,10 @@ class _PaymentsView extends ConsumerWidget {
         const SizedBox(height: 16),
         asyncPayments.when(
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) =>
-              Text("Error: $e", style: const TextStyle(color: Colors.red)),
+          error: (e, _) => Text(
+            "Error: $e",
+            style: TextStyle(color: theme.colorScheme.error),
+          ),
           data: (payments) {
             final totalPaid = payments.fold<double>(0, (s, p) => s + p.amount);
             final remaining = documentTotal - totalPaid;
@@ -1711,25 +1978,41 @@ class _PaymentsView extends ConsumerWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       _SummaryCard(
-                          "Document Total", documentTotal, Colors.blueGrey),
-                      _SummaryCard("Total Paid", totalPaid, Colors.green),
-                      _SummaryCard("Remaining Balance", remaining,
-                          remaining > 0 ? Colors.orange : Colors.grey),
+                        "Document Total",
+                        documentTotal,
+                        theme.colorScheme.primary,
+                      ),
+                      _SummaryCard(
+                        "Total Paid",
+                        totalPaid,
+                        isDark ? Colors.greenAccent : Colors.green,
+                      ),
+                      _SummaryCard(
+                        "Remaining Balance",
+                        remaining,
+                        remaining > 0
+                            ? (isDark ? Colors.orangeAccent : Colors.orange)
+                            : theme.disabledColor,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 24),
 
                   if (payments.isEmpty)
                     const Center(
-                      child: Text("No payments added yet.",
-                          style: TextStyle(color: Colors.grey)),
+                      child: Text(
+                        "No payments added yet.",
+                        style: TextStyle(color: Colors.grey),
+                      ),
                     )
                   else
                     Expanded(
                       child: SingleChildScrollView(
                         child: DataTable(
-                          headingRowColor:
-                              WidgetStateProperty.all(Colors.teal[50]),
+                          headingRowColor: WidgetStateProperty.all(
+                            theme.colorScheme.surfaceContainerHighest
+                                .withValues(alpha: 0.3),
+                          ),
                           columns: const [
                             DataColumn(label: Text("ID")),
                             DataColumn(label: Text("Status")),
@@ -1740,113 +2023,156 @@ class _PaymentsView extends ConsumerWidget {
                           ],
                           rows: payments.map((payment) {
                             final isLocked = payment.zReportId != null;
-                            return DataRow(cells: [
-                              DataCell(Text(payment.id.toString())),
-                              DataCell(Icon(
-                                isLocked ? Icons.lock : Icons.check_circle,
-                                color: isLocked ? Colors.grey : Colors.green,
-                                size: 20,
-                              )),
-                              DataCell(
-                                  Text(payment.paymentTypeName ?? "Unknown")),
-                              DataCell(Text(payment.date
-                                  .toIso8601String()
-                                  .split('T')
-                                  .first)),
-                              DataCell(Text(payment.amount.toStringAsFixed(2),
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.bold))),
-                              DataCell(Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: Icon(Icons.edit,
-                                        color: isLocked
-                                            ? Colors.grey
-                                            : Colors.blueGrey,
-                                        size: 18),
-                                    onPressed: isLocked
-                                        ? null
-                                        : () async {
-                                            await showDialog(
-                                                context: context,
-                                                builder: (_) =>
-                                                    _EditPaymentDialog(
-                                                      payment: payment,
-                                                      companyId: companyId,
-                                                    ));
-                                            ref.invalidate(
-                                                paymentsByDocumentIdProvider(
-                                                    documentId));
-                                          },
+                            return DataRow(
+                              cells: [
+                                DataCell(Text(payment.id.toString())),
+                                DataCell(
+                                  Icon(
+                                    isLocked ? Icons.lock : Icons.check_circle,
+                                    color: isLocked
+                                        ? theme.disabledColor
+                                        : Colors.green,
+                                    size: 20,
                                   ),
-                                  IconButton(
-                                    icon: Icon(Icons.delete,
-                                        color:
-                                            isLocked ? Colors.grey : Colors.red,
-                                        size: 18),
-                                    onPressed: isLocked
-                                        ? null
-                                        : () async {
-                                            final confirm =
-                                                await showDialog<bool>(
-                                              context: context,
-                                              builder: (ctx) => AlertDialog(
-                                                title: const Text(
-                                                    "Delete Payment"),
-                                                content: const Text(
-                                                    "Are you sure you want to delete this payment?"),
-                                                actions: [
-                                                  TextButton(
-                                                      onPressed: () =>
-                                                          Navigator.of(ctx)
-                                                              .pop(false),
-                                                      child:
-                                                          const Text("Cancel")),
-                                                  ElevatedButton(
-                                                    style: ElevatedButton
-                                                        .styleFrom(
-                                                            backgroundColor:
-                                                                Colors.red),
-                                                    onPressed: () =>
-                                                        Navigator.of(ctx)
-                                                            .pop(true),
-                                                    child: const Text("Delete",
-                                                        style: TextStyle(
-                                                            color:
-                                                                Colors.white)),
-                                                  ),
-                                                ],
-                                              ),
-                                            );
-                                            if (confirm == true) {
-                                              try {
-                                                final dio = createDio();
-                                                await dio.delete(
-                                                    '/Payments/Delete',
-                                                    queryParameters: {
-                                                      'id': payment.id,
-                                                      'companyId': companyId
-                                                    });
+                                ),
+                                DataCell(
+                                  Text(payment.paymentTypeName ?? "Unknown"),
+                                ),
+                                DataCell(
+                                  Text(
+                                    payment.date
+                                        .toIso8601String()
+                                        .split('T')
+                                        .first,
+                                  ),
+                                ),
+                                DataCell(
+                                  Text(
+                                    payment.amount.toStringAsFixed(2),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                DataCell(
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.edit,
+                                          color: isLocked
+                                              ? theme.disabledColor
+                                              : theme.colorScheme.secondary,
+                                          size: 18,
+                                        ),
+                                        onPressed: isLocked
+                                            ? null
+                                            : () async {
+                                                await showDialog(
+                                                  context: context,
+                                                  builder: (_) =>
+                                                      _EditPaymentDialog(
+                                                        payment: payment,
+                                                        companyId: companyId,
+                                                      ),
+                                                );
                                                 ref.invalidate(
-                                                    paymentsByDocumentIdProvider(
-                                                        documentId));
-                                              } catch (e) {
-                                                if (context.mounted) {
-                                                  ScaffoldMessenger.of(context)
-                                                      .showSnackBar(SnackBar(
+                                                  paymentsByDocumentIdProvider(
+                                                    documentId,
+                                                  ),
+                                                );
+                                              },
+                                      ),
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.delete,
+                                          color: isLocked
+                                              ? theme.disabledColor
+                                              : theme.colorScheme.error,
+                                          size: 18,
+                                        ),
+                                        onPressed: isLocked
+                                            ? null
+                                            : () async {
+                                                final confirm = await showDialog<bool>(
+                                                  context: context,
+                                                  builder: (ctx) => AlertDialog(
+                                                    title: const Text(
+                                                      "Delete Payment",
+                                                    ),
+                                                    content: const Text(
+                                                      "Are you sure you want to delete this payment?",
+                                                    ),
+                                                    actions: [
+                                                      TextButton(
+                                                        onPressed: () =>
+                                                            Navigator.of(
+                                                              ctx,
+                                                            ).pop(false),
+                                                        child: const Text(
+                                                          "Cancel",
+                                                        ),
+                                                      ),
+                                                      ElevatedButton(
+                                                        style: ElevatedButton.styleFrom(
+                                                          backgroundColor: theme
+                                                              .colorScheme
+                                                              .error,
+                                                          foregroundColor: theme
+                                                              .colorScheme
+                                                              .onError,
+                                                        ),
+                                                        onPressed: () =>
+                                                            Navigator.of(
+                                                              ctx,
+                                                            ).pop(true),
+                                                        child: const Text(
+                                                          "Delete",
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                );
+                                                if (confirm == true) {
+                                                  try {
+                                                    final dio = createDio();
+                                                    await dio.delete(
+                                                      '/Payments/Delete',
+                                                      queryParameters: {
+                                                        'id': payment.id,
+                                                        'companyId': companyId,
+                                                      },
+                                                    );
+                                                    ref.invalidate(
+                                                      paymentsByDocumentIdProvider(
+                                                        documentId,
+                                                      ),
+                                                    );
+                                                  } catch (e) {
+                                                    if (context.mounted) {
+                                                      ScaffoldMessenger.of(
+                                                        context,
+                                                      ).showSnackBar(
+                                                        SnackBar(
                                                           content: Text(
-                                                              "Delete failed: $e"),
-                                                          backgroundColor:
-                                                              Colors.red));
+                                                            "Delete failed: $e",
+                                                          ),
+                                                          backgroundColor: theme
+                                                              .colorScheme
+                                                              .error,
+                                                        ),
+                                                      );
+                                                    }
+                                                  }
                                                 }
-                                              }
-                                            }
-                                          },
+                                              },
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              )),
-                            ]);
+                                ),
+                              ],
+                            );
                           }).toList(),
                         ),
                       ),
@@ -1879,12 +2205,19 @@ class _SummaryCard extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Text(title,
-              style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+          Text(
+            title,
+            style: TextStyle(color: color, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
-          Text("\$${amount.toStringAsFixed(2)}",
-              style: TextStyle(
-                  fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+          Text(
+            "\$${amount.toStringAsFixed(2)}",
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
         ],
       ),
     );
@@ -1896,10 +2229,11 @@ class _AddPaymentDialog extends ConsumerStatefulWidget {
   final int documentId;
   final int companyId;
   final int userId;
-  const _AddPaymentDialog(
-      {required this.documentId,
-      required this.companyId,
-      required this.userId});
+  const _AddPaymentDialog({
+    required this.documentId,
+    required this.companyId,
+    required this.userId,
+  });
 
   @override
   ConsumerState<_AddPaymentDialog> createState() => _AddPaymentDialogState();
@@ -1928,20 +2262,23 @@ class _AddPaymentDialogState extends ConsumerState<_AddPaymentDialog> {
     });
     try {
       final dio = createDio();
-      await dio.post('/Payments/Add', queryParameters: {
-        'companyId': widget.companyId
-      }, data: {
-        'documentId': widget.documentId,
-        'paymentTypeId': _selectedPaymentTypeId,
-        'amount': double.tryParse(_amountCtrl.text) ?? 0.0,
-        'userId': widget.userId,
-      });
+      await dio.post(
+        '/Payments/Add',
+        queryParameters: {'companyId': widget.companyId},
+        data: {
+          'documentId': widget.documentId,
+          'paymentTypeId': _selectedPaymentTypeId,
+          'amount': double.tryParse(_amountCtrl.text) ?? 0.0,
+          'userId': widget.userId,
+        },
+      );
       if (!mounted) return;
       Navigator.of(context).pop();
     } on DioException catch (e) {
       setState(() {
         // This will catch and display the exact text of your C# InvalidOperationException!
-        _errorMessage = e.response?.data?['message']?.toString() ??
+        _errorMessage =
+            e.response?.data?['message']?.toString() ??
             e.response?.data?.toString() ??
             "Failed to add payment.";
         _isLoading = false;
@@ -1953,6 +2290,8 @@ class _AddPaymentDialogState extends ConsumerState<_AddPaymentDialog> {
   Widget build(BuildContext context) {
     final paymentTypesAsync = ref.watch(allPaymentTypesProvider);
 
+    final theme = Theme.of(context);
+
     return AlertDialog(
       title: const Text("Add Payment"),
       content: SizedBox(
@@ -1961,69 +2300,86 @@ class _AddPaymentDialogState extends ConsumerState<_AddPaymentDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             paymentTypesAsync.when(
-                loading: () => const CircularProgressIndicator(),
-                error: (e, _) => Text("Error: $e"),
-                data: (types) {
-                  if (_selectedPaymentTypeId == null && types.isNotEmpty) {
-                    _selectedPaymentTypeId = types.first.id;
-                  }
-                  return DropdownButtonFormField<int>(
-                    initialValue: _selectedPaymentTypeId,
-                    decoration: const InputDecoration(
-                        labelText: "Payment Type",
-                        border: OutlineInputBorder()),
-                    items: types
-                        .map((t) =>
-                            DropdownMenuItem(value: t.id, child: Text(t.name)))
-                        .toList(),
-                    onChanged: (v) =>
-                        setState(() => _selectedPaymentTypeId = v),
-                  );
-                }),
+              loading: () => const CircularProgressIndicator(),
+              error: (e, _) => Text("Error: $e"),
+              data: (types) {
+                if (_selectedPaymentTypeId == null && types.isNotEmpty) {
+                  _selectedPaymentTypeId = types.first.id;
+                }
+                return DropdownButtonFormField<int>(
+                  initialValue: _selectedPaymentTypeId,
+                  decoration: const InputDecoration(
+                    labelText: "Payment Type",
+                    border: OutlineInputBorder(),
+                  ),
+                  items: types
+                      .map(
+                        (t) =>
+                            DropdownMenuItem(value: t.id, child: Text(t.name)),
+                      )
+                      .toList(),
+                  onChanged: (v) => setState(() => _selectedPaymentTypeId = v),
+                );
+              },
+            ),
             const SizedBox(height: 16),
             TextFormField(
               controller: _amountCtrl,
               decoration: const InputDecoration(
-                  labelText: "Amount", border: OutlineInputBorder()),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+                labelText: "Amount",
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             if (_errorMessage != null) ...[
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                    color: Colors.red[50],
-                    border: Border.all(color: Colors.red),
-                    borderRadius: BorderRadius.circular(8)),
+                  color: theme.colorScheme.errorContainer,
+                  border: Border.all(color: theme.colorScheme.error),
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.error_outline, color: Colors.red),
+                    Icon(Icons.error_outline, color: theme.colorScheme.error),
                     const SizedBox(width: 8),
                     Expanded(
-                        child: Text(_errorMessage!,
-                            style: const TextStyle(color: Colors.red))),
+                      child: Text(
+                        _errorMessage!,
+                        style: TextStyle(
+                          color: theme.colorScheme.onErrorContainer,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
-              )
+              ),
             ],
           ],
         ),
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text("Cancel")),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text("Cancel"),
+        ),
         if (_isLoading)
           const Padding(
-              padding: EdgeInsets.all(8), child: CircularProgressIndicator())
+            padding: EdgeInsets.all(8),
+            child: CircularProgressIndicator(),
+          )
         else
           ElevatedButton.icon(
             icon: const Icon(Icons.payment),
             label: const Text("Add Payment"),
             style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.teal, foregroundColor: Colors.white),
+              backgroundColor: theme.colorScheme.primary,
+              foregroundColor: theme.colorScheme.onPrimary,
+            ),
             onPressed: _submit,
           ),
       ],
@@ -2049,8 +2405,9 @@ class _EditPaymentDialogState extends ConsumerState<_EditPaymentDialog> {
   @override
   void initState() {
     super.initState();
-    _amountCtrl =
-        TextEditingController(text: widget.payment.amount.toStringAsFixed(2));
+    _amountCtrl = TextEditingController(
+      text: widget.payment.amount.toStringAsFixed(2),
+    );
   }
 
   @override
@@ -2066,19 +2423,22 @@ class _EditPaymentDialogState extends ConsumerState<_EditPaymentDialog> {
     });
     try {
       final dio = createDio();
-      await dio.patch('/Payments/Update', queryParameters: {
-        'companyId': widget.companyId
-      }, data: {
-        'id': widget.payment.id,
-        'amount': double.tryParse(_amountCtrl.text) ?? widget.payment.amount,
-        'date': widget.payment.date
-            .toIso8601String(), // Passing the existing date to satisfy the Update Request
-      });
+      await dio.patch(
+        '/Payments/Update',
+        queryParameters: {'companyId': widget.companyId},
+        data: {
+          'id': widget.payment.id,
+          'amount': double.tryParse(_amountCtrl.text) ?? widget.payment.amount,
+          'date': widget.payment.date
+              .toIso8601String(), // Passing the existing date to satisfy the Update Request
+        },
+      );
       if (!mounted) return;
       Navigator.of(context).pop();
     } on DioException catch (e) {
       setState(() {
-        _errorMessage = e.response?.data?['message']?.toString() ??
+        _errorMessage =
+            e.response?.data?['message']?.toString() ??
             e.response?.data?.toString() ??
             "Update failed.";
         _isLoading = false;
@@ -2088,6 +2448,8 @@ class _EditPaymentDialogState extends ConsumerState<_EditPaymentDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return AlertDialog(
       title: Text("Edit Payment #${widget.payment.id}"),
       content: SizedBox(
@@ -2096,53 +2458,68 @@ class _EditPaymentDialogState extends ConsumerState<_EditPaymentDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("Payment Type: ${widget.payment.paymentTypeName ?? 'Unknown'}",
-                style:
-                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(
+              "Payment Type: ${widget.payment.paymentTypeName ?? 'Unknown'}",
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
             const SizedBox(height: 16),
             TextFormField(
               controller: _amountCtrl,
               decoration: const InputDecoration(
-                  labelText: "Amount", border: OutlineInputBorder()),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
+                labelText: "Amount",
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             if (_errorMessage != null) ...[
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                    color: Colors.red[50],
-                    border: Border.all(color: Colors.red),
-                    borderRadius: BorderRadius.circular(8)),
+                  color: theme.colorScheme.errorContainer,
+                  border: Border.all(color: theme.colorScheme.error),
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(Icons.error_outline, color: Colors.red),
+                    Icon(Icons.error_outline, color: theme.colorScheme.error),
                     const SizedBox(width: 8),
                     Expanded(
-                        child: Text(_errorMessage!,
-                            style: const TextStyle(color: Colors.red))),
+                      child: Text(
+                        _errorMessage!,
+                        style: TextStyle(
+                          color: theme.colorScheme.onErrorContainer,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
-              )
+              ),
             ],
           ],
         ),
       ),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text("Cancel")),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text("Cancel"),
+        ),
         if (_isLoading)
           const Padding(
-              padding: EdgeInsets.all(8), child: CircularProgressIndicator())
+            padding: EdgeInsets.all(8),
+            child: CircularProgressIndicator(),
+          )
         else
           ElevatedButton.icon(
             icon: const Icon(Icons.save),
             label: const Text("Save Changes"),
             style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.teal, foregroundColor: Colors.white),
+              backgroundColor: theme.colorScheme.primary,
+              foregroundColor: theme.colorScheme.onPrimary,
+            ),
             onPressed: _submit,
           ),
       ],

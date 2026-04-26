@@ -2,7 +2,7 @@ import 'package:json_annotation/json_annotation.dart';
 
 part 'promotion_models.g.dart';
 
-@JsonSerializable()
+@JsonSerializable(createFactory: false)
 class PromotionDto {
   final int id;
   final int companyId;
@@ -51,7 +51,7 @@ class PromotionDto {
   Map<String, dynamic> toJson() => _$PromotionDtoToJson(this);
 }
 
-@JsonSerializable()
+@JsonSerializable(createFactory: false)
 class PromotionItemDto {
   final int id;
   final int promotionId;

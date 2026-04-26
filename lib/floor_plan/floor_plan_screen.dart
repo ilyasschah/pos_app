@@ -49,11 +49,8 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
 
     final companyId = ref.watch(selectedCompanyProvider)?.id ?? 0;
     final userId = ref.watch(currentUserProvider)?.id ?? 0;
-    final warehousesAsync = ref.watch(allWarehousesProvider);
-    final warehouseId = warehousesAsync.maybeWhen(
-      data: (list) => list.isNotEmpty ? list.first.id : 1,
-      orElse: () => 1,
-    );
+    final selectedWarehouse = ref.watch(selectedWarehouseProvider);
+    final warehouseId = selectedWarehouse?.id ?? 1;
 
     return Scaffold(
       backgroundColor: const Color(0xFF2C3E50),

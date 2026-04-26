@@ -25,6 +25,26 @@ Dio createDio() {
   return dio;
 }
 
+class BulkAddResponse {
+  final bool success;
+  final List<String> warnings;
+  final String? message;
+
+  BulkAddResponse({
+    required this.success,
+    this.warnings = const [],
+    this.message,
+  });
+
+  factory BulkAddResponse.fromJson(Map<String, dynamic> json) {
+    return BulkAddResponse(
+      success: json['success'] ?? false,
+      warnings: List<String>.from(json['warnings'] ?? []),
+      message: json['message'],
+    );
+  }
+}
+
 class ApiClient {
   late final Dio _dio;
 
@@ -53,23 +73,27 @@ class ApiClient {
     }
   }
 
-  Future<bool> bulkAddPosOrderItems(int companyId, List<CartItem> items) async {
+  Future<Map<String, dynamic>> bulkAddPosOrderItems(
+    int companyId,
+    int warehouseId,
+    List<CartItem> items,
+  ) async {
     try {
-      final List<Map<String, dynamic>> jsonList = items
-          .map((item) => item.toJson())
-          .toList();
+      final List<Map<String, dynamic>> jsonList =
+          items.map((item) => item.toJson()).toList();
 
       final response = await _dio.post(
         '/PosOrderItem/BulkAdd',
-        queryParameters: {'companyId': companyId},
+        queryParameters: {'companyId': companyId, 'warehouseId': warehouseId},
         data: jsonList,
       );
 
-      if (response.statusCode == 200) {
-        return true;
-      } else {
-        throw Exception('Failed to save cart. Status: ${response.statusCode}');
+      return response.data;
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 400 && e.response?.data != null) {
+        return e.response!.data;
       }
+      throw Exception('Error saving cart: ${e.message}');
     } catch (e) {
       throw Exception('Error saving cart: $e');
     }
@@ -103,6 +127,7 @@ class ApiClient {
     int serviceType,
     int floorPlanTableId,
     String tableName,
+    int warehouseId,
   ) async {
     try {
       final response = await _dio.post(
@@ -118,6 +143,7 @@ class ApiClient {
           "serviceType": serviceType,
           "serviceStatus": 1,
           "floorPlanTableId": floorPlanTableId,
+          "warehouseId": warehouseId,
           "bookingId": null,
         },
       );
@@ -139,7 +165,10 @@ class ApiClient {
     }
   }
 
-  Future<bool> updatePosOrder(int companyId, Map<String, dynamic> request) async {
+  Future<bool> updatePosOrder(
+    int companyId,
+    Map<String, dynamic> request,
+  ) async {
     try {
       final response = await _dio.patch(
         '/PosOrder/Update',
@@ -206,15 +235,67 @@ class ApiClient {
     }
   }
 
-  Future<bool> deletePosOrder(int companyId, int posOrderId) async {
+  Future<bool> deletePosOrder(int companyId, int posOrderId, int warehouseId) async {
     try {
       final response = await _dio.delete(
         '/PosOrder/Delete',
-        queryParameters: {'id': posOrderId, 'companyId': companyId},
+        queryParameters: {
+          'id': posOrderId,
+          'companyId': companyId,
+          'warehouseId': warehouseId
+        },
       );
       return response.statusCode == 200;
     } catch (e) {
       throw Exception('Failed to delete order: $e');
+    }
+  }
+
+  // --- Stock Management ---
+  Future<bool> addStock(int companyId, int productId, int warehouseId, double quantity) async {
+    try {
+      final response = await _dio.post(
+        '/Stocks/Add',
+        queryParameters: {'companyId': companyId},
+        data: {
+          'productId': productId,
+          'warehouseId': warehouseId,
+          'quantity': quantity,
+        },
+      );
+      return response.statusCode == 200 || response.statusCode == 201;
+    } catch (e) {
+      throw Exception('Failed to add stock: $e');
+    }
+  }
+
+  Future<bool> updateStock(int companyId, int stockId, int productId, int warehouseId, double quantity) async {
+    try {
+      final response = await _dio.patch(
+        '/Stocks/Update',
+        queryParameters: {'companyId': companyId},
+        data: {
+          'id': stockId,
+          'newProductId': productId,
+          'newWarehouseId': warehouseId,
+          'newQuantity': quantity,
+        },
+      );
+      return response.statusCode == 200 || response.statusCode == 204;
+    } catch (e) {
+      throw Exception('Failed to update stock: $e');
+    }
+  }
+
+  Future<bool> deleteStock(int companyId, int stockId) async {
+    try {
+      final response = await _dio.delete(
+        '/Stocks/Delete',
+        queryParameters: {'id': stockId, 'companyId': companyId},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      throw Exception('Failed to delete stock: $e');
     }
   }
 

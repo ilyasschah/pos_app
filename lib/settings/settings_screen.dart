@@ -49,27 +49,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   @override
   Widget build(BuildContext context) {
     final isLoading = ref.watch(rawAppPropertiesProvider).isLoading;
+    final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F6FA),
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text(
           'Settings',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
+        backgroundColor: theme.colorScheme.surface,
+        foregroundColor: theme.colorScheme.onSurface,
         elevation: 0,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(48),
           child: Container(
-            color: Colors.white,
+            color: theme.colorScheme.surface,
             child: TabBar(
               controller: _tabController,
               isScrollable: true,
-              labelColor: Colors.indigo,
-              unselectedLabelColor: Colors.grey,
-              indicatorColor: Colors.indigo,
+              labelColor: theme.colorScheme.primary,
+              unselectedLabelColor: theme.disabledColor,
+              indicatorColor: theme.colorScheme.primary,
               indicatorWeight: 3,
               tabs: _tabs
                   .map(
@@ -131,14 +132,15 @@ class _SettingsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: theme.shadowColor.withValues(alpha: 0.05),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -151,15 +153,15 @@ class _SettingsCard extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
             child: Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
-                color: Colors.indigo,
+                color: theme.colorScheme.primary,
                 letterSpacing: 0.8,
               ),
             ),
           ),
-          const Divider(height: 1),
+          Divider(height: 1, color: theme.dividerColor.withValues(alpha: 0.1)),
           ...children,
         ],
       ),
@@ -237,6 +239,7 @@ class _SettingTextFieldState extends ConsumerState<_SettingTextField> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Row(
@@ -250,6 +253,8 @@ class _SettingTextFieldState extends ConsumerState<_SettingTextField> {
               decoration: InputDecoration(
                 labelText: widget.label,
                 hintText: widget.hint,
+                filled: true,
+                fillColor: theme.colorScheme.surface,
                 border: const OutlineInputBorder(),
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -269,9 +274,9 @@ class _SettingTextFieldState extends ConsumerState<_SettingTextField> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : IconButton(
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.check_circle_outline,
-                    color: Colors.indigo,
+                    color: theme.colorScheme.primary,
                   ),
                   tooltip: 'Save',
                   onPressed: _save,
@@ -296,6 +301,7 @@ class _SettingSwitch extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
     final value =
         ref.watch(appSettingsProvider)[settingKey]?.toLowerCase() == 'true';
 
@@ -303,7 +309,7 @@ class _SettingSwitch extends ConsumerWidget {
       title: Text(label),
       subtitle: subtitle != null ? Text(subtitle!) : null,
       value: value,
-      activeThumbColor: Colors.indigo,
+      activeThumbColor: theme.colorScheme.primary,
       contentPadding: const EdgeInsets.symmetric(horizontal: 20),
       onChanged: (v) =>
           ref.read(appSettingsProvider.notifier).setBool(settingKey, v),
@@ -325,6 +331,7 @@ class _SettingDropdown extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
     final current =
         ref.watch(appSettingsProvider)[settingKey] ??
         kSettingDefaults[settingKey] ??
@@ -341,6 +348,8 @@ class _SettingDropdown extends ConsumerWidget {
               initialValue: safeValue,
               decoration: InputDecoration(
                 labelText: label,
+                filled: true,
+                fillColor: theme.colorScheme.surface,
                 border: const OutlineInputBorder(),
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -348,6 +357,7 @@ class _SettingDropdown extends ConsumerWidget {
                 ),
                 isDense: true,
               ),
+              dropdownColor: theme.colorScheme.surfaceContainerHighest,
               items: options
                   .map((o) => DropdownMenuItem(value: o, child: Text(o)))
                   .toList(),
@@ -848,18 +858,19 @@ class _LicenseTab extends ConsumerWidget {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.green.withValues(alpha: 0.1),
+                      color: Colors.green.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.green),
+                      border: Border.all(color: Colors.greenAccent),
                     ),
                     child: const Row(
                       children: [
-                        Icon(Icons.check_circle, color: Colors.green, size: 18),
+                        Icon(Icons.check_circle,
+                            color: Colors.greenAccent, size: 18),
                         SizedBox(width: 6),
                         Text(
                           'Valid License',
                           style: TextStyle(
-                            color: Colors.green,
+                            color: Colors.greenAccent,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -883,6 +894,7 @@ class _AboutTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appSettingsProvider);
+    final theme = Theme.of(context);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -892,8 +904,11 @@ class _AboutTab extends ConsumerWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(32),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF3F51B5), Color(0xFF5C6BC0)],
+              gradient: LinearGradient(
+                colors: [
+                  theme.colorScheme.primary,
+                  theme.colorScheme.secondaryContainer
+                ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -993,7 +1008,7 @@ class _InfoRow extends StatelessWidget {
         children: [
           Text(
             label,
-            style: const TextStyle(color: Colors.black54, fontSize: 14),
+            style: TextStyle(color: Theme.of(context).hintColor, fontSize: 14),
           ),
           Text(
             value,

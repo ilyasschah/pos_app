@@ -12,10 +12,13 @@ class PaymentTypesScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final asyncTypes = ref.watch(allPaymentTypesProvider);
     final company = ref.watch(selectedCompanyProvider);
 
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text("Payment Types"),
         actions: [
@@ -54,8 +57,8 @@ class PaymentTypesScreen extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text("No payment types found.",
-                      style: TextStyle(color: Colors.grey, fontSize: 16)),
+                  Text("No payment types found.",
+                      style: TextStyle(color: theme.disabledColor, fontSize: 16)),
                   const SizedBox(height: 12),
                   ElevatedButton.icon(
                     icon: const Icon(Icons.add),
@@ -74,11 +77,22 @@ class PaymentTypesScreen extends ConsumerWidget {
             );
           }
 
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SingleChildScrollView(
-              child: DataTable(
-                headingRowColor: WidgetStateProperty.all(Colors.blueGrey[50]),
+          return Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.1)),
+              ),
+              color: isDark ? theme.cardColor : theme.colorScheme.surface,
+              clipBehavior: Clip.antiAlias,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SingleChildScrollView(
+                  child: DataTable(
+                    headingRowColor: WidgetStateProperty.all(
+                        theme.colorScheme.surfaceContainerHighest),
                 columns: const [
                   DataColumn(label: Text("Name")),
                   DataColumn(label: Text("Code")),
@@ -113,8 +127,8 @@ class PaymentTypesScreen extends ConsumerWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           IconButton(
-                            icon: const Icon(Icons.edit,
-                                color: Colors.blueGrey, size: 18),
+                            icon: Icon(Icons.edit,
+                                color: theme.colorScheme.primary, size: 18),
                             tooltip: "Edit",
                             onPressed: () async {
                               await showDialog(
@@ -128,8 +142,8 @@ class PaymentTypesScreen extends ConsumerWidget {
                             },
                           ),
                           IconButton(
-                            icon: const Icon(Icons.delete,
-                                color: Colors.red, size: 18),
+                            icon: Icon(Icons.delete,
+                                color: theme.colorScheme.error, size: 18),
                             tooltip: "Delete",
                             onPressed: () async {
                               final confirm = await showDialog<bool>(
@@ -146,12 +160,12 @@ class PaymentTypesScreen extends ConsumerWidget {
                                     ),
                                     ElevatedButton(
                                       style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.red),
+                                          backgroundColor: theme.colorScheme.error),
                                       onPressed: () =>
                                           Navigator.of(ctx).pop(true),
-                                      child: const Text("Delete",
+                                      child: Text("Delete",
                                           style:
-                                              TextStyle(color: Colors.white)),
+                                              TextStyle(color: theme.colorScheme.onError)),
                                     ),
                                   ],
                                 ),
@@ -168,7 +182,9 @@ class PaymentTypesScreen extends ConsumerWidget {
                 }).toList(),
               ),
             ),
-          );
+          ),
+        ),
+      );
         },
       ),
     );
@@ -209,7 +225,7 @@ class _BoolIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     return Icon(
       value ? Icons.check : null,
-      color: Colors.green,
+      color: Theme.of(context).colorScheme.primary,
       size: 18,
     );
   }
@@ -329,6 +345,7 @@ class _PaymentTypeFormDialogState
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return AlertDialog(
       title: Text(_isEditing ? "Edit Payment Type" : "New Payment Type"),
       content: SizedBox(
@@ -346,7 +363,13 @@ class _PaymentTypeFormDialogState
                       flex: 2,
                       child: TextFormField(
                         controller: _nameCtrl,
-                        decoration: const InputDecoration(labelText: "Name *"),
+                        decoration: InputDecoration(
+                          labelText: "Name *",
+                          prefixIcon: const Icon(Icons.payment),
+                          filled: true,
+                          fillColor: theme.colorScheme.surface,
+                          border: const OutlineInputBorder(),
+                        ),
                         validator: (v) =>
                             v == null || v.trim().isEmpty ? "Required" : null,
                       ),
@@ -355,7 +378,13 @@ class _PaymentTypeFormDialogState
                     Expanded(
                       child: TextFormField(
                         controller: _codeCtrl,
-                        decoration: const InputDecoration(labelText: "Code"),
+                        decoration: InputDecoration(
+                          labelText: "Code",
+                          prefixIcon: const Icon(Icons.code),
+                          filled: true,
+                          fillColor: theme.colorScheme.surface,
+                          border: const OutlineInputBorder(),
+                        ),
                       ),
                     ),
                   ],
@@ -368,8 +397,13 @@ class _PaymentTypeFormDialogState
                     Expanded(
                       child: TextFormField(
                         controller: _ordinalCtrl,
-                        decoration:
-                            const InputDecoration(labelText: "Position"),
+                        decoration: InputDecoration(
+                          labelText: "Position",
+                          prefixIcon: const Icon(Icons.format_list_numbered),
+                          filled: true,
+                          fillColor: theme.colorScheme.surface,
+                          border: const OutlineInputBorder(),
+                        ),
                         keyboardType: TextInputType.number,
                       ),
                     ),
@@ -377,8 +411,13 @@ class _PaymentTypeFormDialogState
                     Expanded(
                       child: TextFormField(
                         controller: _shortcutCtrl,
-                        decoration:
-                            const InputDecoration(labelText: "Shortcut Key"),
+                        decoration: InputDecoration(
+                          labelText: "Shortcut Key",
+                          prefixIcon: const Icon(Icons.keyboard),
+                          filled: true,
+                          fillColor: theme.colorScheme.surface,
+                          border: const OutlineInputBorder(),
+                        ),
                       ),
                     ),
                   ],
@@ -406,7 +445,7 @@ class _PaymentTypeFormDialogState
                 if (_errorMessage != null) ...[
                   const SizedBox(height: 12),
                   Text(_errorMessage!,
-                      style: const TextStyle(color: Colors.red, fontSize: 13)),
+                      style: TextStyle(color: theme.colorScheme.error, fontSize: 13)),
                 ],
               ],
             ),
@@ -426,6 +465,12 @@ class _PaymentTypeFormDialogState
           ElevatedButton.icon(
             icon: const Icon(Icons.save),
             label: Text(_isEditing ? "Update" : "Save"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             onPressed: _submit,
           ),
       ],
@@ -433,6 +478,7 @@ class _PaymentTypeFormDialogState
   }
 
   Widget _switchRow(String label, bool value, ValueChanged<bool> onChanged) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -442,7 +488,7 @@ class _PaymentTypeFormDialogState
           Switch(
             value: value,
             onChanged: onChanged,
-            activeThumbColor: Colors.green,
+            activeThumbColor: theme.colorScheme.primary,
           ),
         ],
       ),

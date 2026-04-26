@@ -71,12 +71,14 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
         '/Country/GetAllCountries',
         queryParameters: {'companyId': company.id},
       );
-      final countries =
-          (response.data as List).map((j) => Country.fromJson(j)).toList();
+      final countries = (response.data as List)
+          .map((j) => Country.fromJson(j))
+          .toList();
 
       setState(() {
         _countries = countries;
-        final hasMatch = company.countryId != null &&
+        final hasMatch =
+            company.countryId != null &&
             company.countryId! > 0 &&
             countries.any((c) => c.id == company.countryId);
 
@@ -169,160 +171,388 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
   @override
   Widget build(BuildContext context) {
     final company = ref.watch(selectedCompanyProvider);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: Text(company?.name ?? "My Company"),
-        actions: [
-          if (_isSaving)
-            const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2)),
-            )
-          else
-            IconButton(
-              icon: const Icon(Icons.save),
-              tooltip: "Save",
-              onPressed: _save,
-            ),
-        ],
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        centerTitle: true,
       ),
       body: company == null
           ? const Center(child: Text("No company selected."))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_errorMessage != null)
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 16),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.red[50],
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.red),
+          : Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 700),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 24,
+                  ),
+                  child: Column(
+                    children: [
+                      Card(
+                        elevation: isDark ? 0 : 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: isDark
+                              ? BorderSide(
+                                  color: theme.dividerColor,
+                                  width: 0.5,
+                                )
+                              : BorderSide.none,
                         ),
-                        child: Text(_errorMessage!,
-                            style: const TextStyle(color: Colors.red)),
-                      ),
+                        color: theme.cardColor,
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Form(
+                            key: _formKey,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (_errorMessage != null)
+                                  Container(
+                                    margin: const EdgeInsets.only(bottom: 24),
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: theme.colorScheme.errorContainer,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: theme.colorScheme.error,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.error_outline,
+                                          color: theme.colorScheme.error,
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Text(
+                                            _errorMessage!,
+                                            style: TextStyle(
+                                              color: theme.colorScheme.error,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
 
-                    _sectionHeader("General"),
-                    _buildRow([
-                      _field(_nameCtrl, "Name",
-                          validator: (v) => v == null || v.trim().isEmpty
-                              ? "Required"
-                              : null),
-                      _field(_taxNumberCtrl, "Tax Number"),
-                    ]),
-                    _buildRow([
-                      _field(_emailCtrl, "Email"),
-                      _field(_phoneCtrl, "Phone Number"),
-                    ]),
+                                _sectionHeader(context, "General Info"),
+                                _buildRow([
+                                  _field(
+                                    context,
+                                    _nameCtrl,
+                                    "Company Name",
+                                    icon: Icons.business,
+                                    validator: (v) =>
+                                        v == null || v.trim().isEmpty
+                                        ? "Required"
+                                        : null,
+                                  ),
+                                  _field(
+                                    context,
+                                    _taxNumberCtrl,
+                                    "Tax Number",
+                                    icon: Icons.receipt_long,
+                                  ),
+                                ]),
+                                _buildRow([
+                                  _field(
+                                    context,
+                                    _emailCtrl,
+                                    "Email Address",
+                                    icon: Icons.email,
+                                  ),
+                                  _field(
+                                    context,
+                                    _phoneCtrl,
+                                    "Phone Number",
+                                    icon: Icons.phone,
+                                  ),
+                                ]),
 
-                    const SizedBox(height: 24),
-                    _sectionHeader("Address"),
-                    _buildRow([
-                      _field(_streetNameCtrl, "Street Name"),
-                      _field(_buildingNumberCtrl, "Building Number"),
-                    ]),
-                    _buildRow([
-                      _field(_additionalStreetCtrl, "Additional Street Name"),
-                      _field(_plotIdCtrl, "Plot Identification"),
-                    ]),
-                    _buildRow([
-                      _field(_citySubdivisionCtrl, "District"),
-                      _field(_postalCodeCtrl, "Postal Code"),
-                    ]),
-                    _buildRow([
-                      _field(_cityCtrl, "City"),
-                      _field(_countrySubentityCtrl, "State / Province"),
-                    ]),
+                                const SizedBox(height: 32),
+                                _sectionHeader(context, "Location & Address"),
+                                _buildRow([
+                                  _field(
+                                    context,
+                                    _streetNameCtrl,
+                                    "Street",
+                                    icon: Icons.location_on,
+                                  ),
+                                  _field(
+                                    context,
+                                    _buildingNumberCtrl,
+                                    "No.",
+                                    icon: Icons.numbers,
+                                  ),
+                                ]),
+                                _buildRow([
+                                  _field(
+                                    context,
+                                    _additionalStreetCtrl,
+                                    "Additional Street",
+                                    icon: Icons.add_location,
+                                  ),
+                                  _field(
+                                    context,
+                                    _plotIdCtrl,
+                                    "Plot ID",
+                                    icon: Icons.map,
+                                  ),
+                                ]),
+                                _buildRow([
+                                  _field(
+                                    context,
+                                    _citySubdivisionCtrl,
+                                    "District",
+                                    icon: Icons.location_city,
+                                  ),
+                                  _field(
+                                    context,
+                                    _postalCodeCtrl,
+                                    "Postal Code",
+                                    icon: Icons.local_post_office,
+                                  ),
+                                ]),
+                                _buildRow([
+                                  _field(
+                                    context,
+                                    _cityCtrl,
+                                    "City",
+                                    icon: Icons.location_city,
+                                  ),
+                                  _field(
+                                    context,
+                                    _countrySubentityCtrl,
+                                    "State / Province",
+                                    icon: Icons.map,
+                                  ),
+                                ]),
 
-                    // Country Dropdown
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: _countriesLoading
-                          ? const LinearProgressIndicator()
-                          : DropdownButtonFormField<int>(
-                              initialValue: _selectedCountryId,
-                              decoration: const InputDecoration(
-                                labelText: "Country *",
-                                border: OutlineInputBorder(),
-                                contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 10),
-                              ),
-                              items: _countries
-                                  .map((c) => DropdownMenuItem(
-                                        value: c.id,
-                                        child: Text(c.name),
-                                      ))
-                                  .toList(),
-                              onChanged: (v) =>
-                                  setState(() => _selectedCountryId = v),
-                              validator: (v) =>
-                                  v == null ? "Country is required" : null,
+                                // Country Dropdown
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 20),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        "Country *",
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: theme.colorScheme.primary,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      _countriesLoading
+                                          ? const LinearProgressIndicator()
+                                          : DropdownButtonFormField<int>(
+                                              initialValue: _selectedCountryId,
+                                              dropdownColor: theme.cardColor,
+                                              decoration: InputDecoration(
+                                                filled: true,
+                                                fillColor:
+                                                    theme.colorScheme.surface,
+                                                prefixIcon: Icon(
+                                                  Icons.public,
+                                                  color:
+                                                      theme.colorScheme.primary,
+                                                ),
+                                                border: OutlineInputBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                  borderSide: BorderSide.none,
+                                                ),
+                                                contentPadding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 16,
+                                                      vertical: 14,
+                                                    ),
+                                              ),
+                                              items: _countries
+                                                  .map(
+                                                    (c) => DropdownMenuItem(
+                                                      value: c.id,
+                                                      child: Text(c.name),
+                                                    ),
+                                                  )
+                                                  .toList(),
+                                              onChanged: (v) => setState(
+                                                () => _selectedCountryId = v,
+                                              ),
+                                              validator: (v) => v == null
+                                                  ? "Country is required"
+                                                  : null,
+                                            ),
+                                    ],
+                                  ),
+                                ),
+
+                                const SizedBox(height: 32),
+                                _sectionHeader(context, "Financial Info"),
+                                _buildRow([
+                                  _field(
+                                    context,
+                                    _bankAccountCtrl,
+                                    "Bank Account Number",
+                                    icon: Icons.account_balance,
+                                  ),
+                                ]),
+                                _field(
+                                  context,
+                                  _bankDetailsCtrl,
+                                  "Bank Details",
+                                  icon: Icons.description,
+                                  maxLines: 3,
+                                ),
+                              ],
                             ),
-                    ),
-
-                    const SizedBox(height: 24),
-                    _sectionHeader("Bank Account"),
-                    _buildRow([
-                      _field(_bankAccountCtrl, "Bank Account Number"),
-                    ]),
-                    _field(_bankDetailsCtrl, "Bank Details", maxLines: 3),
-                  ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: ElevatedButton.icon(
+                          onPressed: _isSaving ? null : _save,
+                          icon: _isSaving
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.check_circle_outline),
+                          label: Text(
+                            _isSaving ? "SAVING..." : "SAVE COMPANY CHANGES",
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: theme.colorScheme.primary,
+                            foregroundColor: theme.colorScheme.onPrimary,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            elevation: 0,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 40),
+                    ],
+                  ),
                 ),
               ),
             ),
     );
   }
 
-  Widget _sectionHeader(String title) {
+  Widget _sectionHeader(BuildContext context, String title) {
+    final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Text(title,
-          style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Colors.blueGrey)),
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 18,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            title.toUpperCase(),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.2,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildRow(List<Widget> children) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: children
-            .expand((w) => [Expanded(child: w), const SizedBox(width: 16)])
-            .toList()
-          ..removeLast(),
+        children:
+            children
+                .expand((w) => [Expanded(child: w), const SizedBox(width: 16)])
+                .toList()
+              ..removeLast(),
       ),
     );
   }
 
   Widget _field(
+    BuildContext context,
     TextEditingController ctrl,
     String label, {
+    IconData? icon,
     int maxLines = 1,
     String? Function(String?)? validator,
   }) {
-    return TextFormField(
-      controller: ctrl,
-      maxLines: maxLines,
-      decoration: InputDecoration(
-        labelText: label,
-        border: const OutlineInputBorder(),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: theme.colorScheme.primary.withValues(alpha: 0.8),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: ctrl,
+            maxLines: maxLines,
+            style: const TextStyle(fontSize: 15),
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: theme.colorScheme.surface,
+              prefixIcon: icon != null
+                  ? Icon(icon, color: theme.colorScheme.primary, size: 20)
+                  : null,
+              hintText: "Enter $label",
+              hintStyle: TextStyle(
+                color: theme.hintColor.withValues(alpha: 0.5),
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
+            ),
+            validator: validator,
+          ),
+        ],
       ),
-      validator: validator,
     );
   }
 }
