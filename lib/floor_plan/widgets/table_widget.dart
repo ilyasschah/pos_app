@@ -5,6 +5,7 @@ import 'package:pos_app/floor_plan/floor_plan_table.dart';
 import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/cart/cart_provider.dart';
+import 'package:pos_app/utils/status_helper.dart';
 
 class TableWidget extends ConsumerStatefulWidget {
   final FloorPlanTable table;
@@ -52,17 +53,10 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
     final isEditMode = ref.watch(floorPlanProvider).isEditMode;
     final isSelected = selectedTableId == widget.table.id && isEditMode;
 
-    // ✨ Dynamic Colors based on Backend Status!
-    Color tableColor = Colors.green.shade600;
-
+    // ✨ Universal Status Mapping
+    Color tableColor = ServiceStatusHelper.getColor(widget.table.status);
     if (isEditMode) {
       tableColor = isSelected ? Colors.green.shade400 : Colors.green.shade600;
-    } else {
-      if (widget.table.status == 0) tableColor = Colors.green.shade600; // Free
-      if (widget.table.status == 1)
-        tableColor = Colors.red.shade600; // Occupied
-      if (widget.table.status == 2)
-        tableColor = Colors.orange.shade600; // Reserved
     }
 
     return Positioned(
@@ -78,49 +72,87 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                 .selectTable(widget.table.id);
             Scaffold.of(context).openEndDrawer();
           } else {
-            // ✨ ORDER MODE
             if (isCreatingOrder) return;
             setState(() => isCreatingOrder = true);
 
             try {
               final apiClient = ApiClient();
 
-              // --- 1. IF TABLE IS OCCUPIED (RED) -> LOAD ORDER ---
-              if (widget.table.status == 1) {
+              if (widget.table.status > 0) {
                 final success = await ref
                     .read(cartProvider.notifier)
-                    .loadExistingOrder(apiClient, widget.companyId,
-                        widget.table.id, widget.warehouseId);
+                    .loadExistingOrder(
+                      apiClient,
+                      widget.companyId,
+                      widget.table.id,
+                      widget.warehouseId,
+                    );
 
                 if (success && mounted) {
                   Navigator.pushReplacementNamed(context, '/menu');
                 } else if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content:
-                          Text('Could not find active order for this table.'),
-                      backgroundColor: Colors.red));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Could not find active order for this table.',
+                      ),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
                 }
-              }
-              // --- 2. IF TABLE IS FREE (GREEN) -> CREATE NEW ORDER ---
-              else {
+              } else {
+                final serviceType = await showDialog<int>(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text("Select Service Type"),
+                    content: const Text("How will the customer be served?"),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, 0),
+                        child: const Text("Dine In"),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, 1),
+                        child: const Text("Takeaway"),
+                      ),
+                    ],
+                  ),
+                );
+
+                if (serviceType == null) return;
+
                 final int newOrderId = await apiClient.createPosOrder(
                   widget.companyId,
                   widget.userId,
-                  1,
+                  serviceType,
                   widget.table.id,
+                  widget.table.name,
                 );
 
                 if (mounted) {
                   ref
                       .read(cartProvider.notifier)
-                      .setOrderContext(newOrderId, widget.warehouseId);
+                      .setOrderContext(
+                        newOrderId,
+                        widget.warehouseId,
+                        tableId: widget.table.id,
+                        orderNumber: "ORD- ${widget.table.name}",
+                      );
+                  ref.read(cartProvider.notifier).state = ref
+                      .read(cartProvider)
+                      .copyWith(serviceType: serviceType);
+
                   Navigator.pushReplacementNamed(context, '/menu');
                 }
               }
             } catch (e) {
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text('Error: $e'), backgroundColor: Colors.red));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Error: $e'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
               }
             } finally {
               if (mounted) setState(() => isCreatingOrder = false);
@@ -137,7 +169,9 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
             : null,
         onPanEnd: isEditMode
             ? (details) {
-                ref.read(floorPlanTableProvider.notifier).updateTableGeometry(
+                ref
+                    .read(floorPlanTableProvider.notifier)
+                    .updateTableGeometry(
                       widget.table.id,
                       localX,
                       localY,
@@ -158,12 +192,24 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
           child: Center(
             child: isCreatingOrder
                 ? const CircularProgressIndicator(color: Colors.white)
-                : Text(
-                    widget.table.name,
-                    style: const TextStyle(
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        ServiceStatusHelper.getIcon(widget.table.status),
                         color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18),
+                        size: 24,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        widget.table.name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
                   ),
           ),
         ),

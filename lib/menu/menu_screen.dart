@@ -3,11 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:pos_app/customer/customers_screen.dart';
 import 'package:pos_app/product/product_provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:pos_app/product/product_model.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/customer/customer_provider.dart';
+import 'package:pos_app/utils/status_helper.dart';
 import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/document/documents_screen.dart';
 import 'package:pos_app/company/company_provider.dart';
@@ -49,6 +49,24 @@ class MenuScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final currentUser = ref.watch(currentUserProvider);
     final selectedCompany = ref.watch(selectedCompanyProvider);
+
+    // ✨ Task 2: Auto-select Walk-In Customer if none selected
+    ref.listen(allCustomersProvider, (previous, next) {
+      next.whenData((all) {
+        final customers = all.where((c) => c.isCustomer).toList();
+        final currentCartCustomer = ref.read(cartProvider).selectedCustomer;
+        if (currentCartCustomer == null && customers.isNotEmpty) {
+          final walkIn = customers.firstWhere(
+            (c) => c.code == 'C000',
+            orElse: () => customers.first,
+          );
+          final companyId = ref.read(selectedCompanyProvider)?.id;
+          if (companyId != null) {
+            ref.read(cartProvider.notifier).setCustomer(companyId, walkIn);
+          }
+        }
+      });
+    });
 
     return Scaffold(
       drawer: Drawer(
@@ -269,24 +287,6 @@ class MenuScreen extends ConsumerWidget {
                 fontSize: 16,
               ),
             ),
-          ),
-          const SizedBox(width: 16),
-          IconButton(
-            icon: const Icon(Icons.kitchen, color: Colors.purple),
-            tooltip: "Open Kitchen Screen",
-            onPressed: () async {
-              // ✨ FIX: Pass the company ID into the URL!
-              final companyId = selectedCompany?.id ?? 0;
-              final Uri url = Uri.parse('/#/kitchen?companyId=$companyId');
-
-              if (!await launchUrl(url, webOnlyWindowName: '_blank')) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("Could not launch kitchen screen"),
-                  ),
-                );
-              }
-            },
           ),
           if (MediaQuery.of(context).size.width > 600)
             Center(
@@ -738,9 +738,14 @@ class _CartSectionState extends ConsumerState<CartSection> {
                         final companyId = ref.read(selectedCompanyProvider)?.id;
                         if (companyId == null) return;
                         try {
+                          final currentUser = ref.read(currentUserProvider);
                           final success = await ref
                               .read(cartProvider.notifier)
-                              .saveOrderToServer(ApiClient(), companyId);
+                              .saveOrderToServer(
+                                apiClient: ApiClient(),
+                                companyId: companyId,
+                                userId: currentUser?.id ?? 0,
+                              );
                           if (success && context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
@@ -785,18 +790,63 @@ class _CartSectionState extends ConsumerState<CartSection> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           color: Theme.of(context).colorScheme.surface,
-          child: asyncCustomers.when(
-            loading: () => const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            error: (_, __) => const Icon(Icons.error, color: Colors.red),
-            data: (customers) => TextButton.icon(
-              icon: const Icon(Icons.person, size: 16),
-              label: Text(currentCustomer?.name ?? "Select Customer"),
-              onPressed: () => _showCustomerDialog(context, ref, customers),
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: asyncCustomers.when(
+                  loading: () => const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  error: (_, __) => const Icon(Icons.error, color: Colors.red),
+                  data: (all) {
+                    final customers = all.where((c) => c.isCustomer).toList();
+                    return TextButton.icon(
+                      icon: const Icon(Icons.person, size: 16),
+                      label: Text(currentCustomer?.name ?? "Select Customer"),
+                      onPressed: () =>
+                          _showCustomerDialog(context, ref, customers),
+                    );
+                  },
+                ),
+              ),
+              // ✨ Task 2: Service Type
+              DropdownButton<int>(
+                value: cartState.serviceType,
+                underline: const SizedBox(),
+                items: const [
+                  DropdownMenuItem(value: 0, child: Text("Dine In")),
+                  DropdownMenuItem(value: 1, child: Text("Takeaway")),
+                ],
+                onChanged: (val) {
+                  if (val != null) {
+                    ref.read(cartProvider.notifier).state = cartState.copyWith(
+                      serviceType: val,
+                    );
+                  }
+                },
+              ),
+              const SizedBox(width: 12),
+              // ✨ Universal Service Status
+              DropdownButton<int>(
+                value: cartState.serviceStatus,
+                underline: const SizedBox(),
+                items: [1, 2, 3].map((status) {
+                  return DropdownMenuItem(
+                    value: status,
+                    child: Text(ServiceStatusHelper.getLabel(status)),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    ref.read(cartProvider.notifier).state = cartState.copyWith(
+                      serviceStatus: val,
+                    );
+                  }
+                },
+              ),
+            ],
           ),
         ),
 
@@ -877,18 +927,73 @@ class _CartSectionState extends ConsumerState<CartSection> {
                           ),
                           if (item.appliedTaxes.isNotEmpty)
                             Padding(
-                              padding: const EdgeInsets.only(left: 8.0),
-                              child: Icon(
-                                Icons.local_offer,
-                                size: 14,
-                                color: Colors.pink[300],
+                              padding: const EdgeInsets.only(left: 6.0),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                  vertical: 1,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.blue.withAlpha(38),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.receipt_long,
+                                      size: 10,
+                                      color: Colors.blue,
+                                    ),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      "TAX",
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.blue[700],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          if (item.discount > 0)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 6.0),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                  vertical: 1,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withAlpha(38),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.sell,
+                                      size: 10,
+                                      color: Colors.green,
+                                    ),
+                                    const SizedBox(width: 2),
+                                    Text(
+                                      "-${item.discountType == 0 ? item.discount.toInt() : item.discount.toStringAsFixed(1)}",
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.green[700],
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                         ],
                       ),
 
                       subtitle: Text(
-                        "x${item.quantity.toInt()} (Tap to modify taxes)",
+                        "x${item.quantity.toInt()} (Tap to modify)",
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -921,12 +1026,30 @@ class _CartSectionState extends ConsumerState<CartSection> {
                           ),
                           const SizedBox(width: 8),
                           // Price
-                          Text(
-                            "\$${(item.price * item.quantity).toStringAsFixed(2)}",
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              if (item.discount > 0)
+                                Text(
+                                  "\$${(item.price * item.quantity).toStringAsFixed(2)}",
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                    decoration: TextDecoration.lineThrough,
+                                  ),
+                                ),
+                              Text(
+                                "\$${((item.price - item.discount) * item.quantity).toStringAsFixed(2)}",
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  color: item.discount > 0
+                                      ? Colors.green
+                                      : null,
+                                ),
+                              ),
+                            ],
                           ),
 
                           IconButton(
@@ -991,7 +1114,31 @@ class _CartSectionState extends ConsumerState<CartSection> {
                     ],
                   ),
                 ),
-              if (cartState.cartDiscount > 0)
+              if (cartState.customerDiscountValue != null &&
+                  cartState.customerDiscountValue! > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        "Customer Discount (${cartState.customerDiscountType == 0 ? '${cartState.customerDiscountValue?.toInt()}%' : '\$${cartState.customerDiscountValue?.toStringAsFixed(2)}'})",
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.green,
+                        ),
+                      ),
+                      Text(
+                        "-\$${cartNotifier.customerDiscountAmount.toStringAsFixed(2)}",
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.green,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (cartState.manualCartDiscount > 0)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Row(
@@ -1002,7 +1149,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                         style: TextStyle(fontSize: 16, color: Colors.green),
                       ),
                       Text(
-                        "-\$${cartNotifier.cartDiscountAmount.toStringAsFixed(2)}",
+                        "-\$${cartNotifier.manualCartDiscountAmount.toStringAsFixed(2)}",
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.green,

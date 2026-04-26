@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/floor_plan/floor_plan_provider.dart';
@@ -6,20 +7,53 @@ import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'widgets/table_widget.dart';
 import 'widgets/side_panel.dart';
+import 'package:pos_app/stock/warehouse_provider.dart';
 
-class FloorPlanScreen extends ConsumerWidget {
+class FloorPlanScreen extends ConsumerStatefulWidget {
   const FloorPlanScreen({Key? key}) : super(key: key);
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<FloorPlanScreen> createState() => _FloorPlanScreenState();
+}
+
+class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // ✨ Task 3: Auto-refresh Polling (15s)
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      _refreshData(silent: true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  void _refreshData({bool silent = false}) {
+    ref.invalidate(allFloorPlansProvider);
+    ref.invalidate(tablesByFloorPlanProvider);
+    // Note: Riverpod automatically keeps the old data on the screen (isRefreshing)
+    // until the new data arrives, naturally creating a "silent" refresh!
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final plansAsync = ref.watch(allFloorPlansProvider);
     final tablesAsync = ref.watch(tablesByFloorPlanProvider);
     final fpState = ref.watch(floorPlanProvider);
 
-    // ✨ Grab the required IDs from Riverpod
     final companyId = ref.watch(selectedCompanyProvider)?.id ?? 0;
     final userId = ref.watch(currentUserProvider)?.id ?? 0;
-    final warehouseId = 5; // Assuming default warehouse 5
+    final warehousesAsync = ref.watch(allWarehousesProvider);
+    final warehouseId = warehousesAsync.maybeWhen(
+      data: (list) => list.isNotEmpty ? list.first.id : 1,
+      orElse: () => 1,
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFF2C3E50),
@@ -27,7 +61,11 @@ class FloorPlanScreen extends ConsumerWidget {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1F2937),
         title: plansAsync.when(
-          loading: () => const CircularProgressIndicator(),
+          loading: () => const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
           error: (err, stack) => const Text("Error loading rooms"),
           data: (plans) {
             if (plans.isEmpty) return const Text("No Floor Plans");
@@ -71,6 +109,11 @@ class FloorPlanScreen extends ConsumerWidget {
           },
         ),
         actions: [
+          // ✨ Task 2: Manual Refresh Button
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            onPressed: () => _refreshData(),
+          ),
           Builder(
               builder: (context) => IconButton(
                   icon: const Icon(Icons.menu, color: Colors.white),
@@ -96,7 +139,7 @@ class FloorPlanScreen extends ConsumerWidget {
                       .map((t) => TableWidget(
                             key: ValueKey(t.id),
                             table: t,
-                            companyId: companyId, // ✨ Pass IDs to the widget
+                            companyId: companyId,
                             userId: userId,
                             warehouseId: warehouseId,
                           ))

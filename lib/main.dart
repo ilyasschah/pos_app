@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:pos_app/auth/login_screen.dart';
-import 'package:pos_app/kitchen/kitchen_screen.dart';
 import 'package:pos_app/company/company_selection_screen.dart';
 import 'package:pos_app/menu/menu_screen.dart';
 import 'package:pos_app/settings/settings_provider.dart';
@@ -49,7 +48,6 @@ class MyApp extends ConsumerWidget {
         '/select-company': (context) => const CompanySelectionScreen(),
         '/login': (context) => const LoginScreen(),
         '/menu': (context) => const MenuScreen(),
-        '/kitchen': (context) => const KitchenScreen(),
       },
     );
   }

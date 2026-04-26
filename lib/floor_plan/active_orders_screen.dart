@@ -4,6 +4,8 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/menu/menu_screen.dart';
+import 'package:pos_app/stock/warehouse_provider.dart';
+import 'package:pos_app/utils/status_helper.dart';
 
 // Riverpod Provider to fetch the orders automatically
 final activeOrdersListProvider =
@@ -29,7 +31,11 @@ class _ActiveOrdersScreenState extends ConsumerState<ActiveOrdersScreen> {
     setState(() => isOpeningOrder = true);
 
     final companyId = ref.read(selectedCompanyProvider)?.id ?? 0;
-    final warehouseId = 1; // Default warehouse
+    final warehousesAsync = ref.read(allWarehousesProvider);
+    final warehouseId = warehousesAsync.maybeWhen(
+      data: (list) => list.isNotEmpty ? list.first.id : 1,
+      orElse: () => 1,
+    );
     final apiClient = ApiClient();
 
     try {
@@ -71,7 +77,12 @@ class _ActiveOrdersScreenState extends ConsumerState<ActiveOrdersScreen> {
               error: (err, stack) => Center(
                   child: Text("Error: $err",
                       style: const TextStyle(color: Colors.red))),
-              data: (orders) {
+              data: (allOrders) {
+                final orders = allOrders.where((o) {
+                  final status = (o['serviceStatus'] ?? o['ServiceStatus'] ?? 0).toInt();
+                  return status > 0;
+                }).toList();
+
                 if (orders.isEmpty) {
                   return const Center(
                       child: Text("No active orders found.",
@@ -86,24 +97,43 @@ class _ActiveOrdersScreenState extends ConsumerState<ActiveOrdersScreen> {
                     final orderId = order['id'] ?? order['Id'];
                     final orderNumber =
                         order['number'] ?? order['Number'] ?? "Unknown";
+                    final status = (order['serviceStatus'] ??
+                            order['ServiceStatus'] ??
+                            1)
+                        .toInt();
 
                     return Card(
                       color: const Color(0xFF374151),
                       margin: const EdgeInsets.only(bottom: 12),
+                      shape: RoundedRectangleBorder(
+                        side: BorderSide(
+                          color: ServiceStatusHelper.getColor(status),
+                          width: 2,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(
                             horizontal: 20, vertical: 10),
-                        leading: const CircleAvatar(
-                          backgroundColor: Colors.orange,
-                          child: Icon(Icons.receipt_long, color: Colors.white),
+                        leading: CircleAvatar(
+                          backgroundColor: ServiceStatusHelper.getColor(status),
+                          child: Icon(
+                            ServiceStatusHelper.getIcon(status),
+                            color: Colors.white,
+                          ),
                         ),
                         title: Text("Order: $orderNumber",
                             style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 18)),
-                        subtitle: Text("Order ID: $orderId",
-                            style: const TextStyle(color: Colors.white70)),
+                        subtitle: Text(
+                          "Status: ${ServiceStatusHelper.getLabel(status)}",
+                          style: TextStyle(
+                            color: ServiceStatusHelper.getColor(status),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         trailing: const Icon(Icons.arrow_forward_ios,
                             color: Colors.white),
                         onTap: () => _openOrder(orderId),

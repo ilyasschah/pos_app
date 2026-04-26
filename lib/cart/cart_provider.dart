@@ -1,31 +1,46 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/cart/checkout_models.dart';
 import 'package:pos_app/api/api_client.dart';
+import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/api/customer_discount_models.dart';
+import 'package:pos_app/customer/customer_provider.dart';
+import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
 
 class CartState {
   final int? activePosOrderId;
   final int activeWarehouseId;
   final List<CartItem> items;
+  final String? orderNumber;
   final bool isLoading;
 
   final Customer? selectedCustomer;
   final CustomerDiscountDto? selectedCustomerDiscount;
-  final double cartDiscount;
-  final int cartDiscountType; // 0 for %, 1 for $
+  final double manualCartDiscount;
+  final int manualCartDiscountType; // 0 for %, 1 for $
+  final double? customerDiscountValue;
+  final int? customerDiscountType;
   final int? selectedProductId;
+  final int serviceType; // 0 for Dine In, 1 for Takeaway
+  final int serviceStatus; // 1 for Active, etc.
+  final int? floorPlanTableId;
 
   CartState({
     this.activePosOrderId,
     this.activeWarehouseId = 1,
     this.items = const [],
+    this.orderNumber,
     this.isLoading = false,
     this.selectedCustomer,
     this.selectedCustomerDiscount,
-    this.cartDiscount = 0,
-    this.cartDiscountType = 0,
+    this.manualCartDiscount = 0,
+    this.manualCartDiscountType = 0,
+    this.customerDiscountValue,
+    this.customerDiscountType,
     this.selectedProductId,
+    this.serviceType = 0,
+    this.serviceStatus = 1,
+    this.floorPlanTableId,
   });
 
   CartState copyWith({
@@ -35,21 +50,34 @@ class CartState {
     bool? isLoading,
     Customer? selectedCustomer,
     CustomerDiscountDto? selectedCustomerDiscount,
-    double? cartDiscount,
-    int? cartDiscountType,
+    double? manualCartDiscount,
+    int? manualCartDiscountType,
     int? selectedProductId,
+    String? orderNumber,
+    double? customerDiscountValue,
+    int? customerDiscountType,
+    int? serviceType,
+    int? serviceStatus,
+    int? floorPlanTableId,
   }) {
     return CartState(
       activePosOrderId: activePosOrderId ?? this.activePosOrderId,
       activeWarehouseId: activeWarehouseId ?? this.activeWarehouseId,
       items: items ?? this.items,
+      orderNumber: orderNumber ?? this.orderNumber,
       isLoading: isLoading ?? this.isLoading,
       selectedCustomer: selectedCustomer ?? this.selectedCustomer,
       selectedCustomerDiscount:
           selectedCustomerDiscount ?? this.selectedCustomerDiscount,
-      cartDiscount: cartDiscount ?? this.cartDiscount,
-      cartDiscountType: cartDiscountType ?? this.cartDiscountType,
+      manualCartDiscount: manualCartDiscount ?? this.manualCartDiscount,
+      manualCartDiscountType: manualCartDiscountType ?? this.manualCartDiscountType,
+      customerDiscountValue:
+          customerDiscountValue ?? this.customerDiscountValue,
+      customerDiscountType: customerDiscountType ?? this.customerDiscountType,
       selectedProductId: selectedProductId ?? this.selectedProductId,
+      serviceType: serviceType ?? this.serviceType,
+      serviceStatus: serviceStatus ?? this.serviceStatus,
+      floorPlanTableId: floorPlanTableId ?? this.floorPlanTableId,
     );
   }
 }
@@ -66,36 +94,62 @@ class CartNotifier extends Notifier<CartState> {
 
   double get taxTotal {
     double total = 0;
+    // Apply cart-level discount factor to the taxable base of each item
+    double baseBeforeCartDiscounts = subtotal - discountTotal;
+    double totalCartDiscounts = customerDiscountAmount + manualCartDiscountAmount;
+    double discountFactor = baseBeforeCartDiscounts > 0
+        ? (baseBeforeCartDiscounts - totalCartDiscounts) /
+            baseBeforeCartDiscounts
+        : 1.0;
+
     for (var item in state.items) {
-      double itemTotalAfterDiscount =
+      double itemTotalAfterItemDiscount =
           (item.price - item.discount) * item.quantity;
+      double itemTaxableBase = itemTotalAfterItemDiscount * discountFactor;
+
       for (var tax in item.appliedTaxes) {
         if (tax.isFixed) {
           total += tax.rate * item.quantity;
         } else {
-          total += itemTotalAfterDiscount * (tax.rate / 100);
+          total += itemTaxableBase * (tax.rate / 100);
         }
       }
     }
     return total;
   }
 
-  double get cartDiscountAmount {
-    double subtotalAfterItemDiscounts = subtotal - discountTotal;
-    if (state.cartDiscountType == 0) {
-      return subtotalAfterItemDiscounts * (state.cartDiscount / 100);
+  double get customerDiscountAmount {
+    if (state.customerDiscountValue == null) return 0;
+    double base = subtotal - discountTotal;
+    if (state.customerDiscountType == 0) {
+      return base * (state.customerDiscountValue! / 100);
     } else {
-      return state.cartDiscount;
+      return state.customerDiscountValue!;
+    }
+  }
+
+  double get manualCartDiscountAmount {
+    double base = subtotal - discountTotal - customerDiscountAmount;
+    if (state.manualCartDiscountType == 0) {
+      return base * (state.manualCartDiscount / 100);
+    } else {
+      return state.manualCartDiscount;
     }
   }
 
   double get grandTotal =>
-      subtotal - discountTotal - cartDiscountAmount + taxTotal;
+      subtotal -
+      discountTotal -
+      customerDiscountAmount -
+      manualCartDiscountAmount +
+      taxTotal;
 
-  void setOrderContext(int orderId, int warehouseId) {
+  void setOrderContext(int orderId, int warehouseId, {int? tableId, String? orderNumber}) {
     state = state.copyWith(
       activePosOrderId: orderId,
       activeWarehouseId: warehouseId,
+      floorPlanTableId: tableId,
+      orderNumber: orderNumber,
     );
   }
 
@@ -107,13 +161,15 @@ class CartNotifier extends Notifier<CartState> {
     state = state.copyWith(
       selectedCustomer: customer,
       selectedCustomerDiscount: discount,
-      cartDiscount: discount?.value ?? 0,
-      cartDiscountType: discount?.type ?? 0,
+      customerDiscountValue: discount?.value,
+      customerDiscountType: discount?.type,
     );
+    // Auto-update current customer provider if not already set
+    ref.read(currentCustomerProvider.notifier).setCustomer(customer);
   }
 
   void setCartDiscount(double discount, int type) {
-    state = state.copyWith(cartDiscount: discount, cartDiscountType: type);
+    state = state.copyWith(manualCartDiscount: discount, manualCartDiscountType: type);
   }
 
   void setItemDiscount(int productId, double discount) {
@@ -129,13 +185,33 @@ class CartNotifier extends Notifier<CartState> {
     state = state.copyWith(selectedProductId: productId);
   }
 
-  void clearCart() {
+  void clearCart({bool keepCustomer = false}) {
     state = CartState(
       activePosOrderId: state.activePosOrderId,
       activeWarehouseId: state.activeWarehouseId,
       items: const [],
       isLoading: false,
+      selectedCustomer: keepCustomer ? state.selectedCustomer : null,
+      customerDiscountValue: keepCustomer ? state.customerDiscountValue : null,
+      customerDiscountType: keepCustomer ? state.customerDiscountType : null,
+      manualCartDiscount: keepCustomer ? state.manualCartDiscount : 0,
+      manualCartDiscountType: keepCustomer ? state.manualCartDiscountType : 0,
     );
+
+    if (keepCustomer) return;
+
+    // Reset to default Walk-In customer
+    final customers = ref.read(allCustomersProvider).value ?? [];
+    if (customers.isNotEmpty) {
+      final walkIn = customers.firstWhere(
+        (c) => c.code == 'C000',
+        orElse: () => customers.first,
+      );
+      final companyId = ref.read(selectedCompanyProvider)?.id;
+      if (companyId != null) {
+        setCustomer(companyId, walkIn);
+      }
+    }
   }
 
   void addItem(MenuProduct product, {double quantity = 1}) {
@@ -208,8 +284,29 @@ class CartNotifier extends Notifier<CartState> {
       if (order == null) return false;
 
       final posOrderId = order['id'] ?? order['Id'];
+      final orderNumber = order['number'] ?? order['Number'] ?? "ORD-TEMP";
+      final discount = (order['discount'] ?? order['Discount'] ?? 0).toDouble();
+      final discountType = (order['discountType'] ?? order['DiscountType'] ?? 0)
+          .toInt();
 
       final itemsData = await apiClient.getOrderItems(companyId, posOrderId);
+
+      // Restore customer if present
+      final customerId = order['customerId'] ?? order['CustomerId'];
+      if (customerId != null) {
+        final customers = ref.read(allCustomersProvider).value ?? [];
+        final customer = customers.where((c) => c.id == customerId).firstOrNull;
+        if (customer != null) {
+          await setCustomer(companyId, customer);
+        }
+      }
+ 
+       final serviceType =
+           (order['serviceType'] ?? order['ServiceType'] ?? 0).toInt();
+       final serviceStatus =
+           (order['serviceStatus'] ?? order['ServiceStatus'] ?? 1).toInt();
+       final floorPlanTableId =
+           order['floorPlanTableId'] ?? order['FloorPlanTableId'];
 
       final List<CartItem> loadedItems = itemsData.map((item) {
         return CartItem(
@@ -231,10 +328,16 @@ class CartNotifier extends Notifier<CartState> {
         );
       }).toList();
 
-      state = CartState(
+      state = state.copyWith(
         activePosOrderId: posOrderId,
         activeWarehouseId: warehouseId,
         items: loadedItems,
+        orderNumber: orderNumber,
+        manualCartDiscount: discount,
+        manualCartDiscountType: discountType,
+        serviceType: serviceType,
+        serviceStatus: serviceStatus,
+        floorPlanTableId: floorPlanTableId,
         isLoading: false,
       );
       return true;
@@ -244,14 +347,44 @@ class CartNotifier extends Notifier<CartState> {
     }
   }
 
-  Future<bool> saveOrderToServer(ApiClient apiClient, int companyId) async {
-    if (state.items.isEmpty) return true;
+  Future<bool> saveOrderToServer({
+    required ApiClient apiClient,
+    required int companyId,
+    required int userId,
+  }) async {
+    if (state.items.isEmpty || state.activePosOrderId == null) return true;
     state = state.copyWith(isLoading: true);
     try {
-      final success = await apiClient.bulkAddPosOrderItems(
-        companyId,
-        state.items,
-      );
+      // 1. Save items
+      await apiClient.bulkAddPosOrderItems(companyId, state.items);
+
+      // 2. Sync Order Header (Discounts & Total)
+      String orderNumber = state.orderNumber ?? "ORD- Takeaway";
+      if (state.orderNumber == null) {
+        final tableId = ref.read(floorPlanTableProvider);
+        if (tableId != null) {
+          final tables = ref.read(tablesByFloorPlanProvider).value ?? [];
+          final table = tables.where((t) => t.id == tableId).firstOrNull;
+          if (table != null) {
+            orderNumber = "ORD- ${table.name}";
+          }
+        }
+      }
+
+      final updateRequest = {
+        "id": state.activePosOrderId,
+        "userId": userId,
+        "number": orderNumber,
+        "discount": state.manualCartDiscount,
+        "discountType": state.manualCartDiscountType,
+        "total": grandTotal,
+        "customerId": state.selectedCustomer?.id,
+        "serviceType": state.serviceType,
+        "serviceStatus": state.serviceStatus,
+        "floorPlanTableId": state.floorPlanTableId,
+      };
+
+      final success = await apiClient.updatePosOrder(companyId, updateRequest);
       if (success) {
         clearCart();
         return true;
@@ -272,7 +405,30 @@ class CartNotifier extends Notifier<CartState> {
   ) async {
     state = state.copyWith(isLoading: true);
     try {
+      final order = await apiClient.getPosOrderById(companyId, posOrderId);
+      final orderNumber = order['number'] ?? order['Number'] ?? "ORD-TEMP";
+      final discount = (order['discount'] ?? order['Discount'] ?? 0).toDouble();
+      final discountType = (order['discountType'] ?? order['DiscountType'] ?? 0)
+          .toInt();
+
       final itemsData = await apiClient.getOrderItems(companyId, posOrderId);
+
+      // Restore customer if present
+      final customerId = order['customerId'] ?? order['CustomerId'];
+      if (customerId != null) {
+        final customers = ref.read(allCustomersProvider).value ?? [];
+        final customer = customers.where((c) => c.id == customerId).firstOrNull;
+        if (customer != null) {
+          await setCustomer(companyId, customer);
+        }
+      }
+ 
+      final serviceType =
+          (order['serviceType'] ?? order['ServiceType'] ?? 0).toInt();
+      final serviceStatus =
+          (order['serviceStatus'] ?? order['ServiceStatus'] ?? 1).toInt();
+      final floorPlanTableId =
+          order['floorPlanTableId'] ?? order['FloorPlanTableId'];
 
       final List<CartItem> loadedItems = itemsData.map((item) {
         return CartItem(
@@ -294,10 +450,16 @@ class CartNotifier extends Notifier<CartState> {
         );
       }).toList();
 
-      state = CartState(
+      state = state.copyWith(
         activePosOrderId: posOrderId,
         activeWarehouseId: warehouseId,
         items: loadedItems,
+        orderNumber: orderNumber,
+        manualCartDiscount: discount,
+        manualCartDiscountType: discountType,
+        serviceType: serviceType,
+        serviceStatus: serviceStatus,
+        floorPlanTableId: floorPlanTableId,
         isLoading: false,
       );
       return true;
@@ -358,6 +520,7 @@ class CartNotifier extends Notifier<CartState> {
         documentTypeId: documentTypeId,
         warehouseId: state.activeWarehouseId,
         items: checkoutItems,
+        grandTotal: grandTotal,
       );
 
       final success = await apiClient.checkoutPosOrder(
@@ -385,29 +548,34 @@ final cartProvider = NotifierProvider<CartNotifier, CartState>(
 
 final cartTotalProvider = Provider<double>((ref) {
   final cartState = ref.watch(cartProvider);
+  final cartNotifier = ref.watch(cartProvider.notifier);
+
   if (cartState.items.isEmpty) return 0.0;
 
-  double subtotal = cartState.items.fold(
-    0,
-    (sum, item) => sum + (item.price * item.quantity),
-  );
-  double discountTotal = cartState.items.fold(
-    0,
-    (sum, item) => sum + (item.discount * item.quantity),
-  );
+  double subtotal = cartNotifier.subtotal;
+  double discountTotal = cartNotifier.discountTotal;
+  double customerDiscountAmount = cartNotifier.customerDiscountAmount;
+  double manualCartDiscountAmount = cartNotifier.manualCartDiscountAmount;
+
+  double baseBeforeCartDiscounts = subtotal - discountTotal;
+  double totalCartDiscounts = customerDiscountAmount + manualCartDiscountAmount;
+  double discountFactor = baseBeforeCartDiscounts > 0
+      ? (baseBeforeCartDiscounts - totalCartDiscounts) / baseBeforeCartDiscounts
+      : 1.0;
 
   double taxTotal = 0;
   for (var item in cartState.items) {
-    double itemTotalAfterDiscount =
+    double itemTotalAfterItemDiscount =
         (item.price - item.discount) * item.quantity;
+    double itemTaxableBase = itemTotalAfterItemDiscount * discountFactor;
     for (var tax in item.appliedTaxes) {
       if (tax.isFixed) {
         taxTotal += tax.rate * item.quantity;
       } else {
-        taxTotal += itemTotalAfterDiscount * (tax.rate / 100);
+        taxTotal += itemTaxableBase * (tax.rate / 100);
       }
     }
   }
 
-  return subtotal - discountTotal + taxTotal;
+  return subtotal - discountTotal - totalCartDiscounts + taxTotal;
 });

@@ -22,6 +22,7 @@ final tablesByFloorPlanProvider =
         'companyId': companyId,
       },
     );
+    print("FETCHED TABLES: ${response.data}");
     return (response.data as List)
         .map((j) => FloorPlanTable.fromJson(j))
         .toList();

@@ -31,7 +31,7 @@ class CurrentCustomerNotifier extends Notifier<Customer?> {
 
   void setDefault(List<Customer> customers) {
     state = customers.firstWhere(
-      (c) => c.id == 4,
+      (c) => c.code == 'C000',
       orElse: () => customers.first,
     );
   }

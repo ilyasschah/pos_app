@@ -201,6 +201,7 @@ class CheckoutRequest {
   final int documentTypeId;
   final int warehouseId;
   final List<CheckoutItemDto> items;
+  final double grandTotal;
 
   CheckoutRequest({
     required this.posOrderId,
@@ -209,6 +210,7 @@ class CheckoutRequest {
     required this.documentTypeId,
     required this.warehouseId,
     required this.items,
+    required this.grandTotal,
   });
 
   Map<String, dynamic> toJson() {
@@ -219,6 +221,7 @@ class CheckoutRequest {
       'documentTypeId': documentTypeId,
       'warehouseId': warehouseId,
       'items': items.map((i) => i.toJson()).toList(),
+      'grandTotal': grandTotal,
     };
   }
 }

@@ -102,6 +102,7 @@ class ApiClient {
     int userId,
     int serviceType,
     int floorPlanTableId,
+    String tableName,
   ) async {
     try {
       final response = await _dio.post(
@@ -109,7 +110,7 @@ class ApiClient {
         queryParameters: {'companyId': companyId},
         data: {
           "userId": userId,
-          "number": "ORD-TEMP",
+          "number": "ORD- $tableName",
           "discount": 0.0,
           "discountType": 0,
           "total": 0.0,
@@ -138,6 +139,31 @@ class ApiClient {
     }
   }
 
+  Future<bool> updatePosOrder(int companyId, Map<String, dynamic> request) async {
+    try {
+      final response = await _dio.patch(
+        '/PosOrder/Update',
+        queryParameters: {'companyId': companyId},
+        data: request,
+      );
+      return response.statusCode == 200 || response.statusCode == 204;
+    } catch (e) {
+      throw Exception('Failed to update order: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> getPosOrderById(int companyId, int id) async {
+    try {
+      final response = await _dio.get(
+        '/PosOrder/GetById',
+        queryParameters: {'id': id, 'companyId': companyId},
+      );
+      return response.data;
+    } catch (e) {
+      throw Exception('Failed to fetch order: $e');
+    }
+  }
+
   Future<Map<String, dynamic>?> getActiveOrderForTable(
     int companyId,
     int tableId,
@@ -158,7 +184,7 @@ class ApiClient {
         return orders.firstWhere(
           (o) =>
               (o['floorPlanTableId'] ?? o['FloorPlanTableId']) == tableId &&
-              (o['serviceStatus'] ?? o['ServiceStatus']) == 1,
+              (o['serviceStatus'] ?? o['ServiceStatus'] ?? 0) > 0,
           orElse: () => null,
         );
       }
@@ -192,20 +218,6 @@ class ApiClient {
     }
   }
 
-  Future<List<dynamic>> getKitchenOrders(int companyId) async {
-    try {
-      final response = await _dio.get(
-        '/PosOrder/GetKitchenOrders',
-        queryParameters: {'companyId': companyId},
-      );
-      if (response.statusCode == 200) {
-        return response.data as List<dynamic>;
-      }
-      return [];
-    } on DioException catch (e) {
-      throw Exception('Failed to fetch kitchen orders: ${e.message}');
-    }
-  }
 
   Future<List<dynamic>> getAllActiveOrders(int companyId) async {
     try {
@@ -216,7 +228,7 @@ class ApiClient {
       if (response.statusCode == 200) {
         final List<dynamic> orders = response.data;
         final activeOrders = orders
-            .where((o) => (o['serviceStatus'] ?? o['ServiceStatus']) == 1)
+            .where((o) => (o['serviceStatus'] ?? o['ServiceStatus'] ?? 0) > 0)
             .toList();
         activeOrders.sort((a, b) {
           final idA = a['id'] ?? a['Id'] ?? 0;
@@ -344,7 +356,7 @@ class ApiClient {
   Future<bool> updateCustomerDiscount(
       int companyId, UpdateCustomerDiscountRequest request) async {
     try {
-      final response = await _dio.put(
+      final response = await _dio.patch(
         '/CustomerDiscounts/Update',
         queryParameters: {'companyId': companyId},
         data: request.toJson(),

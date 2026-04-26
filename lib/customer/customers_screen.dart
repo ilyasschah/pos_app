@@ -604,46 +604,35 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
                 const SizedBox(height: 12),
                 _sectionLabel("Customer Discount"),
                 _row([
-                  Expanded(
-                    child: DropdownButtonFormField<int>(
-                      initialValue: _discountType,
-                      decoration: const InputDecoration(
-                        labelText: "Discount Type",
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
+                  DropdownButtonFormField<int>(
+                    initialValue: _discountType,
+                    decoration: const InputDecoration(
+                      labelText: "Discount Type",
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
                       ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 0,
-                          child: Text('Percentage (%)'),
-                        ),
-                        DropdownMenuItem(
-                          value: 1,
-                          child: Text('Fixed Amount (\$)'),
-                        ),
-                      ],
-                      onChanged: (v) => setState(() => _discountType = v!),
                     ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 0,
+                        child: Text('Percentage (%)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 1,
+                        child: Text('Fixed Amount (\$)'),
+                      ),
+                    ],
+                    onChanged: (v) => setState(() => _discountType = v!),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _field(
-                      _discountValueCtrl,
-                      "Discount Value",
-                      keyboardType: TextInputType.number,
-                    ),
-                  ),
-                ]),
-                _row([
                   _field(
-                    _discountUidCtrl,
-                    "Target UID (0 for cart)",
+                    _discountValueCtrl,
+                    "Discount Value",
                     keyboardType: TextInputType.number,
                   ),
                 ]),
+
                 const SizedBox(height: 12),
                 _countriesLoading
                     ? const LinearProgressIndicator()

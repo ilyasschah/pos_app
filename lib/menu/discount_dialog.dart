@@ -26,8 +26,8 @@ class _DiscountDialogState extends ConsumerState<DiscountDialog>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final cartState = ref.read(cartProvider);
-      _cartValueCtrl.text = cartState.cartDiscount.toString();
-      _cartDiscountType = cartState.cartDiscountType;
+      _cartValueCtrl.text = cartState.manualCartDiscount.toString();
+      _cartDiscountType = cartState.manualCartDiscountType;
 
       if (cartState.selectedProductId != null) {
         final item = cartState.items.firstWhere(
