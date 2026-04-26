@@ -32,8 +32,12 @@ import 'package:pos_app/settings/settings_screen.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/tax/tax_provider.dart';
 
+import 'package:pos_app/promotions/promotion_provider.dart';
+import 'package:pos_app/promotions/promotions_list_screen.dart';
+
 final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
 final searchQueryProvider = StateProvider<String>((ref) => "");
+final cartWidthProvider = StateProvider<double>((ref) => 350.0);
 
 // --- MAIN SCREEN ---
 class MenuScreen extends ConsumerWidget {
@@ -213,6 +217,19 @@ class MenuScreen extends ConsumerWidget {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.local_offer),
+              title: const Text("Promotions"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PromotionsListScreen(),
+                  ),
+                );
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.manage_accounts),
               title: const Text("Users"),
               onTap: () {
@@ -269,6 +286,43 @@ class MenuScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text("POS System"),
         actions: [
+          if (ref.watch(activePromotionsProvider).isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const PromotionsListScreen(),
+                    ),
+                  );
+                },
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.amber, width: 1),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.star, color: Colors.amber),
+                      const SizedBox(width: 8),
+                      Text(
+                        "${ref.watch(activePromotionsProvider).length}x Active Promotions",
+                        style: const TextStyle(
+                          color: Colors.amber,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           TextButton.icon(
             onPressed: () {
               ref.read(cartProvider.notifier).clearCart();
@@ -312,19 +366,33 @@ class MenuScreen extends ConsumerWidget {
       body: Row(
         children: [
           Expanded(
-            flex: 2,
             child: Container(
               color: Theme.of(context).scaffoldBackgroundColor,
               child: const BrowserSection(),
             ),
           ),
-          const VerticalDivider(width: 1, thickness: 1),
-          Expanded(
-            flex: 1,
-            child: Container(
-              color: Theme.of(context).colorScheme.surface,
-              child: const CartSection(),
+          GestureDetector(
+            onHorizontalDragUpdate: (details) {
+              final currentWidth = ref.read(cartWidthProvider);
+              final screenWidth = MediaQuery.of(context).size.width;
+              final maxWidth = screenWidth * 0.5;
+              double newWidth = currentWidth - details.delta.dx;
+              if (newWidth < 250) newWidth = 250;
+              if (newWidth > maxWidth) newWidth = maxWidth;
+              ref.read(cartWidthProvider.notifier).state = newWidth;
+            },
+            child: const MouseRegion(
+              cursor: SystemMouseCursors.resizeLeftRight,
+              child: SizedBox(
+                width: 8,
+                child: VerticalDivider(width: 8, thickness: 1),
+              ),
             ),
+          ),
+          Container(
+            width: ref.watch(cartWidthProvider),
+            color: Theme.of(context).colorScheme.surface,
+            child: const CartSection(),
           ),
         ],
       ),
@@ -447,24 +515,38 @@ class BrowserSection extends ConsumerWidget {
                     isSearching
                         ? "No products found matching '$searchQuery'"
                         : "Empty Folder",
+                    style: TextStyle(
+                      color: isDark ? Colors.grey[400] : Colors.grey[600],
+                      fontSize: 16,
+                    ),
                   ),
                 )
-              : GridView.builder(
-                  padding: const EdgeInsets.all(16),
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 180,
-                    childAspectRatio: 0.9,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                  ),
-                  itemCount: itemsToDisplay.length,
-                  itemBuilder: (context, index) {
-                    final item = itemsToDisplay[index];
-                    if (item is ProductGroup)
-                      return _buildGroupCard(context, ref, item);
-                    if (item is Product)
-                      return _buildProductCard(context, ref, item);
-                    return const SizedBox();
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Dynamic crossAxisCount: aim for ~180px per item
+                    final crossAxisCount = (constraints.maxWidth / 180)
+                        .floor()
+                        .clamp(2, 10);
+
+                    return GridView.builder(
+                      padding: const EdgeInsets.all(16),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
+                        childAspectRatio:
+                            0.85, // Slightly taller for better text visibility
+                        crossAxisSpacing: 16,
+                        mainAxisSpacing: 16,
+                      ),
+                      itemCount: itemsToDisplay.length,
+                      itemBuilder: (context, index) {
+                        final item = itemsToDisplay[index];
+                        if (item is ProductGroup)
+                          return _buildGroupCard(context, ref, item);
+                        if (item is Product)
+                          return _buildProductCard(context, ref, item);
+                        return const SizedBox();
+                      },
+                    );
                   },
                 ),
         ),
@@ -493,12 +575,21 @@ class BrowserSection extends ConsumerWidget {
         ref.read(currentGroupProvider.notifier).state = group;
         ref.read(searchQueryProvider.notifier).state = "";
       },
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
           color: bgColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: borderColor, width: 1.5),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor, width: 2),
+          boxShadow: [
+            BoxShadow(
+              color: isDark
+                  ? Colors.black45
+                  : Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -508,18 +599,36 @@ class BrowserSection extends ConsumerWidget {
               flex: 3,
               child: group.imageBytes != null
                   ? Image.memory(group.imageBytes!, fit: BoxFit.cover)
-                  : Center(
+                  : Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            baseColor.withValues(alpha: 0.4),
+                            baseColor.withValues(alpha: 0.1),
+                          ],
+                        ),
+                      ),
                       child: Icon(
-                        Icons.folder,
-                        size: 54,
-                        color: isDark ? baseColor.withAlpha(204) : baseColor,
+                        Icons.folder_rounded,
+                        size: 58,
+                        color: isDark
+                            ? baseColor.withValues(alpha: 0.9)
+                            : baseColor,
                       ),
                     ),
             ),
             Expanded(
               flex: 2,
               child: Container(
-                padding: const EdgeInsets.all(8.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8.0,
+                  vertical: 4.0,
+                ),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.black26 : Colors.white54,
+                ),
                 alignment: Alignment.center,
                 child: Text(
                   group.name,
@@ -527,9 +636,10 @@ class BrowserSection extends ConsumerWidget {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: isDark ? Colors.white : Colors.black87,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    color: isDark ? Colors.white : Colors.blueGrey[900],
+                    letterSpacing: -0.5,
                   ),
                 ),
               ),
@@ -579,24 +689,24 @@ class BrowserSection extends ConsumerWidget {
           );
         }
       },
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
         decoration: BoxDecoration(
           color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+            color: isDark ? Colors.grey[800]! : Colors.grey[200]!,
             width: 1,
           ),
-          boxShadow: isDark
-              ? []
-              : [
-                  BoxShadow(
-                    color: Colors.black.withAlpha(13),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+          boxShadow: [
+            BoxShadow(
+              color: isDark
+                  ? Colors.black45
+                  : Colors.black.withValues(alpha: 0.08),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -607,11 +717,13 @@ class BrowserSection extends ConsumerWidget {
               child: product.imageBytes != null
                   ? Image.memory(product.imageBytes!, fit: BoxFit.cover)
                   : Container(
-                      color: isDark ? Colors.grey[850] : Colors.grey[100],
+                      color: isDark ? Colors.grey[850] : Colors.grey[50],
                       child: Icon(
-                        Icons.inventory_2,
+                        Icons.restaurant_rounded,
                         size: 48,
-                        color: isDark ? Colors.grey[600] : Colors.grey[400],
+                        color: isDark
+                            ? Colors.blueGrey[700]
+                            : Colors.blueGrey[100],
                       ),
                     ),
             ),
@@ -619,10 +731,12 @@ class BrowserSection extends ConsumerWidget {
               flex: 2,
               child: Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 8.0,
-                  vertical: 4.0,
+                  horizontal: 10.0,
+                  vertical: 6.0,
                 ),
-                color: isDark ? Colors.grey[900] : Colors.white,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
+                ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -632,21 +746,59 @@ class BrowserSection extends ConsumerWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      "\$${product.price.toStringAsFixed(2)}",
-                      style: TextStyle(
-                        color: isDark
-                            ? Colors.greenAccent[400]
-                            : Colors.green[700],
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         fontSize: 14,
+                        letterSpacing: -0.2,
                       ),
                     ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color:
+                            (isDark
+                                    ? Colors.greenAccent[700]
+                                    : Colors.green[50])
+                                ?.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        "\$${product.price.toStringAsFixed(2)}",
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.greenAccent[400]
+                              : Colors.green[800],
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                    if (getActivePromotionCountForProduct(ref, product.id) > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(
+                              Icons.stars_rounded,
+                              color: Colors.amber,
+                              size: 14,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              "PROMO",
+                              style: TextStyle(
+                                color: Colors.amber[700],
+                                fontWeight: FontWeight.w900,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -676,7 +828,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
       builder: (ctx) => AlertDialog(
         title: const Text("Select Customer"),
         content: SizedBox(
-          width: 300,
+          width: double.maxFinite,
           height: 300,
           child: ListView.separated(
             itemCount: customers.length,
@@ -787,67 +939,120 @@ class _CartSectionState extends ConsumerState<CartSection> {
           ),
         ),
 
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          color: Theme.of(context).colorScheme.surface,
-          child: Row(
-            children: [
-              Expanded(
-                child: asyncCustomers.when(
-                  loading: () => const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+        // Header actions wrapped for responsiveness
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.start,
+          children: [
+            asyncCustomers.when(
+              loading: () => const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              error: (_, __) => const Icon(Icons.error, color: Colors.red),
+              data: (all) {
+                final customers = all.where((c) => c.isCustomer).toList();
+                return ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 120),
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.person, size: 16),
+                    label: Text(
+                      currentCustomer?.name ?? "Select Customer",
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onPressed: () =>
+                        _showCustomerDialog(context, ref, customers),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.surface,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
                   ),
-                  error: (_, __) => const Icon(Icons.error, color: Colors.red),
-                  data: (all) {
-                    final customers = all.where((c) => c.isCustomer).toList();
-                    return TextButton.icon(
-                      icon: const Icon(Icons.person, size: 16),
-                      label: Text(currentCustomer?.name ?? "Select Customer"),
-                      onPressed: () =>
-                          _showCustomerDialog(context, ref, customers),
+                );
+              },
+            ),
+            Builder(
+              builder: (context) {
+                final isSelected = List.generate(
+                  3,
+                  (i) => cartState.serviceType == i,
+                );
+                return ToggleButtons(
+                  isSelected: isSelected,
+                  onPressed: (index) {
+                    ref.read(cartProvider.notifier).state = cartState.copyWith(
+                      serviceType: index,
                     );
                   },
-                ),
+                  borderRadius: BorderRadius.circular(8),
+                  selectedBorderColor: Colors.blueAccent,
+                  fillColor: Colors.blueAccent.withValues(alpha: 0.2),
+                  children: const [
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text("Dine In"),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text("Takeaway"),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text("Delivery"),
+                    ),
+                  ],
+                );
+              },
+            ),
+            ElevatedButton.icon(
+              icon: Icon(
+                ServiceStatusHelper.getIcon(cartState.serviceStatus),
+                size: 18,
               ),
-              // ✨ Task 2: Service Type
-              DropdownButton<int>(
-                value: cartState.serviceType,
-                underline: const SizedBox(),
-                items: const [
-                  DropdownMenuItem(value: 0, child: Text("Dine In")),
-                  DropdownMenuItem(value: 1, child: Text("Takeaway")),
-                ],
-                onChanged: (val) {
-                  if (val != null) {
-                    ref.read(cartProvider.notifier).state = cartState.copyWith(
-                      serviceType: val,
-                    );
-                  }
-                },
+              label: Text(
+                ServiceStatusHelper.getLabel(cartState.serviceStatus),
               ),
-              const SizedBox(width: 12),
-              // ✨ Universal Service Status
-              DropdownButton<int>(
-                value: cartState.serviceStatus,
-                underline: const SizedBox(),
-                items: [1, 2, 3].map((status) {
-                  return DropdownMenuItem(
-                    value: status,
-                    child: Text(ServiceStatusHelper.getLabel(status)),
-                  );
-                }).toList(),
-                onChanged: (val) {
+              onPressed: () {
+                showDialog<int>(
+                  context: context,
+                  builder: (context) => SimpleDialog(
+                    title: const Text('Select Service Status'),
+                    children: [1, 2, 3].map((status) {
+                      return SimpleDialogOption(
+                        onPressed: () => Navigator.pop(context, status),
+                        child: Row(
+                          children: [
+                            Icon(ServiceStatusHelper.getIcon(status), size: 18),
+                            const SizedBox(width: 8),
+                            Text(ServiceStatusHelper.getLabel(status)),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ).then((val) {
                   if (val != null) {
                     ref.read(cartProvider.notifier).state = cartState.copyWith(
                       serviceStatus: val,
                     );
                   }
-                },
+                });
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: ServiceStatusHelper.getColor(
+                  cartState.serviceStatus,
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
 
         // Action Bar for Discount and Tax
@@ -921,9 +1126,14 @@ class _CartSectionState extends ConsumerState<CartSection> {
                       },
                       title: Row(
                         children: [
-                          Text(
-                            item.productName,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          Flexible(
+                            child: Text(
+                              item.productName,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                           if (item.appliedTaxes.isNotEmpty)
                             Padding(
@@ -989,6 +1199,11 @@ class _CartSectionState extends ConsumerState<CartSection> {
                                 ),
                               ),
                             ),
+                          if (item.promotionalDiscount > 0)
+                            const Padding(
+                              padding: EdgeInsets.only(left: 6.0),
+                              child: Text("⭐", style: TextStyle(fontSize: 12)),
+                            ),
                         ],
                       ),
 
@@ -1030,7 +1245,8 @@ class _CartSectionState extends ConsumerState<CartSection> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              if (item.discount > 0)
+                              if (item.discount > 0 ||
+                                  item.promotionalDiscount > 0)
                                 Text(
                                   "\$${(item.price * item.quantity).toStringAsFixed(2)}",
                                   style: const TextStyle(
@@ -1040,11 +1256,13 @@ class _CartSectionState extends ConsumerState<CartSection> {
                                   ),
                                 ),
                               Text(
-                                "\$${((item.price - item.discount) * item.quantity).toStringAsFixed(2)}",
+                                "\$${((item.price - item.discount - item.promotionalDiscount) * item.quantity).toStringAsFixed(2)}",
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.bold,
-                                  color: item.discount > 0
+                                  color:
+                                      (item.discount > 0 ||
+                                          item.promotionalDiscount > 0)
                                       ? Colors.green
                                       : null,
                                 ),
@@ -1153,6 +1371,26 @@ class _CartSectionState extends ConsumerState<CartSection> {
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.green,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (cartNotifier.promotionalDiscountTotal > 0)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        "Total Promotional Discount",
+                        style: TextStyle(fontSize: 16, color: Colors.amber),
+                      ),
+                      Text(
+                        "-\$${cartNotifier.promotionalDiscountTotal.toStringAsFixed(2)}",
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.amber,
                         ),
                       ),
                     ],
@@ -1315,7 +1553,7 @@ class _ItemTaxDialogState extends ConsumerState<_ItemTaxDialog> {
     return AlertDialog(
       title: Text("Taxes: ${widget.item.productName}"),
       content: SizedBox(
-        width: 300,
+        width: double.maxFinite,
         child: allTaxesAsync.when(
           loading: () => const Center(child: CircularProgressIndicator()),
           error: (e, _) => Text("Error: $e"),

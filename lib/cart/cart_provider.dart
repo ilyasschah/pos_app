@@ -6,6 +6,7 @@ import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/api/customer_discount_models.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
+import 'package:pos_app/promotions/promotion_provider.dart';
 
 class CartState {
   final int? activePosOrderId;
@@ -70,7 +71,8 @@ class CartState {
       selectedCustomerDiscount:
           selectedCustomerDiscount ?? this.selectedCustomerDiscount,
       manualCartDiscount: manualCartDiscount ?? this.manualCartDiscount,
-      manualCartDiscountType: manualCartDiscountType ?? this.manualCartDiscountType,
+      manualCartDiscountType:
+          manualCartDiscountType ?? this.manualCartDiscountType,
       customerDiscountValue:
           customerDiscountValue ?? this.customerDiscountValue,
       customerDiscountType: customerDiscountType ?? this.customerDiscountType,
@@ -89,22 +91,32 @@ class CartNotifier extends Notifier<CartState> {
   double get subtotal =>
       state.items.fold(0, (sum, item) => sum + (item.price * item.quantity));
 
-  double get discountTotal =>
-      state.items.fold(0, (sum, item) => sum + (item.discount * item.quantity));
+  double get discountTotal => state.items.fold(
+    0,
+    (sum, item) =>
+        sum + ((item.discount + item.promotionalDiscount) * item.quantity),
+  );
+
+  double get promotionalDiscountTotal => state.items.fold(
+    0,
+    (sum, item) => sum + (item.promotionalDiscount * item.quantity),
+  );
 
   double get taxTotal {
     double total = 0;
     // Apply cart-level discount factor to the taxable base of each item
     double baseBeforeCartDiscounts = subtotal - discountTotal;
-    double totalCartDiscounts = customerDiscountAmount + manualCartDiscountAmount;
+    double totalCartDiscounts =
+        customerDiscountAmount + manualCartDiscountAmount;
     double discountFactor = baseBeforeCartDiscounts > 0
         ? (baseBeforeCartDiscounts - totalCartDiscounts) /
-            baseBeforeCartDiscounts
+              baseBeforeCartDiscounts
         : 1.0;
 
     for (var item in state.items) {
       double itemTotalAfterItemDiscount =
-          (item.price - item.discount) * item.quantity;
+          (item.price - item.discount - item.promotionalDiscount) *
+          item.quantity;
       double itemTaxableBase = itemTotalAfterItemDiscount * discountFactor;
 
       for (var tax in item.appliedTaxes) {
@@ -144,7 +156,36 @@ class CartNotifier extends Notifier<CartState> {
       manualCartDiscountAmount +
       taxTotal;
 
-  void setOrderContext(int orderId, int warehouseId, {int? tableId, String? orderNumber}) {
+  void _applyPromotions(List<CartItem> items) {
+    final activePromotions = ref.read(activePromotionsProvider);
+    for (var item in items) {
+      double bestDiscount = 0;
+      for (var promo in activePromotions) {
+        for (var pItem in promo.items) {
+          if (pItem.productId == item.productId) {
+            double currentDiscount = 0;
+            // discountType: 0 for %, 1 for $
+            if (pItem.discountType == 0) {
+              currentDiscount = item.price * (pItem.value / 100);
+            } else {
+              currentDiscount = pItem.value;
+            }
+            if (currentDiscount > bestDiscount) {
+              bestDiscount = currentDiscount;
+            }
+          }
+        }
+      }
+      item.promotionalDiscount = bestDiscount;
+    }
+  }
+
+  void setOrderContext(
+    int orderId,
+    int warehouseId, {
+    int? tableId,
+    String? orderNumber,
+  }) {
     state = state.copyWith(
       activePosOrderId: orderId,
       activeWarehouseId: warehouseId,
@@ -169,7 +210,10 @@ class CartNotifier extends Notifier<CartState> {
   }
 
   void setCartDiscount(double discount, int type) {
-    state = state.copyWith(manualCartDiscount: discount, manualCartDiscountType: type);
+    state = state.copyWith(
+      manualCartDiscount: discount,
+      manualCartDiscountType: type,
+    );
   }
 
   void setItemDiscount(int productId, double discount) {
@@ -240,26 +284,34 @@ class CartNotifier extends Notifier<CartState> {
         ),
       );
     }
+    _applyPromotions(items);
     state = state.copyWith(items: items);
   }
 
   void incrementItem(int productId) {
     final items = List<CartItem>.from(state.items);
     final index = items.indexWhere((i) => i.productId == productId);
-    if (index >= 0) items[index].quantity += 1;
+    if (index >= 0) {
+      items[index].quantity += 1;
+      _applyPromotions(items);
+    }
     state = state.copyWith(items: items);
   }
 
   void decrementItem(int productId) {
     final items = List<CartItem>.from(state.items);
     final index = items.indexWhere((i) => i.productId == productId);
-    if (index >= 0 && items[index].quantity > 1) items[index].quantity -= 1;
+    if (index >= 0 && items[index].quantity > 1) {
+      items[index].quantity -= 1;
+      _applyPromotions(items);
+    }
     state = state.copyWith(items: items);
   }
 
   void removeItem(int productId) {
     final items = List<CartItem>.from(state.items);
     items.removeWhere((i) => i.productId == productId);
+    _applyPromotions(items);
     state = state.copyWith(items: items);
   }
 
@@ -300,13 +352,13 @@ class CartNotifier extends Notifier<CartState> {
           await setCustomer(companyId, customer);
         }
       }
- 
-       final serviceType =
-           (order['serviceType'] ?? order['ServiceType'] ?? 0).toInt();
-       final serviceStatus =
-           (order['serviceStatus'] ?? order['ServiceStatus'] ?? 1).toInt();
-       final floorPlanTableId =
-           order['floorPlanTableId'] ?? order['FloorPlanTableId'];
+
+      final serviceType = (order['serviceType'] ?? order['ServiceType'] ?? 0)
+          .toInt();
+      final serviceStatus =
+          (order['serviceStatus'] ?? order['ServiceStatus'] ?? 1).toInt();
+      final floorPlanTableId =
+          order['floorPlanTableId'] ?? order['FloorPlanTableId'];
 
       final List<CartItem> loadedItems = itemsData.map((item) {
         return CartItem(
@@ -327,6 +379,8 @@ class CartNotifier extends Notifier<CartState> {
           isSaved: true,
         );
       }).toList();
+
+      _applyPromotions(loadedItems);
 
       state = state.copyWith(
         activePosOrderId: posOrderId,
@@ -422,9 +476,9 @@ class CartNotifier extends Notifier<CartState> {
           await setCustomer(companyId, customer);
         }
       }
- 
-      final serviceType =
-          (order['serviceType'] ?? order['ServiceType'] ?? 0).toInt();
+
+      final serviceType = (order['serviceType'] ?? order['ServiceType'] ?? 0)
+          .toInt();
       final serviceStatus =
           (order['serviceStatus'] ?? order['ServiceStatus'] ?? 1).toInt();
       final floorPlanTableId =
@@ -449,6 +503,8 @@ class CartNotifier extends Notifier<CartState> {
           isSaved: true,
         );
       }).toList();
+
+      _applyPromotions(loadedItems);
 
       state = state.copyWith(
         activePosOrderId: posOrderId,
@@ -485,7 +541,8 @@ class CartNotifier extends Notifier<CartState> {
 
       List<CheckoutItemDto> checkoutItems = [];
       for (var item in state.items) {
-        double priceAfterDiscount = item.price - item.discount;
+        double priceAfterDiscount =
+            item.price - item.discount - item.promotionalDiscount;
         double totalAfterDiscount = priceAfterDiscount * item.quantity;
         double itemTaxTotal = 0;
         List<CheckoutItemTaxDto> itemTaxes = [];
@@ -566,7 +623,7 @@ final cartTotalProvider = Provider<double>((ref) {
   double taxTotal = 0;
   for (var item in cartState.items) {
     double itemTotalAfterItemDiscount =
-        (item.price - item.discount) * item.quantity;
+        (item.price - item.discount - item.promotionalDiscount) * item.quantity;
     double itemTaxableBase = itemTotalAfterItemDiscount * discountFactor;
     for (var tax in item.appliedTaxes) {
       if (tax.isFixed) {

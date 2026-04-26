@@ -93,6 +93,7 @@ class CartItem {
   double price;
   double discount;
   int discountType;
+  double promotionalDiscount;
   String? comment;
   String? bundle;
   bool isSaved;
@@ -107,6 +108,7 @@ class CartItem {
     required this.price,
     this.discount = 0,
     this.discountType = 0,
+    this.promotionalDiscount = 0,
     this.comment,
     this.bundle,
     this.isSaved = false,

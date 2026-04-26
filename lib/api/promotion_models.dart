@@ -28,8 +28,26 @@ class PromotionDto {
     this.items = const [],
   });
 
-  factory PromotionDto.fromJson(Map<String, dynamic> json) =>
-      _$PromotionDtoFromJson(json);
+  factory PromotionDto.fromJson(Map<String, dynamic> json) {
+    DateTime? parseDate(dynamic val) {
+      if (val == null || val.toString().trim().isEmpty) return null;
+      try { return DateTime.parse(val.toString()); } catch(_) { return null; }
+    }
+    return PromotionDto(
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      companyId: (json['companyId'] as num?)?.toInt() ?? 0,
+      name: json['name']?.toString() ?? 'Unnamed',
+      startDate: parseDate(json['startDate']),
+      startTime: json['startTime']?.toString().isEmpty == true ? null : json['startTime']?.toString(),
+      endDate: parseDate(json['endDate']),
+      endTime: json['endTime']?.toString().isEmpty == true ? null : json['endTime']?.toString(),
+      daysOfWeek: (json['daysOfWeek'] as num?)?.toInt() ?? 127,
+      isEnabled: json['isEnabled'] == true,
+      items: (json['items'] as List<dynamic>?)
+          ?.map((e) => PromotionItemDto.fromJson(e as Map<String, dynamic>))
+          .toList() ?? const [],
+    );
+  }
   Map<String, dynamic> toJson() => _$PromotionDtoToJson(this);
 }
 
@@ -37,7 +55,7 @@ class PromotionDto {
 class PromotionItemDto {
   final int id;
   final int promotionId;
-  final int uid;
+  final int productId;
   final int discountType;
   final int priceType;
   final double value;
@@ -49,7 +67,7 @@ class PromotionItemDto {
   PromotionItemDto({
     required this.id,
     required this.promotionId,
-    required this.uid,
+    required this.productId,
     required this.discountType,
     required this.priceType,
     required this.value,
@@ -59,8 +77,20 @@ class PromotionItemDto {
     required this.quantityLimit,
   });
 
-  factory PromotionItemDto.fromJson(Map<String, dynamic> json) =>
-      _$PromotionItemDtoFromJson(json);
+  factory PromotionItemDto.fromJson(Map<String, dynamic> json) {
+    return PromotionItemDto(
+      id: (json['id'] as num?)?.toInt() ?? 0,
+      promotionId: (json['promotionId'] as num?)?.toInt() ?? 0,
+      productId: (json['productId'] as num?)?.toInt() ?? 0,
+      discountType: (json['discountType'] as num?)?.toInt() ?? 0,
+      priceType: (json['priceType'] as num?)?.toInt() ?? 0,
+      value: (json['value'] as num?)?.toDouble() ?? 0.0,
+      isConditional: json['isConditional'] == true,
+      quantity: (json['quantity'] as num?)?.toDouble() ?? 0.0,
+      conditionType: (json['conditionType'] as num?)?.toInt() ?? 0,
+      quantityLimit: (json['quantityLimit'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
   Map<String, dynamic> toJson() => _$PromotionItemDtoToJson(this);
 }
 
@@ -91,7 +121,7 @@ class CreatePromotionRequest {
 
 @JsonSerializable()
 class CreatePromotionItemRequest {
-  final int uid;
+  final int productId;
   final int discountType;
   final int priceType;
   final double value;
@@ -101,7 +131,7 @@ class CreatePromotionItemRequest {
   final double quantityLimit;
 
   CreatePromotionItemRequest({
-    required this.uid,
+    required this.productId,
     required this.discountType,
     required this.priceType,
     required this.value,
@@ -148,7 +178,7 @@ class UpdatePromotionRequest {
 @JsonSerializable()
 class UpdatePromotionItemRequest {
   final int id;
-  final int uid;
+  final int productId;
   final int discountType;
   final int priceType;
   final double value;
@@ -159,7 +189,7 @@ class UpdatePromotionItemRequest {
 
   UpdatePromotionItemRequest({
     required this.id,
-    required this.uid,
+    required this.productId,
     required this.discountType,
     required this.priceType,
     required this.value,

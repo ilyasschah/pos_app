@@ -45,7 +45,7 @@ PromotionItemDto _$PromotionItemDtoFromJson(Map<String, dynamic> json) =>
     PromotionItemDto(
       id: (json['id'] as num).toInt(),
       promotionId: (json['promotionId'] as num).toInt(),
-      uid: (json['uid'] as num).toInt(),
+      productId: (json['productId'] as num).toInt(),
       discountType: (json['discountType'] as num).toInt(),
       priceType: (json['priceType'] as num).toInt(),
       value: (json['value'] as num).toDouble(),
@@ -59,7 +59,7 @@ Map<String, dynamic> _$PromotionItemDtoToJson(PromotionItemDto instance) =>
     <String, dynamic>{
       'id': instance.id,
       'promotionId': instance.promotionId,
-      'uid': instance.uid,
+      'productId': instance.productId,
       'discountType': instance.discountType,
       'priceType': instance.priceType,
       'value': instance.value,
@@ -107,7 +107,7 @@ Map<String, dynamic> _$CreatePromotionRequestToJson(
 CreatePromotionItemRequest _$CreatePromotionItemRequestFromJson(
   Map<String, dynamic> json,
 ) => CreatePromotionItemRequest(
-  uid: (json['uid'] as num).toInt(),
+  productId: (json['productId'] as num).toInt(),
   discountType: (json['discountType'] as num).toInt(),
   priceType: (json['priceType'] as num).toInt(),
   value: (json['value'] as num).toDouble(),
@@ -120,7 +120,7 @@ CreatePromotionItemRequest _$CreatePromotionItemRequestFromJson(
 Map<String, dynamic> _$CreatePromotionItemRequestToJson(
   CreatePromotionItemRequest instance,
 ) => <String, dynamic>{
-  'uid': instance.uid,
+  'productId': instance.productId,
   'discountType': instance.discountType,
   'priceType': instance.priceType,
   'value': instance.value,
@@ -173,7 +173,7 @@ UpdatePromotionItemRequest _$UpdatePromotionItemRequestFromJson(
   Map<String, dynamic> json,
 ) => UpdatePromotionItemRequest(
   id: (json['id'] as num).toInt(),
-  uid: (json['uid'] as num).toInt(),
+  productId: (json['productId'] as num).toInt(),
   discountType: (json['discountType'] as num).toInt(),
   priceType: (json['priceType'] as num).toInt(),
   value: (json['value'] as num).toDouble(),
@@ -187,7 +187,7 @@ Map<String, dynamic> _$UpdatePromotionItemRequestToJson(
   UpdatePromotionItemRequest instance,
 ) => <String, dynamic>{
   'id': instance.id,
-  'uid': instance.uid,
+  'productId': instance.productId,
   'discountType': instance.discountType,
   'priceType': instance.priceType,
   'value': instance.value,

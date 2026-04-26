@@ -247,7 +247,7 @@ class ApiClient {
   Future<List<PromotionDto>> getActivePromotions(int companyId) async {
     try {
       final response = await _dio.get(
-        '/Promotion/GetActive',
+        '/Promotions/GetActive',
         queryParameters: {'companyId': companyId},
       );
       if (response.statusCode == 200) {
@@ -263,16 +263,24 @@ class ApiClient {
   Future<List<PromotionDto>> getAllPromotions(int companyId) async {
     try {
       final response = await _dio.get(
-        '/Promotion/GetAll',
+        '/Promotions/GetAll',
         queryParameters: {'companyId': companyId},
       );
       if (response.statusCode == 200) {
         final List<dynamic> data = response.data;
-        return data.map((json) => PromotionDto.fromJson(json)).toList();
+        return data.map((json) {
+          try {
+            return PromotionDto.fromJson(json);
+          } catch (e) {
+            print("Error parsing promotion: $e");
+            return null;
+          }
+        }).whereType<PromotionDto>().toList();
       }
       return [];
     } catch (e) {
-      throw Exception('Error fetching all promotions: $e');
+      print('Error fetching all promotions: $e');
+      return [];
     }
   }
 
@@ -280,7 +288,7 @@ class ApiClient {
       int companyId, CreatePromotionRequest request) async {
     try {
       final response = await _dio.post(
-        '/Promotion/Create',
+        '/Promotions/Add',
         queryParameters: {'companyId': companyId},
         data: request.toJson(),
       );
@@ -297,7 +305,7 @@ class ApiClient {
       int companyId, UpdatePromotionRequest request) async {
     try {
       final response = await _dio.put(
-        '/Promotion/Update',
+        '/Promotions/Update',
         queryParameters: {'companyId': companyId},
         data: request.toJson(),
       );
@@ -310,7 +318,7 @@ class ApiClient {
   Future<bool> deletePromotion(int companyId, int promotionId) async {
     try {
       final response = await _dio.delete(
-        '/Promotion/Delete',
+        '/Promotions/Delete',
         queryParameters: {'companyId': companyId, 'id': promotionId},
       );
       return response.statusCode == 200;

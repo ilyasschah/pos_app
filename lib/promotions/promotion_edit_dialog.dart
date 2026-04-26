@@ -40,7 +40,7 @@ class _PromotionEditDialogState extends ConsumerState<PromotionEditDialog> {
         widget.promotion!.items.map(
           (i) => UpdatePromotionItemRequest(
             id: i.id,
-            uid: i.uid,
+            productId: i.productId,
             discountType: i.discountType,
             priceType: i.priceType,
             value: i.value,
@@ -75,7 +75,7 @@ class _PromotionEditDialogState extends ConsumerState<PromotionEditDialog> {
           if (item is CreatePromotionItemRequest) {
             return UpdatePromotionItemRequest(
               id: 0,
-              uid: item.uid,
+              productId: item.productId,
               discountType: item.discountType,
               priceType: item.priceType,
               value: item.value,
@@ -246,7 +246,7 @@ class _PromotionItemEditDialogState extends State<_PromotionItemEditDialog> {
             Navigator.pop(
               context,
               CreatePromotionItemRequest(
-                uid: int.tryParse(_uidController.text) ?? 0,
+                productId: int.tryParse(_uidController.text) ?? 0,
                 value: double.tryParse(_valueController.text) ?? 0,
                 discountType: _discountType,
                 priceType: _priceType,

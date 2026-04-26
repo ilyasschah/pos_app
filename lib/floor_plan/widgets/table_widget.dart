@@ -103,19 +103,100 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
               } else {
                 final serviceType = await showDialog<int>(
                   context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text("Select Service Type"),
-                    content: const Text("How will the customer be served?"),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, 0),
-                        child: const Text("Dine In"),
+                  builder: (context) => Dialog(
+                    backgroundColor: const Color(0xFF2C3E50),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 40.0,
+                        horizontal: 20.0,
                       ),
-                      TextButton(
-                        onPressed: () => Navigator.pop(context, 1),
-                        child: const Text("Takeaway"),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            "Service type",
+                            style: TextStyle(
+                              fontSize: 32,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w300,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            "Select service type for this order",
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.white70,
+                            ),
+                          ),
+                          const SizedBox(height: 40),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              // Dine-in Button
+                              InkWell(
+                                onTap: () => Navigator.pop(context, 0),
+                                borderRadius: BorderRadius.circular(12),
+                                hoverColor: Colors.white.withAlpha(25),
+                                splashColor: Colors.white.withAlpha(50),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(24.0),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Icon(
+                                        Icons.restaurant,
+                                        size: 80,
+                                        color: Colors.white,
+                                      ),
+                                      SizedBox(height: 16),
+                                      Text(
+                                        "Dine-in",
+                                        style: TextStyle(
+                                          fontSize: 22,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              // Takeaway Button
+                              InkWell(
+                                onTap: () => Navigator.pop(context, 1),
+                                borderRadius: BorderRadius.circular(12),
+                                hoverColor: Colors.white.withAlpha(25),
+                                splashColor: Colors.white.withAlpha(50),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(24.0),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Icon(
+                                        Icons.shopping_bag_outlined,
+                                        size: 80,
+                                        color: Colors.white,
+                                      ),
+                                      SizedBox(height: 16),
+                                      Text(
+                                        "Takeaway",
+                                        style: TextStyle(
+                                          fontSize: 22,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 );
 
