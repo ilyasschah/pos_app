@@ -276,7 +276,12 @@ class CartNotifier extends Notifier<CartState> {
     }
   }
 
-  void addItem(MenuProduct product, {double quantity = 1}) {
+  void addItem(
+    MenuProduct product, {
+    double quantity = 1,
+    String? comment,
+    String? measurementUnit,
+  }) {
     if (state.activePosOrderId == null) return;
 
     final items = List<CartItem>.from(state.items);
@@ -299,6 +304,8 @@ class CartNotifier extends Notifier<CartState> {
           quantity: quantity,
           productName: product.name,
           appliedTaxes: product.taxes,
+          comment: comment,
+          measurementUnit: measurementUnit,
         ),
       );
     }

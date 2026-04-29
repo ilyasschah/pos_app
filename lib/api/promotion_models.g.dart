@@ -6,27 +6,6 @@ part of 'promotion_models.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
-PromotionDto _$PromotionDtoFromJson(Map<String, dynamic> json) => PromotionDto(
-  id: (json['id'] as num).toInt(),
-  companyId: (json['companyId'] as num).toInt(),
-  name: json['name'] as String,
-  startDate: json['startDate'] == null
-      ? null
-      : DateTime.parse(json['startDate'] as String),
-  startTime: json['startTime'] as String?,
-  endDate: json['endDate'] == null
-      ? null
-      : DateTime.parse(json['endDate'] as String),
-  endTime: json['endTime'] as String?,
-  daysOfWeek: (json['daysOfWeek'] as num).toInt(),
-  isEnabled: json['isEnabled'] as bool,
-  items:
-      (json['items'] as List<dynamic>?)
-          ?.map((e) => PromotionItemDto.fromJson(e as Map<String, dynamic>))
-          .toList() ??
-      const [],
-);
-
 Map<String, dynamic> _$PromotionDtoToJson(PromotionDto instance) =>
     <String, dynamic>{
       'id': instance.id,
@@ -40,20 +19,6 @@ Map<String, dynamic> _$PromotionDtoToJson(PromotionDto instance) =>
       'isEnabled': instance.isEnabled,
       'items': instance.items,
     };
-
-PromotionItemDto _$PromotionItemDtoFromJson(Map<String, dynamic> json) =>
-    PromotionItemDto(
-      id: (json['id'] as num).toInt(),
-      promotionId: (json['promotionId'] as num).toInt(),
-      productId: (json['productId'] as num).toInt(),
-      discountType: (json['discountType'] as num).toInt(),
-      priceType: (json['priceType'] as num).toInt(),
-      value: (json['value'] as num).toDouble(),
-      isConditional: json['isConditional'] as bool,
-      quantity: (json['quantity'] as num).toDouble(),
-      conditionType: (json['conditionType'] as num).toInt(),
-      quantityLimit: (json['quantityLimit'] as num).toDouble(),
-    );
 
 Map<String, dynamic> _$PromotionItemDtoToJson(PromotionItemDto instance) =>
     <String, dynamic>{

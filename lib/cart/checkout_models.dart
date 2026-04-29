@@ -32,6 +32,11 @@ class MenuProduct {
   final String color;
   final double stockQuantity;
   final List<MenuTax> taxes;
+  final bool isEnabled;
+  final int? ageRestriction;
+  final bool isPriceChangeAllowed;
+  final bool isUsingDefaultQuantity;
+  final String? measurementUnit;
 
   MenuProduct({
     required this.id,
@@ -41,6 +46,11 @@ class MenuProduct {
     required this.color,
     required this.stockQuantity,
     required this.taxes,
+    this.isEnabled = true,
+    this.ageRestriction,
+    this.isPriceChangeAllowed = false,
+    this.isUsingDefaultQuantity = true,
+    this.measurementUnit,
   });
 
   factory MenuProduct.fromJson(Map<String, dynamic> json) {
@@ -54,6 +64,11 @@ class MenuProduct {
       taxes:
           (json['taxes'] as List?)?.map((t) => MenuTax.fromJson(t)).toList() ??
           [],
+      isEnabled: json['isEnabled'] ?? true,
+      ageRestriction: json['ageRestriction'],
+      isPriceChangeAllowed: json['isPriceChangeAllowed'] ?? false,
+      isUsingDefaultQuantity: json['isUsingDefaultQuantity'] ?? true,
+      measurementUnit: json['measurementUnit'],
     );
   }
 }
@@ -100,6 +115,7 @@ class CartItem {
   final String productName;
   List<MenuTax> appliedTaxes;
   int? warehouseId; // Add optional warehouseId for split sourcing
+  String? measurementUnit;
 
   CartItem({
     required this.posOrderId,
@@ -116,6 +132,7 @@ class CartItem {
     required this.productName,
     required this.appliedTaxes,
     this.warehouseId,
+    this.measurementUnit,
   });
 
   Map<String, dynamic> toJson() {

@@ -35,6 +35,8 @@ import 'package:pos_app/tax/tax_provider.dart';
 
 import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/promotions/promotions_list_screen.dart';
+import 'package:pos_app/product/product_comment_model.dart';
+import 'package:pos_app/product/product_comment_provider.dart';
 
 final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
 final searchQueryProvider = StateProvider<String>((ref) => "");
@@ -488,6 +490,7 @@ class BrowserSection extends ConsumerWidget {
 
     if (isSearching) {
       itemsToDisplay = allProducts.where((p) {
+        if (!p.isEnabled) return false;
         final query = searchQuery.toLowerCase();
         return p.name.toLowerCase().contains(query) ||
             (p.code?.toLowerCase().contains(query) ?? false);
@@ -497,7 +500,7 @@ class BrowserSection extends ConsumerWidget {
           .where((g) => g.parentGroupId == currentGroup?.id)
           .toList();
       final visibleProducts = allProducts
-          .where((p) => p.productGroupId == currentGroup?.id)
+          .where((p) => p.productGroupId == currentGroup?.id && p.isEnabled)
           .toList();
       itemsToDisplay = [...visibleGroups, ...visibleProducts];
     }
@@ -717,9 +720,10 @@ class BrowserSection extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return InkWell(
-      onTap: () {
+      onTap: () async {
         final cartState = ref.read(cartProvider);
         if (cartState.activePosOrderId == null) {
+          if (!context.mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Please select a Table from the Floor Plan first!'),
@@ -728,18 +732,82 @@ class BrowserSection extends ConsumerWidget {
           );
           return;
         }
+
+        // Step 2: Age restriction warning
+        if (product.ageRestriction != null) {
+          final confirmed = await _showAgeRestrictionDialog(
+            context,
+            product.ageRestriction!,
+          );
+          if (!confirmed) return;
+        }
+
+        // Step 3: Custom quantity when isUsingDefaultQuantity is false
+        double quantity = 1.0;
+        if (!product.isUsingDefaultQuantity) {
+          final qty = await _showQuantityInputDialog(
+            context,
+            product.measurementUnit,
+          );
+          if (qty == null) return;
+          quantity = qty;
+        }
+
+        // Step 4: Price change when isPriceChangeAllowed is true
+        double price = product.price;
+        if (product.isPriceChangeAllowed) {
+          final p = await _showPriceInputDialog(context, product.price);
+          if (p == null) return;
+          price = p;
+        }
+
+        // Step 5: Product comments / modifiers
+        String? comment;
+        try {
+          final comments = await ref.read(
+            productCommentsProvider(product.id).future,
+          );
+          if (comments.isNotEmpty) {
+            if (!context.mounted) return;
+            final result = await showDialog<String?>(
+              context: context,
+              barrierDismissible: false,
+              builder: (ctx) => _ProductCommentsDialog(
+                productName: product.name,
+                predefinedComments: comments,
+              ),
+            );
+            if (result == null) return;
+            comment = result.trim().isEmpty ? null : result.trim();
+          }
+        } catch (_) {
+          // Proceed without comments if fetch fails
+        }
+
+        if (!context.mounted) return;
         try {
           final menuProduct = MenuProduct(
             id: product.id,
             name: product.name,
-            price: product.price,
+            price: price,
             isTaxInclusivePrice: product.isTaxInclusivePrice,
             color: product.color,
             stockQuantity: 9999,
             taxes: [],
+            isEnabled: product.isEnabled,
+            ageRestriction: product.ageRestriction,
+            isPriceChangeAllowed: product.isPriceChangeAllowed,
+            isUsingDefaultQuantity: product.isUsingDefaultQuantity,
+            measurementUnit: product.measurementUnit,
           );
-          ref.read(cartProvider.notifier).addItem(menuProduct);
+          ref.read(cartProvider.notifier).addItem(
+            menuProduct,
+            quantity: quantity,
+            comment: comment,
+            measurementUnit: product.measurementUnit,
+          );
         } catch (e) {
+          if (!context.mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(e.toString().replaceAll("Exception: ", "")),
@@ -1323,7 +1391,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                       ),
 
                       subtitle: Text(
-                        "x${item.quantity.toInt()} (Tap to modify)",
+                        "${_formatCartQty(item)} (Tap to modify)",
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -1341,7 +1409,9 @@ class _CartSectionState extends ConsumerState<CartSection> {
                           InkWell(
                             onTap: () {
                               final controller = TextEditingController(
-                                text: item.quantity.toInt().toString(),
+                                text: item.quantity % 1 == 0
+                                    ? item.quantity.toInt().toString()
+                                    : item.quantity.toStringAsFixed(2),
                               );
                               showDialog(
                                 context: context,
@@ -1349,10 +1419,11 @@ class _CartSectionState extends ConsumerState<CartSection> {
                                   title: const Text("Enter Quantity"),
                                   content: TextField(
                                     controller: controller,
-                                    keyboardType: TextInputType.number,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                     autofocus: true,
-                                    decoration: const InputDecoration(
+                                    decoration: InputDecoration(
                                       labelText: "Quantity",
+                                      suffixText: item.measurementUnit,
                                     ),
                                   ),
                                   actions: [
@@ -1386,7 +1457,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                               );
                             },
                             child: Text(
-                              "${item.quantity.toInt()}",
+                              _formatCartQty(item),
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
@@ -1687,6 +1758,204 @@ class _CartSectionState extends ConsumerState<CartSection> {
               ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+}
+
+// --- Quantity display helper (top-level so both BrowserSection and CartSection can use it) ---
+String _formatCartQty(CartItem item) {
+  final qty = item.quantity % 1 == 0
+      ? item.quantity.toInt().toString()
+      : item.quantity.toStringAsFixed(2);
+  if (item.measurementUnit != null && item.measurementUnit!.isNotEmpty) {
+    return '$qty ${item.measurementUnit}';
+  }
+  return 'x$qty';
+}
+
+// --- Dialog helpers (called from _buildProductCard async onTap) ---
+Future<double?> _showQuantityInputDialog(
+  BuildContext context,
+  String? unit,
+) async {
+  final controller = TextEditingController();
+  return showDialog<double?>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Enter Quantity'),
+      content: TextField(
+        controller: controller,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        autofocus: true,
+        decoration: InputDecoration(
+          labelText: 'Quantity',
+          suffixText: unit,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, null),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final val = double.tryParse(controller.text);
+            if (val != null && val > 0) Navigator.pop(ctx, val);
+          },
+          child: const Text('Confirm'),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<double?> _showPriceInputDialog(
+  BuildContext context,
+  double defaultPrice,
+) async {
+  final controller = TextEditingController(
+    text: defaultPrice.toStringAsFixed(2),
+  );
+  return showDialog<double?>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Set Sale Price'),
+      content: TextField(
+        controller: controller,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        autofocus: true,
+        decoration: const InputDecoration(
+          labelText: 'Price',
+          prefixText: '\$',
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, null),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final val = double.tryParse(controller.text);
+            if (val != null && val >= 0) Navigator.pop(ctx, val);
+          },
+          child: const Text('Confirm'),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<bool> _showAgeRestrictionDialog(
+  BuildContext context,
+  int minAge,
+) async {
+  final result = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      title: Row(
+        children: [
+          Icon(Icons.warning_amber_rounded, color: Colors.orange[700]),
+          const SizedBox(width: 8),
+          const Text('Age Restriction'),
+        ],
+      ),
+      content: Text(
+        'This product requires customers to be at least $minAge years old.\n\n'
+        'Please confirm the customer meets this requirement before proceeding.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: Text('Confirm ($minAge+)'),
+        ),
+      ],
+    ),
+  );
+  return result ?? false;
+}
+
+// --- Product comments / modifiers dialog ---
+class _ProductCommentsDialog extends StatefulWidget {
+  final String productName;
+  final List<ProductComment> predefinedComments;
+
+  const _ProductCommentsDialog({
+    required this.productName,
+    required this.predefinedComments,
+  });
+
+  @override
+  State<_ProductCommentsDialog> createState() => _ProductCommentsDialogState();
+}
+
+class _ProductCommentsDialogState extends State<_ProductCommentsDialog> {
+  final Set<int> _selectedIds = {};
+  final TextEditingController _customController = TextEditingController();
+
+  @override
+  void dispose() {
+    _customController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Comments: ${widget.productName}'),
+      content: SizedBox(
+        width: 360,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ...widget.predefinedComments.map(
+                (c) => SwitchListTile(
+                  title: Text(c.comment),
+                  value: _selectedIds.contains(c.id),
+                  onChanged: (val) => setState(() {
+                    val ? _selectedIds.add(c.id) : _selectedIds.remove(c.id);
+                  }),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _customController,
+                decoration: const InputDecoration(
+                  labelText: 'Custom comment',
+                  hintText: 'Add a note...',
+                  prefixIcon: Icon(Icons.edit_note),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final parts = widget.predefinedComments
+                .where((c) => _selectedIds.contains(c.id))
+                .map((c) => c.comment)
+                .toList();
+            final custom = _customController.text.trim();
+            if (custom.isNotEmpty) parts.add(custom);
+            Navigator.pop(context, parts.join(', '));
+          },
+          child: const Text('Add to Cart'),
         ),
       ],
     );
