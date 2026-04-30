@@ -628,7 +628,7 @@ class _DocumentTable extends ConsumerWidget {
       cells.add(
         DataCell(
           Text(
-            "$sym${d.total.toStringAsFixed(2)}",
+            "${d.total.toStringAsFixed(2)} $sym",
             style: TextStyle(
               fontWeight: FontWeight.w900,
               color: theme.colorScheme.primary,

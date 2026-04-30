@@ -366,11 +366,11 @@ class _ProductListContent extends ConsumerWidget {
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold)),
                         )),
-                        DataCell(Text("$sym${p.price.toStringAsFixed(2)}",
+                        DataCell(Text("${p.price.toStringAsFixed(2)} $sym",
                             style: const TextStyle(
                                 color: Colors.green,
                                 fontWeight: FontWeight.bold))),
-                        DataCell(Text("$sym${p.cost.toStringAsFixed(2)}",
+                        DataCell(Text("${p.cost.toStringAsFixed(2)} $sym",
                             style: const TextStyle(color: Colors.redAccent))),
                         DataCell(Row(
                           mainAxisSize: MainAxisSize.min,

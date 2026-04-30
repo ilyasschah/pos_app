@@ -6,7 +6,8 @@ import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
 import 'package:pos_app/floor_plan/active_orders_screen.dart';
 
 class SidePanel extends ConsumerWidget {
-  const SidePanel({Key? key}) : super(key: key);
+  final bool isService;
+  const SidePanel({Key? key, this.isService = false}) : super(key: key);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -46,11 +47,11 @@ class SidePanel extends ConsumerWidget {
             const Divider(color: Colors.grey),
             Expanded(
               child: !fpState.isEditMode
-                  ? _buildMainMenu(context, ref)
+                  ? _buildMainMenu(context, ref, isService)
                   : (selectedTableId == null
                       ? _buildRoomOptions(
-                          context, ref, fpState.activeFloorPlanId ?? 0)
-                      : _buildTableEditor(context, ref, selectedTableId)),
+                          context, ref, fpState.activeFloorPlanId ?? 0, isService)
+                      : _buildTableEditor(context, ref, selectedTableId, isService)),
             )
           ],
         ),
@@ -58,7 +59,7 @@ class SidePanel extends ConsumerWidget {
     );
   }
 
-  Widget _buildMainMenu(BuildContext context, WidgetRef ref) {
+  Widget _buildMainMenu(BuildContext context, WidgetRef ref, bool isService) {
     return ListView(
       padding: EdgeInsets.zero,
       children: [
@@ -76,8 +77,8 @@ class SidePanel extends ConsumerWidget {
         const Divider(color: Colors.grey),
         ListTile(
           leading: const Icon(Icons.color_lens, color: Colors.white),
-          title: const Text("Floor plan / table settings",
-              style: TextStyle(color: Colors.white)),
+          title: Text(isService ? "Resource / room settings" : "Floor plan / table settings",
+              style: const TextStyle(color: Colors.white)),
           onTap: () {
             ref.read(floorPlanProvider.notifier).toggleEditMode(true);
             Navigator.pop(context);
@@ -90,7 +91,7 @@ class SidePanel extends ConsumerWidget {
   }
 
   Widget _buildRoomOptions(
-      BuildContext context, WidgetRef ref, int activePlanId) {
+      BuildContext context, WidgetRef ref, int activePlanId, bool isService) {
     final fpState = ref.watch(floorPlanProvider);
 
     return ListView(
@@ -125,8 +126,8 @@ class SidePanel extends ConsumerWidget {
                           isRound: false));
                 }
               },
-              child: const Text("Add table",
-                  style: TextStyle(color: Colors.white)),
+              child: Text(isService ? "Add room" : "Add table",
+                  style: const TextStyle(color: Colors.white)),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -138,7 +139,7 @@ class SidePanel extends ConsumerWidget {
                     builder: (ctx) {
                       String newName = "";
                       return AlertDialog(
-                          title: const Text("New Floor Plan"),
+                          title: Text(isService ? "New Resource Area" : "New Floor Plan"),
                           content: TextField(
                             onChanged: (v) => newName = v,
                             decoration: const InputDecoration(
@@ -161,8 +162,8 @@ class SidePanel extends ConsumerWidget {
                           ]);
                     });
               },
-              child: const Text("Add new floor plan",
-                  style: TextStyle(color: Colors.white)),
+              child: Text(isService ? "Add new resource area" : "Add new floor plan",
+                  style: const TextStyle(color: Colors.white)),
             ),
           ],
         )
@@ -170,7 +171,7 @@ class SidePanel extends ConsumerWidget {
     );
   }
 
-  Widget _buildTableEditor(BuildContext context, WidgetRef ref, int tableId) {
+  Widget _buildTableEditor(BuildContext context, WidgetRef ref, int tableId, bool isService) {
     final tablesAsync = ref.watch(tablesByFloorPlanProvider);
     final tables = tablesAsync.value;
     if (tables == null) return const SizedBox();
@@ -187,11 +188,11 @@ class SidePanel extends ConsumerWidget {
               backgroundColor: const Color(0xFF374151)),
           onPressed: () =>
               ref.read(floorPlanTableProvider.notifier).deleteTable(tableId),
-          child: const Text("Remove selected table",
-              style: TextStyle(color: Colors.redAccent)),
+          child: Text(isService ? "Remove selected room" : "Remove selected table",
+              style: const TextStyle(color: Colors.redAccent)),
         ),
         const SizedBox(height: 20),
-        Text("Table: ${table.name}",
+        Text("${isService ? 'Room' : 'Table'}: ${table.name}",
             style: const TextStyle(
                 color: Colors.white,
                 fontSize: 18,

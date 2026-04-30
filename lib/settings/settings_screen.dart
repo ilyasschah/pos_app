@@ -489,6 +489,11 @@ class _GeneralTab extends ConsumerWidget {
               label: 'Timezone',
               hint: 'e.g. UTC, Europe/Paris',
             ),
+            const _SettingDropdown(
+              settingKey: SettingKeys.industryMode,
+              label: 'Industry Mode',
+              options: ['FB', 'Service'],
+            ),
           ],
         ),
         _SettingsCard(

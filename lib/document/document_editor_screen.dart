@@ -1242,7 +1242,7 @@ class _ItemsView extends ConsumerWidget {
                       : Colors.grey[100],
                   alignment: Alignment.centerRight,
                   child: Text(
-                    "Items Base Total: $sym${total.toStringAsFixed(2)}",
+                    "Items Base Total: ${total.toStringAsFixed(2)} $sym",
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -1864,7 +1864,7 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                                   ),
                                 ),
                                 subtitle: Text(
-                                  "Tax Amount: $sym${t.amount.toStringAsFixed(4)}",
+                                  "Tax Amount: ${t.amount.toStringAsFixed(4)} $sym",
                                 ),
                                 trailing: IconButton(
                                   icon: Icon(
@@ -2215,7 +2215,7 @@ class _SummaryCard extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            "$sym${amount.toStringAsFixed(2)}",
+            "${amount.toStringAsFixed(2)} $sym",
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,

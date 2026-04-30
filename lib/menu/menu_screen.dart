@@ -9,7 +9,6 @@ import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 import 'package:pos_app/utils/status_helper.dart';
-import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/document/documents_screen.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/company/my_company_screen.dart';
@@ -38,6 +37,7 @@ import 'package:pos_app/currency/currencies_provider.dart';
 
 import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/promotions/promotions_list_screen.dart';
+import 'package:pos_app/bookings/bookings_screen.dart';
 import 'package:pos_app/product/product_comment_model.dart';
 import 'package:pos_app/product/product_comment_provider.dart';
 
@@ -55,10 +55,38 @@ class MenuScreen extends ConsumerWidget {
     Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
 
+  static IconData _serviceTypeIcon(int type, {String industryMode = 'FB'}) {
+    if (industryMode == 'Service') {
+      const icons = {0: Icons.event, 1: Icons.directions_walk};
+      return icons[type] ?? Icons.event;
+    }
+    const icons = {0: Icons.restaurant, 1: Icons.takeout_dining, 2: Icons.delivery_dining};
+    return icons[type] ?? Icons.restaurant;
+  }
+
+  static String _serviceTypeLabel(int type, {String industryMode = 'FB'}) {
+    if (industryMode == 'Service') {
+      const labels = {0: "Appointment", 1: "Walk-In"};
+      return labels[type] ?? "Appointment";
+    }
+    const labels = {0: "Dine In", 1: "Takeaway", 2: "Delivery"};
+    return labels[type] ?? "Dine In";
+  }
+
+  static Color _serviceTypeColor(int type) {
+    const colors = {0: Colors.indigo, 1: Colors.deepOrange, 2: Colors.green};
+    return colors[type] ?? Colors.indigo;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currentUser = ref.watch(currentUserProvider);
     final selectedCompany = ref.watch(selectedCompanyProvider);
+    final cartState = ref.watch(cartProvider);
+    final currentCustomer = ref.watch(currentCustomerProvider);
+    final asyncCustomers = ref.watch(allCustomersProvider);
+    final settings = ref.watch(appSettingsProvider);
+    final industryMode = settings[SettingKeys.industryMode] ?? 'FB';
 
     // ✨ Task 2: Auto-select Walk-In Customer if none selected
     ref.listen(allCustomersProvider, (previous, next) {
@@ -292,6 +320,255 @@ class MenuScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text("POS System"),
         actions: [
+          // --- Order Controls ---
+          SizedBox(
+            height: kToolbarHeight - 16,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  asyncCustomers.when(
+                    loading: () => const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                    error: (_, __) => const SizedBox.shrink(),
+                    data: (all) {
+                      final customers = all.where((c) => c.isCustomer).toList();
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.person, size: 15),
+                          label: Text(
+                            currentCustomer?.name ?? "Customer",
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          onPressed: () => showDialog(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text("Select Customer"),
+                              content: SizedBox(
+                                width: double.maxFinite,
+                                height: 300,
+                                child: ListView.separated(
+                                  itemCount: customers.length,
+                                  separatorBuilder: (_, __) => const Divider(),
+                                  itemBuilder: (ctx, i) {
+                                    final c = customers[i];
+                                    return ListTile(
+                                      leading: const Icon(Icons.person),
+                                      title: Text(c.name),
+                                      subtitle: Text(c.phoneNumber ?? c.email ?? ""),
+                                      onTap: () {
+                                        ref.read(currentCustomerProvider.notifier).setCustomer(c);
+                                        final companyId = ref.read(selectedCompanyProvider)?.id;
+                                        if (companyId != null) {
+                                          ref.read(cartProvider.notifier).setCustomer(companyId, c);
+                                        }
+                                        Navigator.pop(ctx);
+                                      },
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Theme.of(context).colorScheme.surface,
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ElevatedButton.icon(
+                      icon: Icon(_serviceTypeIcon(cartState.serviceType, industryMode: industryMode), size: 15),
+                      label: Text(_serviceTypeLabel(cartState.serviceType, industryMode: industryMode), style: const TextStyle(fontSize: 12)),
+                      onPressed: () async {
+                        final val = await showDialog<int>(
+                          context: context,
+                          builder: (context) {
+                            const typeColors = {0: Colors.indigo, 1: Colors.deepOrange, 2: Colors.green};
+                            final typeIcons = industryMode == 'Service'
+                                ? {0: Icons.event, 1: Icons.directions_walk}
+                                : {0: Icons.restaurant, 1: Icons.takeout_dining, 2: Icons.delivery_dining};
+                            final typeLabels = industryMode == 'Service'
+                                ? {0: "Appointment", 1: "Walk-In"}
+                                : {0: "Dine In", 1: "Takeaway", 2: "Delivery"};
+                            final availableTypes = industryMode == 'Service' ? [0, 1] : [0, 1, 2];
+                            return AlertDialog(
+                              title: Text(industryMode == 'Service' ? 'Select Booking Type' : 'Select Order Type'),
+                              contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                              content: SizedBox(
+                                width: 500,
+                                child: Row(
+                                  children: availableTypes.expand((type) => [
+                                    if (type > 0) const SizedBox(width: 12),
+                                    Expanded(
+                                      child: ElevatedButton(
+                                        onPressed: () => Navigator.pop(context, type),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: typeColors[type],
+                                          minimumSize: const Size(0, 100),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                                        ),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(typeIcons[type] ?? Icons.circle, color: Colors.white, size: 32),
+                                            const SizedBox(height: 10),
+                                            Text(
+                                              typeLabels[type]!,
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ]).toList(),
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                        if (val == null) return;
+                        if (val != 0) {
+                          // Takeaway / Delivery — clear any selected table
+                          ref.read(cartProvider.notifier).clearFloorPlanTable(val);
+                          // If no active order yet, create a tableless one now
+                          if (ref.read(cartProvider).activePosOrderId == null) {
+                            final companyId = ref.read(selectedCompanyProvider)?.id;
+                            final user = ref.read(currentUserProvider);
+                            if (companyId != null && user != null) {
+                              try {
+                                await ref.read(cartProvider.notifier).startTablelessOrder(
+                                  ApiClient(),
+                                  companyId,
+                                  user.id,
+                                  val,
+                                );
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Error creating order: $e'), backgroundColor: Colors.red),
+                                  );
+                                }
+                              }
+                            }
+                          }
+                        } else {
+                          // Dine In — just update type; table must be selected via Floor Plan
+                          ref.read(cartProvider.notifier).state =
+                              ref.read(cartProvider).copyWith(serviceType: val);
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _serviceTypeColor(cartState.serviceType),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ElevatedButton.icon(
+                      icon: Icon(ServiceStatusHelper.getIcon(cartState.serviceStatus), size: 15),
+                      label: Text(ServiceStatusHelper.getLabel(cartState.serviceStatus), style: const TextStyle(fontSize: 12)),
+                      onPressed: () {
+                        showDialog<int>(
+                          context: context,
+                          builder: (context) {
+                            const statusColors = {1: Colors.blue, 2: Colors.orange, 3: Colors.teal};
+                            final statusList = industryMode == 'Service' ? [1] : [1, 2, 3];
+                            return AlertDialog(
+                              title: const Text('Select Service Status'),
+                              contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                              content: SizedBox(
+                                width: 500,
+                                child: Row(
+                                  children: statusList.expand((status) => [
+                                    if (status > 1) const SizedBox(width: 12),
+                                    Expanded(
+                                      child: ElevatedButton(
+                                        onPressed: () => Navigator.pop(context, status),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: statusColors[status],
+                                          minimumSize: const Size(0, 100),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                                        ),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(ServiceStatusHelper.getIcon(status), color: Colors.white, size: 32),
+                                            const SizedBox(height: 10),
+                                            Text(
+                                              industryMode == 'Service' ? 'In Service' : ServiceStatusHelper.getLabel(status),
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ]).toList(),
+                                ),
+                              ),
+                            );
+                          },
+                        ).then((val) {
+                          if (val != null) {
+                            ref.read(cartProvider.notifier).state = cartState.copyWith(serviceStatus: val);
+                          }
+                        });
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: ServiceStatusHelper.getColor(cartState.serviceStatus),
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.percent, color: Colors.white),
+                    tooltip: "Discount",
+                    onPressed: () => showDialog(context: context, builder: (_) => const DiscountDialog()),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.receipt, color: Colors.white),
+                    tooltip: "Tax",
+                    onPressed: () {
+                      final selectedProductId = cartState.selectedProductId;
+                      if (selectedProductId == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text("Please select an item first"), backgroundColor: Colors.red),
+                        );
+                        return;
+                      }
+                      final item = cartState.items.firstWhere((i) => i.productId == selectedProductId);
+                      showDialog(context: context, builder: (_) => _ItemTaxDialog(item: item));
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
           if (ref.watch(activePromotionsProvider).isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(right: 8.0),
@@ -331,6 +608,7 @@ class MenuScreen extends ConsumerWidget {
             ),
 
           // --- Warehouse Switcher ---
+          if (industryMode != 'Service')
           Consumer(
             builder: (context, ref, child) {
               final selectedWarehouse = ref.watch(selectedWarehouseProvider);
@@ -392,37 +670,26 @@ class MenuScreen extends ConsumerWidget {
               ref.read(cartProvider.notifier).clearCart();
               Navigator.pushAndRemoveUntil(
                 context,
-                MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
+                MaterialPageRoute(
+                  builder: (_) => industryMode == 'Service'
+                      ? const BookingsScreen()
+                      : const FloorPlanScreen(),
+                ),
                 (route) => false,
               );
             },
-            icon: const Icon(Icons.grid_view, color: Colors.white),
-            label: const Text(
-              "Tables",
-              style: TextStyle(
+            icon: Icon(
+              industryMode == 'Service' ? Icons.calendar_month : Icons.grid_view,
+              color: Colors.white,
+            ),
+            label: Text(
+              industryMode == 'Service' ? "Bookings" : "Tables",
+              style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
               ),
             ),
-          ),
-          if (MediaQuery.of(context).size.width > 600)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Text(
-                  "User: ${currentUser?.displayName ?? 'Unknown'}",
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-              ),
-            ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.red),
-            tooltip: "Logout",
-            onPressed: () => _handleLogout(context, ref),
           ),
           const SizedBox(width: 8),
         ],
@@ -751,14 +1018,36 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
       onTap: () async {
         final cartState = ref.read(cartProvider);
         if (cartState.activePosOrderId == null) {
-          if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Please select a Table from the Floor Plan first!'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          return;
+          if (cartState.serviceType != 0) {
+            // Takeaway / Delivery — auto-create a tableless order on first tap
+            final companyId = ref.read(selectedCompanyProvider)?.id;
+            final user = ref.read(currentUserProvider);
+            if (companyId == null || user == null) return;
+            try {
+              await ref.read(cartProvider.notifier).startTablelessOrder(
+                ApiClient(),
+                companyId,
+                user.id,
+                cartState.serviceType,
+              );
+            } catch (e) {
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Error creating order: $e'), backgroundColor: Colors.red),
+              );
+              return;
+            }
+          } else {
+            // Dine In — a table must be selected from the Floor Plan first
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Please select a Table from the Floor Plan first!'),
+                backgroundColor: Colors.red,
+              ),
+            );
+            return;
+          }
         }
 
         // Step 2: Age restriction warning
@@ -895,19 +1184,32 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      product.name,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14,
-                      ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            product.name,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                        if (getActivePromotionCountForProduct(ref, product.id) > 0)
+                          const Padding(
+                            padding: EdgeInsets.only(left: 4),
+                            child: Icon(Icons.star, color: Colors.amber, size: 16),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      "$sym${product.price.toStringAsFixed(2)}",
+                      "${product.price.toStringAsFixed(2)} $sym",
                       style: TextStyle(
                         color: isDark ? Colors.greenAccent[400] : Colors.green[800],
                         fontWeight: FontWeight.w900,
@@ -1029,43 +1331,6 @@ class CartSection extends ConsumerStatefulWidget {
 }
 
 class _CartSectionState extends ConsumerState<CartSection> {
-  void _showCustomerDialog(
-    BuildContext context,
-    WidgetRef ref,
-    List<Customer> customers,
-  ) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Select Customer"),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 300,
-          child: ListView.separated(
-            itemCount: customers.length,
-            separatorBuilder: (_, __) => const Divider(),
-            itemBuilder: (ctx, i) {
-              final c = customers[i];
-              return ListTile(
-                leading: const Icon(Icons.person),
-                title: Text(c.name),
-                subtitle: Text(c.phoneNumber ?? c.email ?? ""),
-                onTap: () {
-                  ref.read(currentCustomerProvider.notifier).setCustomer(c);
-                  final companyId = ref.read(selectedCompanyProvider)?.id;
-                  if (companyId != null) {
-                    ref.read(cartProvider.notifier).setCustomer(companyId, c);
-                  }
-                  Navigator.pop(ctx);
-                },
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
   Future<void> _handleSave(BuildContext context, WidgetRef ref) async {
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
@@ -1203,8 +1468,6 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final cartState = ref.watch(cartProvider);
     final cartNotifier = ref.watch(cartProvider.notifier);
     final cartItems = cartState.items;
-    final currentCustomer = ref.watch(currentCustomerProvider);
-    final asyncCustomers = ref.watch(allCustomersProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final subtotal = cartNotifier.subtotal;
@@ -1247,164 +1510,6 @@ class _CartSectionState extends ConsumerState<CartSection> {
           ),
         ),
 
-        // Header actions wrapped for responsiveness
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          alignment: WrapAlignment.start,
-          children: [
-            asyncCustomers.when(
-              loading: () => const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              error: (_, __) => const Icon(Icons.error, color: Colors.red),
-              data: (all) {
-                final customers = all.where((c) => c.isCustomer).toList();
-                return ConstrainedBox(
-                  constraints: const BoxConstraints(minWidth: 120),
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.person, size: 16),
-                    label: Text(
-                      currentCustomer?.name ?? "Select Customer",
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onPressed: () =>
-                        _showCustomerDialog(context, ref, customers),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Theme.of(context).colorScheme.surface,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-            Builder(
-              builder: (context) {
-                final isSelected = List.generate(
-                  3,
-                  (i) => cartState.serviceType == i,
-                );
-                return ToggleButtons(
-                  isSelected: isSelected,
-                  onPressed: (index) {
-                    ref.read(cartProvider.notifier).state = cartState.copyWith(
-                      serviceType: index,
-                    );
-                  },
-                  borderRadius: BorderRadius.circular(8),
-                  selectedBorderColor: Colors.blueAccent,
-                  fillColor: Colors.blueAccent.withValues(alpha: 0.2),
-                  children: const [
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: Text("Dine In"),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: Text("Takeaway"),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: Text("Delivery"),
-                    ),
-                  ],
-                );
-              },
-            ),
-            ElevatedButton.icon(
-              icon: Icon(
-                ServiceStatusHelper.getIcon(cartState.serviceStatus),
-                size: 18,
-              ),
-              label: Text(
-                ServiceStatusHelper.getLabel(cartState.serviceStatus),
-              ),
-              onPressed: () {
-                showDialog<int>(
-                  context: context,
-                  builder: (context) => SimpleDialog(
-                    title: const Text('Select Service Status'),
-                    children: [1, 2, 3].map((status) {
-                      return SimpleDialogOption(
-                        onPressed: () => Navigator.pop(context, status),
-                        child: Row(
-                          children: [
-                            Icon(ServiceStatusHelper.getIcon(status), size: 18),
-                            const SizedBox(width: 8),
-                            Text(ServiceStatusHelper.getLabel(status)),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ).then((val) {
-                  if (val != null) {
-                    ref.read(cartProvider.notifier).state = cartState.copyWith(
-                      serviceStatus: val,
-                    );
-                  }
-                });
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: ServiceStatusHelper.getColor(
-                  cartState.serviceStatus,
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-              ),
-            ),
-          ],
-        ),
-
-        // Action Bar for Discount and Tax
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          color: Theme.of(context).colorScheme.surface,
-          child: Row(
-            children: [
-              TextButton.icon(
-                icon: const Icon(Icons.percent, size: 16),
-                label: const Text("Discount"),
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (_) => const DiscountDialog(),
-                  );
-                },
-              ),
-              TextButton.icon(
-                icon: const Icon(Icons.receipt, size: 16),
-                label: const Text("Tax"),
-                onPressed: () {
-                  final selectedProductId = cartState.selectedProductId;
-                  if (selectedProductId == null) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text("Please select an item first"),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-                  final item = cartState.items.firstWhere(
-                    (i) => i.productId == selectedProductId,
-                  );
-                  showDialog(
-                    context: context,
-                    builder: (_) => _ItemTaxDialog(item: item),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
         Expanded(
           child: cartItems.isEmpty
               ? Center(
@@ -1607,7 +1712,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                               if (item.discount > 0 ||
                                   item.promotionalDiscount > 0)
                                 Text(
-                                  "$sym${(item.price * item.quantity).toStringAsFixed(2)}",
+                                  "${(item.price * item.quantity).toStringAsFixed(2)} $sym",
                                   style: const TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey,
@@ -1615,7 +1720,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                                   ),
                                 ),
                               Text(
-                                "$sym${((item.price - item.discount - item.promotionalDiscount) * item.quantity).toStringAsFixed(2)}",
+                                "${((item.price - item.discount - item.promotionalDiscount) * item.quantity).toStringAsFixed(2)} $sym",
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.bold,
@@ -1666,7 +1771,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                 children: [
                   const Text("Subtotal", style: TextStyle(fontSize: 16)),
                   Text(
-                    "$sym${subtotal.toStringAsFixed(2)}",
+                    "${subtotal.toStringAsFixed(2)} $sym",
                     style: const TextStyle(fontSize: 16),
                   ),
                 ],
@@ -1682,7 +1787,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                         style: TextStyle(fontSize: 16, color: Colors.green),
                       ),
                       Text(
-                        "-$sym${discountTotal.toStringAsFixed(2)}",
+                        "-${discountTotal.toStringAsFixed(2)} $sym",
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.green,
@@ -1699,14 +1804,14 @@ class _CartSectionState extends ConsumerState<CartSection> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        "Customer Discount (${cartState.customerDiscountType == 0 ? '${cartState.customerDiscountValue?.toInt()}%' : '$sym${cartState.customerDiscountValue?.toStringAsFixed(2)}'})",
+                        "Customer Discount (${cartState.customerDiscountType == 0 ? '${cartState.customerDiscountValue?.toInt()}%' : '${cartState.customerDiscountValue?.toStringAsFixed(2)} $sym'})",
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.green,
                         ),
                       ),
                       Text(
-                        "-$sym${cartNotifier.customerDiscountAmount.toStringAsFixed(2)}",
+                        "-${cartNotifier.customerDiscountAmount.toStringAsFixed(2)} $sym",
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.green,
@@ -1726,7 +1831,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                         style: TextStyle(fontSize: 16, color: Colors.green),
                       ),
                       Text(
-                        "-$sym${cartNotifier.manualCartDiscountAmount.toStringAsFixed(2)}",
+                        "-${cartNotifier.manualCartDiscountAmount.toStringAsFixed(2)} $sym",
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.green,
@@ -1746,7 +1851,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                         style: TextStyle(fontSize: 16, color: Colors.amber),
                       ),
                       Text(
-                        "-$sym${cartNotifier.promotionalDiscountTotal.toStringAsFixed(2)}",
+                        "-${cartNotifier.promotionalDiscountTotal.toStringAsFixed(2)} $sym",
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.amber,
@@ -1761,7 +1866,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                 children: [
                   const Text("Taxes", style: TextStyle(fontSize: 16)),
                   Text(
-                    "$sym${taxTotal.toStringAsFixed(2)}",
+                    "${taxTotal.toStringAsFixed(2)} $sym",
                     style: const TextStyle(fontSize: 16),
                   ),
                 ],
@@ -1782,7 +1887,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                     ),
                   ),
                   Text(
-                    "$sym${grandTotal.toStringAsFixed(2)}",
+                    "${grandTotal.toStringAsFixed(2)} $sym",
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,

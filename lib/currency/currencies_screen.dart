@@ -108,17 +108,6 @@ class CurrenciesScreen extends ConsumerWidget {
                 child: ListTile(
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.indigo.withValues(alpha: 0.1),
-                    radius: 25,
-                    child: Text(
-                      currency.symbol, // Displays the cool symbol!
-                      style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.indigo),
-                    ),
-                  ),
                   title: Text(currency.name,
                       style: const TextStyle(
                           fontWeight: FontWeight.bold, fontSize: 16)),

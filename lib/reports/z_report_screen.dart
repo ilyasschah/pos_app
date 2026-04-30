@@ -107,15 +107,15 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
                     "#${report.fromDocumentId} to #${report.toDocumentId}"),
                 const Divider(),
                 _receiptRow(
-                    "Total Sales", "$sym${report.totalSales.toStringAsFixed(2)}"),
+                    "Total Sales", "${report.totalSales.toStringAsFixed(2)} $sym"),
                 _receiptRow("Total Returns",
-                    "$sym${report.totalReturns.toStringAsFixed(2)}"),
+                    "${report.totalReturns.toStringAsFixed(2)} $sym"),
                 _receiptRow("Discounts",
-                    "$sym${report.discountsGranted.toStringAsFixed(2)}"),
+                    "${report.discountsGranted.toStringAsFixed(2)} $sym"),
                 _receiptRow("Taxable Total",
-                    "$sym${report.taxableTotal.toStringAsFixed(2)}"),
+                    "${report.taxableTotal.toStringAsFixed(2)} $sym"),
                 _receiptRow(
-                    "Total Tax", "$sym${report.totalTax.toStringAsFixed(2)}"),
+                    "Total Tax", "${report.totalTax.toStringAsFixed(2)} $sym"),
                 const Divider(thickness: 2),
                 const SizedBox(height: 8),
                 const Text("TENDER TYPES",
@@ -128,10 +128,10 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
                       style: TextStyle(fontStyle: FontStyle.italic)),
                 ...report.paymentSummaries.map((p) => _receiptRow(
                     p.paymentTypeName ?? "Unknown",
-                    "$sym${p.totalAmount.toStringAsFixed(2)}")),
+                    "${p.totalAmount.toStringAsFixed(2)} $sym")),
                 const Divider(thickness: 2),
                 _receiptRow(
-                    "GRAND TOTAL", "$sym${report.grandTotal.toStringAsFixed(2)}",
+                    "GRAND TOTAL", "${report.grandTotal.toStringAsFixed(2)} $sym",
                     isBold: true),
               ],
             ),
@@ -396,7 +396,7 @@ class _ZReportHistoryTab extends ConsumerWidget {
                 title: Text(
                     "Z-Report generated on ${report.dateCreated.toIso8601String().split('T').first}"),
                 subtitle: Text(
-                    "Documents: #${report.fromDocumentId} - #${report.toDocumentId} | Grand Total: $sym${report.grandTotal.toStringAsFixed(2)}"),
+                    "Documents: #${report.fromDocumentId} - #${report.toDocumentId} | Grand Total: ${report.grandTotal.toStringAsFixed(2)} $sym"),
                 trailing: IconButton(
                   icon: const Icon(Icons.receipt_long, color: Colors.teal),
                   onPressed: () => onViewReceipt(report),

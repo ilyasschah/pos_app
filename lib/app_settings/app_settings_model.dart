@@ -94,6 +94,9 @@ class SettingKeys {
   // Menu Grid
   static const menuGridCols = 'Menu_Grid_Cols';
   static const menuGridRows = 'Menu_Grid_Rows';
+
+  // Industry
+  static const industryMode = 'App.IndustryMode';
 }
 
 const Map<String, String> kSettingDefaults = {
@@ -142,4 +145,5 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.themeAccentColor: '#FF5733',
   SettingKeys.menuGridCols: '4',
   SettingKeys.menuGridRows: '4',
+  SettingKeys.industryMode: 'FB',
 };

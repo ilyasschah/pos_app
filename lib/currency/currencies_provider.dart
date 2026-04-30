@@ -14,12 +14,6 @@ final currenciesProvider = FutureProvider<List<Currency>>((ref) async {
   }
 });
 
-/// Reads the stored currency code/symbol from app settings and converts it to
-/// a display symbol using the Currency model's symbol getter.
-/// Stored value may be a code (USD, EUR, MAD) or a legacy literal ($, €).
 final currencySymbolProvider = Provider<String>((ref) {
-  final stored =
-      ref.watch(appSettingsProvider)[SettingKeys.currencySymbol] ?? '\$';
-  final temp = Currency(id: 0, name: stored, code: stored);
-  return temp.symbol;
+  return ref.watch(appSettingsProvider)[SettingKeys.currencySymbol] ?? '\$';
 });

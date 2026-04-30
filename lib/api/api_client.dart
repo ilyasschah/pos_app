@@ -125,8 +125,8 @@ class ApiClient {
     int companyId,
     int userId,
     int serviceType,
-    int floorPlanTableId,
-    String tableName,
+    int? floorPlanTableId,
+    String orderLabel,
     int warehouseId,
   ) async {
     try {
@@ -135,7 +135,7 @@ class ApiClient {
         queryParameters: {'companyId': companyId},
         data: {
           "userId": userId,
-          "number": "ORD- $tableName",
+          "number": "ORD- $orderLabel",
           "discount": 0.0,
           "discountType": 0,
           "total": 0.0,
@@ -321,6 +321,65 @@ class ApiClient {
       return [];
     } on DioException catch (e) {
       throw Exception('Failed to fetch active orders: ${e.message}');
+    }
+  }
+
+  // --- Bookings ---
+  Future<List<dynamic>> getBookings(int companyId) async {
+    try {
+      final response = await _dio.get(
+        '/Bookings/GetAll',
+        queryParameters: {'companyId': companyId},
+      );
+      return response.data as List<dynamic>;
+    } catch (e) {
+      throw Exception('Failed to fetch bookings: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> createBooking(
+    int companyId,
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      final response = await _dio.post(
+        '/Bookings/Add',
+        queryParameters: {'companyId': companyId},
+        data: data,
+      );
+      return response.data as Map<String, dynamic>;
+    } catch (e) {
+      throw Exception('Failed to create booking: $e');
+    }
+  }
+
+  Future<bool> updateBookingStatus(
+    int companyId,
+    int bookingId,
+    int status, {
+    int? documentId,
+  }) async {
+    try {
+      final response = await _dio.patch(
+        '/Bookings/UpdateStatus',
+        queryParameters: {'companyId': companyId},
+        data: {'bookingId': bookingId, 'status': status, 'documentId': documentId},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      throw Exception('Failed to update booking status: $e');
+    }
+  }
+
+  Future<bool> deleteBooking(int companyId, int bookingId) async {
+    try {
+      final response = await _dio.delete(
+        '/Bookings/Delete',
+        queryParameters: {'id': bookingId, 'companyId': companyId},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      throw Exception('Failed to delete booking: $e');
     }
   }
 

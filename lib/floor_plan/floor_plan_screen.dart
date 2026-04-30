@@ -5,6 +5,8 @@ import 'package:pos_app/floor_plan/floor_plan_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'widgets/table_widget.dart';
 import 'widgets/side_panel.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
@@ -51,10 +53,13 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
     final userId = ref.watch(currentUserProvider)?.id ?? 0;
     final selectedWarehouse = ref.watch(selectedWarehouseProvider);
     final warehouseId = selectedWarehouse?.id ?? 1;
+    final settings = ref.watch(appSettingsProvider);
+    final industryMode = settings[SettingKeys.industryMode] ?? 'FB';
+    final isService = industryMode == 'Service';
 
     return Scaffold(
       backgroundColor: const Color(0xFF2C3E50),
-      endDrawer: const SidePanel(),
+      endDrawer: SidePanel(isService: isService),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1F2937),
         title: plansAsync.when(
@@ -63,9 +68,9 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
             height: 20,
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
-          error: (err, stack) => const Text("Error loading rooms"),
+          error: (err, stack) => Text(isService ? "Error loading resources" : "Error loading rooms"),
           data: (plans) {
-            if (plans.isEmpty) return const Text("No Floor Plans");
+            if (plans.isEmpty) return Text(isService ? "No Resources" : "No Floor Plans");
             if (fpState.activeFloorPlanId == null) {
               Future.microtask(() => ref
                   .read(floorPlanProvider.notifier)

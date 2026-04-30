@@ -316,7 +316,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
                   ),
                 ),
         ),
-        DataCell(Text("$sym${totalValue.toStringAsFixed(2)}")),
+        DataCell(Text("${totalValue.toStringAsFixed(2)} $sym")),
         DataCell(
           Row(
             children: [

@@ -87,7 +87,7 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Total Due: $sym${grandTotal.toStringAsFixed(2)}',
+            Text('Total Due: ${grandTotal.toStringAsFixed(2)} $sym',
                 style:
                     const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),

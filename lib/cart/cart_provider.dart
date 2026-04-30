@@ -218,6 +218,62 @@ class CartNotifier extends Notifier<CartState> {
     ref.read(currentCustomerProvider.notifier).setCustomer(customer);
   }
 
+  void clearFloorPlanTable(int newServiceType) {
+    state = CartState(
+      activePosOrderId: state.activePosOrderId,
+      items: state.items,
+      orderNumber: state.orderNumber,
+      isLoading: state.isLoading,
+      selectedCustomer: state.selectedCustomer,
+      selectedCustomerDiscount: state.selectedCustomerDiscount,
+      manualCartDiscount: state.manualCartDiscount,
+      manualCartDiscountType: state.manualCartDiscountType,
+      customerDiscountValue: state.customerDiscountValue,
+      customerDiscountType: state.customerDiscountType,
+      selectedProductId: state.selectedProductId,
+      serviceType: newServiceType,
+      serviceStatus: state.serviceStatus,
+      floorPlanTableId: null,
+      activeWarehouseId: state.activeWarehouseId,
+    );
+  }
+
+  Future<void> startTablelessOrder(
+    ApiClient apiClient,
+    int companyId,
+    int userId,
+    int serviceType,
+  ) async {
+    const labels = {0: "Dine In", 1: "Takeaway", 2: "Delivery"};
+    final label = labels[serviceType] ?? "Order";
+    state = state.copyWith(isLoading: true);
+    try {
+      final newOrderId = await apiClient.createPosOrder(
+        companyId,
+        userId,
+        serviceType,
+        null,
+        label,
+        effectiveWarehouseId,
+      );
+      state = CartState(
+        activePosOrderId: newOrderId,
+        serviceType: serviceType,
+        serviceStatus: 1,
+        floorPlanTableId: null,
+        orderNumber: "ORD- $label",
+        activeWarehouseId: effectiveWarehouseId,
+        selectedCustomer: state.selectedCustomer,
+        selectedCustomerDiscount: state.selectedCustomerDiscount,
+        customerDiscountValue: state.customerDiscountValue,
+        customerDiscountType: state.customerDiscountType,
+      );
+    } catch (e) {
+      state = state.copyWith(isLoading: false);
+      rethrow;
+    }
+  }
+
   void setWarehouseId(int warehouseId) {
     state = state.copyWith(activeWarehouseId: warehouseId);
     // Sync global provider
