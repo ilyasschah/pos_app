@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
 
 // 1. Synchronous Shared Preferences Provider (Initialized in main.dart)
 final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
@@ -8,27 +10,18 @@ final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
       'sharedPreferencesProvider must be overridden in main.dart');
 });
 
-// 2. Theme Mode Notifier
+// 2. Theme Mode Notifier — driven by appSettingsProvider (Theme_Mode key)
 class ThemeModeNotifier extends Notifier<ThemeMode> {
-  static const _themeKey = 'theme_mode';
-
   @override
   ThemeMode build() {
-    final prefs = ref.watch(sharedPreferencesProvider);
-    final isDark = prefs.getBool(_themeKey);
-    if (isDark == null) return ThemeMode.light; // Default to light mode
-    return isDark ? ThemeMode.dark : ThemeMode.light;
+    final settings = ref.watch(appSettingsProvider);
+    final mode = settings[SettingKeys.themeMode] ?? 'dark';
+    return mode == 'light' ? ThemeMode.light : ThemeMode.dark;
   }
 
   void toggleTheme() {
-    final prefs = ref.read(sharedPreferencesProvider);
-    if (state == ThemeMode.light) {
-      state = ThemeMode.dark;
-      prefs.setBool(_themeKey, true);
-    } else {
-      state = ThemeMode.light;
-      prefs.setBool(_themeKey, false);
-    }
+    final next = state == ThemeMode.light ? 'dark' : 'light';
+    ref.read(appSettingsProvider.notifier).set(SettingKeys.themeMode, next);
   }
 }
 

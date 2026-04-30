@@ -8,6 +8,7 @@ import 'package:pos_app/document/document_model.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
+import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/product/product_provider.dart';
 import 'package:pos_app/document/documents_screen.dart';
 import 'package:pos_app/document/document_item_tax_model.dart';
@@ -1030,6 +1031,7 @@ class _ItemsView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final sym = ref.watch(currencySymbolProvider);
     ref.listen<AsyncValue<List<DocumentItem>>>(
       documentItemsByDocIdProvider(documentId),
       (previous, next) {
@@ -1240,7 +1242,7 @@ class _ItemsView extends ConsumerWidget {
                       : Colors.grey[100],
                   alignment: Alignment.centerRight,
                   child: Text(
-                    "Items Base Total: \$${total.toStringAsFixed(2)}",
+                    "Items Base Total: $sym${total.toStringAsFixed(2)}",
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
@@ -1619,6 +1621,7 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final sym = ref.watch(currencySymbolProvider);
     final allTaxesAsync = ref.watch(allTaxesProvider);
     final itemTaxesAsync = ref.watch(documentItemTaxesProvider(widget.item.id));
 
@@ -1861,7 +1864,7 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                                   ),
                                 ),
                                 subtitle: Text(
-                                  "Tax Amount: \$${t.amount.toStringAsFixed(4)}",
+                                  "Tax Amount: $sym${t.amount.toStringAsFixed(4)}",
                                 ),
                                 trailing: IconButton(
                                   icon: Icon(
@@ -2187,7 +2190,7 @@ class _PaymentsView extends ConsumerWidget {
   }
 }
 
-class _SummaryCard extends StatelessWidget {
+class _SummaryCard extends ConsumerWidget {
   final String title;
   final double amount;
   final Color color;
@@ -2195,7 +2198,8 @@ class _SummaryCard extends StatelessWidget {
   const _SummaryCard(this.title, this.amount, this.color);
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sym = ref.watch(currencySymbolProvider);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       decoration: BoxDecoration(
@@ -2211,7 +2215,7 @@ class _SummaryCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            "\$${amount.toStringAsFixed(2)}",
+            "$sym${amount.toStringAsFixed(2)}",
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.bold,

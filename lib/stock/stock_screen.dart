@@ -6,6 +6,7 @@ import 'package:pos_app/stock/warehouse_provider.dart';
 import 'package:pos_app/stock/stock_model.dart';
 import 'package:pos_app/product/product_provider.dart';
 import 'package:pos_app/product/product_model.dart';
+import 'package:pos_app/currency/currencies_provider.dart';
 
 // --- MODELS ---
 class StockMasterItem {
@@ -104,6 +105,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
     final asyncMaster = ref.watch(stockMasterProvider);
     final asyncWarehouses = ref.watch(allWarehousesProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sym = ref.watch(currencySymbolProvider);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -228,7 +230,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
                                 DataColumn(label: Text("Value (Total)")),
                                 DataColumn(label: Text("Actions")),
                               ],
-                              rows: filtered.map((item) => _buildRow(context, item)).toList(),
+                              rows: filtered.map((item) => _buildRow(context, item, sym)).toList(),
                             ),
                           ),
                         ),
@@ -259,7 +261,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
     );
   }
 
-  DataRow _buildRow(BuildContext context, StockMasterItem item) {
+  DataRow _buildRow(BuildContext context, StockMasterItem item, String sym) {
     final product = item.product;
     final stocks = _selectedWarehouseId == null
         ? item.stocks
@@ -314,7 +316,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
                   ),
                 ),
         ),
-        DataCell(Text("\$${totalValue.toStringAsFixed(2)}")),
+        DataCell(Text("$sym${totalValue.toStringAsFixed(2)}")),
         DataCell(
           Row(
             children: [

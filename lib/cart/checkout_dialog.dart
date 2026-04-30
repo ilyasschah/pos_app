@@ -6,6 +6,7 @@ import 'package:pos_app/cart/payment_type_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_screen.dart';
+import 'package:pos_app/currency/currencies_provider.dart';
 
 class CheckoutDialog extends ConsumerStatefulWidget {
   const CheckoutDialog({Key? key}) : super(key: key);
@@ -77,6 +78,7 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
   Widget build(BuildContext context) {
     final grandTotal = ref.watch(cartTotalProvider);
     final paymentTypesAsync = ref.watch(allPaymentTypesProvider);
+    final sym = ref.watch(currencySymbolProvider);
 
     return AlertDialog(
       title: const Text('Checkout'),
@@ -85,7 +87,7 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Total Due: \$${grandTotal.toStringAsFixed(2)}',
+            Text('Total Due: $sym${grandTotal.toStringAsFixed(2)}',
                 style:
                     const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),

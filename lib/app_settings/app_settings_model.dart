@@ -86,6 +86,14 @@ class SettingKeys {
   static const scaleEnabled = 'Scale.Enabled';
   static const scalePort = 'Scale.Port';
   static const scaleBaudRate = 'Scale.BaudRate';
+
+  // Appearance
+  static const themeMode = 'Theme_Mode';
+  static const themeAccentColor = 'Theme_AccentColor';
+
+  // Menu Grid
+  static const menuGridCols = 'Menu_Grid_Cols';
+  static const menuGridRows = 'Menu_Grid_Rows';
 }
 
 const Map<String, String> kSettingDefaults = {
@@ -130,4 +138,8 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.scaleEnabled: 'false',
   SettingKeys.scalePort: 'COM2',
   SettingKeys.scaleBaudRate: '9600',
+  SettingKeys.themeMode: 'dark',
+  SettingKeys.themeAccentColor: '#FF5733',
+  SettingKeys.menuGridCols: '4',
+  SettingKeys.menuGridRows: '4',
 };

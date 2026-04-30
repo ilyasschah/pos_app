@@ -6,6 +6,7 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/document/document_model.dart';
 import 'package:pos_app/document/document_editor_screen.dart';
+import 'package:pos_app/currency/currencies_provider.dart';
 
 // --- PROVIDERS ---
 final allDocumentsProvider = FutureProvider.autoDispose<List<Document>>((
@@ -452,6 +453,7 @@ class _DocumentTable extends ConsumerWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final columnsVisibility = ref.watch(documentVisibleColumnsProvider);
+    final sym = ref.watch(currencySymbolProvider);
 
     if (documents.isEmpty) {
       return Center(
@@ -497,7 +499,7 @@ class _DocumentTable extends ConsumerWidget {
               columns: _buildColumns(columnsVisibility, theme),
               rows: documents.map((d) {
                 return DataRow(
-                  cells: _buildCells(context, ref, d, columnsVisibility, theme),
+                  cells: _buildCells(context, ref, d, columnsVisibility, theme, sym),
                 );
               }).toList(),
             ),
@@ -566,6 +568,7 @@ class _DocumentTable extends ConsumerWidget {
     Document d,
     Map<String, bool> visibility,
     ThemeData theme,
+    String sym,
   ) {
     final List<DataCell> cells = [];
     if (visibility['ID'] == true) {
@@ -625,7 +628,7 @@ class _DocumentTable extends ConsumerWidget {
       cells.add(
         DataCell(
           Text(
-            "\$${d.total.toStringAsFixed(2)}",
+            "$sym${d.total.toStringAsFixed(2)}",
             style: TextStyle(
               fontWeight: FontWeight.w900,
               color: theme.colorScheme.primary,

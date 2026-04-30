@@ -32,6 +32,9 @@ import 'package:pos_app/cart/checkout_dialog.dart';
 import 'package:pos_app/settings/settings_screen.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/tax/tax_provider.dart';
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:pos_app/currency/currencies_provider.dart';
 
 import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/promotions/promotions_list_screen.dart';
@@ -461,16 +464,31 @@ class MenuScreen extends ConsumerWidget {
   }
 }
 
-class BrowserSection extends ConsumerWidget {
+class BrowserSection extends ConsumerStatefulWidget {
   const BrowserSection({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<BrowserSection> createState() => _BrowserSectionState();
+}
+
+class _BrowserSectionState extends ConsumerState<BrowserSection> {
+  int _currentPage = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen(currentGroupProvider, (_, __) {
+      if (mounted) setState(() => _currentPage = 0);
+    });
+    ref.listen(searchQueryProvider, (_, __) {
+      if (mounted) setState(() => _currentPage = 0);
+    });
+
     final asyncGroups = ref.watch(allProductGroupsProvider);
     final asyncProducts = ref.watch(allProductsListProvider);
     final currentGroup = ref.watch(currentGroupProvider);
     final searchQuery = ref.watch(searchQueryProvider);
     final selectedCompany = ref.watch(selectedCompanyProvider);
+    final settings = ref.watch(appSettingsProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (selectedCompany == null)
@@ -504,6 +522,17 @@ class BrowserSection extends ConsumerWidget {
           .toList();
       itemsToDisplay = [...visibleGroups, ...visibleProducts];
     }
+
+    final cols = int.tryParse(settings[SettingKeys.menuGridCols] ?? '4') ?? 4;
+    final rows = int.tryParse(settings[SettingKeys.menuGridRows] ?? '4') ?? 4;
+    final itemsPerPage = cols * rows;
+    final totalPages = itemsToDisplay.isEmpty
+        ? 1
+        : ((itemsToDisplay.length + itemsPerPage - 1) ~/ itemsPerPage);
+    final safePage = _currentPage.clamp(0, totalPages - 1);
+    final pageStart = safePage * itemsPerPage;
+    final pageEnd = (pageStart + itemsPerPage).clamp(0, itemsToDisplay.length);
+    final pageItems = itemsToDisplay.sublist(pageStart, pageEnd);
 
     return Column(
       children: [
@@ -583,34 +612,32 @@ class BrowserSection extends ConsumerWidget {
                     ),
                   ),
                 )
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    // Dynamic crossAxisCount: aim for ~180px per item
-                    final crossAxisCount = (constraints.maxWidth / 180)
-                        .floor()
-                        .clamp(2, 10);
-
-                    return GridView.builder(
-                      padding: const EdgeInsets.all(16),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: crossAxisCount,
-                        childAspectRatio:
-                            0.85, // Slightly taller for better text visibility
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                      ),
-                      itemCount: itemsToDisplay.length,
-                      itemBuilder: (context, index) {
-                        final item = itemsToDisplay[index];
-                        if (item is ProductGroup)
-                          return _buildGroupCard(context, ref, item);
-                        if (item is Product)
-                          return _buildProductCard(context, ref, item);
-                        return const SizedBox();
-                      },
-                    );
+              : GridView.builder(
+                  padding: const EdgeInsets.all(16),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: cols,
+                    childAspectRatio: 0.85,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                  ),
+                  itemCount: pageItems.length,
+                  itemBuilder: (context, index) {
+                    final item = pageItems[index];
+                    if (item is ProductGroup)
+                      return _buildGroupCard(context, ref, item);
+                    if (item is Product)
+                      return _buildProductCard(context, ref, item);
+                    return const SizedBox();
                   },
                 ),
+        ),
+        _PaginationBar(
+          currentPage: safePage,
+          totalPages: totalPages,
+          onFirst: () => setState(() => _currentPage = 0),
+          onPrevious: () => setState(() => _currentPage = safePage - 1),
+          onNext: () => setState(() => _currentPage = safePage + 1),
+          onLast: () => setState(() => _currentPage = totalPages - 1),
         ),
       ],
     );
@@ -718,6 +745,7 @@ class BrowserSection extends ConsumerWidget {
     Product product,
   ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sym = ref.watch(currencySymbolProvider);
 
     return InkWell(
       onTap: () async {
@@ -879,7 +907,7 @@ class BrowserSection extends ConsumerWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      "\$${product.price.toStringAsFixed(2)}",
+                      "$sym${product.price.toStringAsFixed(2)}",
                       style: TextStyle(
                         color: isDark ? Colors.greenAccent[400] : Colors.green[800],
                         fontWeight: FontWeight.w900,
@@ -891,6 +919,102 @@ class BrowserSection extends ConsumerWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAGINATION BAR
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _PaginationBar extends StatelessWidget {
+  final int currentPage;
+  final int totalPages;
+  final VoidCallback onFirst;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
+  final VoidCallback onLast;
+
+  const _PaginationBar({
+    required this.currentPage,
+    required this.totalPages,
+    required this.onFirst,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onLast,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isFirst = currentPage == 0;
+    final isLast = currentPage >= totalPages - 1;
+
+    return Container(
+      height: 48,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(
+          top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2)),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _NavButton(label: '<<', tooltip: 'First', onTap: isFirst ? null : onFirst),
+          _NavButton(label: '<', tooltip: 'Previous', onTap: isFirst ? null : onPrevious),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Text(
+              'Page ${currentPage + 1} of $totalPages',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ),
+          _NavButton(label: '>', tooltip: 'Next', onTap: isLast ? null : onNext),
+          _NavButton(label: '>>', tooltip: 'Last', onTap: isLast ? null : onLast),
+        ],
+      ),
+    );
+  }
+}
+
+class _NavButton extends StatelessWidget {
+  final String label;
+  final String tooltip;
+  final VoidCallback? onTap;
+
+  const _NavButton({
+    required this.label,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final enabled = onTap != null;
+
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: enabled ? theme.colorScheme.primary : theme.disabledColor,
+            ),
+          ),
         ),
       ),
     );
@@ -1087,6 +1211,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final discountTotal = cartNotifier.discountTotal;
     final taxTotal = cartNotifier.taxTotal;
     final grandTotal = cartNotifier.grandTotal;
+    final sym = ref.watch(currencySymbolProvider);
 
     return Column(
       children: [
@@ -1482,7 +1607,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                               if (item.discount > 0 ||
                                   item.promotionalDiscount > 0)
                                 Text(
-                                  "\$${(item.price * item.quantity).toStringAsFixed(2)}",
+                                  "$sym${(item.price * item.quantity).toStringAsFixed(2)}",
                                   style: const TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey,
@@ -1490,7 +1615,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                                   ),
                                 ),
                               Text(
-                                "\$${((item.price - item.discount - item.promotionalDiscount) * item.quantity).toStringAsFixed(2)}",
+                                "$sym${((item.price - item.discount - item.promotionalDiscount) * item.quantity).toStringAsFixed(2)}",
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.bold,
@@ -1541,7 +1666,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                 children: [
                   const Text("Subtotal", style: TextStyle(fontSize: 16)),
                   Text(
-                    "\$${subtotal.toStringAsFixed(2)}",
+                    "$sym${subtotal.toStringAsFixed(2)}",
                     style: const TextStyle(fontSize: 16),
                   ),
                 ],
@@ -1557,7 +1682,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                         style: TextStyle(fontSize: 16, color: Colors.green),
                       ),
                       Text(
-                        "-\$${discountTotal.toStringAsFixed(2)}",
+                        "-$sym${discountTotal.toStringAsFixed(2)}",
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.green,
@@ -1574,14 +1699,14 @@ class _CartSectionState extends ConsumerState<CartSection> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        "Customer Discount (${cartState.customerDiscountType == 0 ? '${cartState.customerDiscountValue?.toInt()}%' : '\$${cartState.customerDiscountValue?.toStringAsFixed(2)}'})",
+                        "Customer Discount (${cartState.customerDiscountType == 0 ? '${cartState.customerDiscountValue?.toInt()}%' : '$sym${cartState.customerDiscountValue?.toStringAsFixed(2)}'})",
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.green,
                         ),
                       ),
                       Text(
-                        "-\$${cartNotifier.customerDiscountAmount.toStringAsFixed(2)}",
+                        "-$sym${cartNotifier.customerDiscountAmount.toStringAsFixed(2)}",
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.green,
@@ -1601,7 +1726,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                         style: TextStyle(fontSize: 16, color: Colors.green),
                       ),
                       Text(
-                        "-\$${cartNotifier.manualCartDiscountAmount.toStringAsFixed(2)}",
+                        "-$sym${cartNotifier.manualCartDiscountAmount.toStringAsFixed(2)}",
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.green,
@@ -1621,7 +1746,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                         style: TextStyle(fontSize: 16, color: Colors.amber),
                       ),
                       Text(
-                        "-\$${cartNotifier.promotionalDiscountTotal.toStringAsFixed(2)}",
+                        "-$sym${cartNotifier.promotionalDiscountTotal.toStringAsFixed(2)}",
                         style: const TextStyle(
                           fontSize: 16,
                           color: Colors.amber,
@@ -1636,7 +1761,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                 children: [
                   const Text("Taxes", style: TextStyle(fontSize: 16)),
                   Text(
-                    "\$${taxTotal.toStringAsFixed(2)}",
+                    "$sym${taxTotal.toStringAsFixed(2)}",
                     style: const TextStyle(fontSize: 16),
                   ),
                 ],
@@ -1657,7 +1782,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                     ),
                   ),
                   Text(
-                    "\$${grandTotal.toStringAsFixed(2)}",
+                    "$sym${grandTotal.toStringAsFixed(2)}",
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,

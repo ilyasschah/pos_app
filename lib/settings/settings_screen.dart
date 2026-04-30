@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:pos_app/currency/currencies_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ENTRY POINT
@@ -374,6 +375,73 @@ class _SettingDropdown extends ConsumerWidget {
   }
 }
 
+// Currency picker — loads from /Currencies/GetAll and saves code to settings
+class _CurrencyDropdown extends ConsumerWidget {
+  const _CurrencyDropdown();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final currenciesAsync = ref.watch(currenciesProvider);
+    final storedValue =
+        ref.watch(appSettingsProvider)[SettingKeys.currencySymbol] ?? '';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: currenciesAsync.when(
+        loading: () => const Row(
+          children: [
+            SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 12),
+            Text('Loading currencies…'),
+          ],
+        ),
+        error: (_, __) => const Text(
+          'Could not load currencies',
+          style: TextStyle(color: Colors.red),
+        ),
+        data: (currencies) {
+          if (currencies.isEmpty) return const SizedBox.shrink();
+
+          final keys = currencies.map((c) => c.code ?? c.name).toList();
+          final safeValue = keys.contains(storedValue) ? storedValue : keys.first;
+
+          return DropdownButtonFormField<String>(
+            initialValue: safeValue,
+            decoration: InputDecoration(
+              labelText: 'Currency',
+              filled: true,
+              fillColor: theme.colorScheme.surface,
+              border: const OutlineInputBorder(),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              isDense: true,
+            ),
+            dropdownColor: theme.colorScheme.surfaceContainerHighest,
+            items: currencies.map((c) {
+              final key = c.code ?? c.name;
+              final label =
+                  c.code != null ? '${c.name} (${c.code})' : c.name;
+              return DropdownMenuItem<String>(value: key, child: Text(label));
+            }).toList(),
+            onChanged: (val) {
+              if (val != null) {
+                ref
+                    .read(appSettingsProvider.notifier)
+                    .set(SettingKeys.currencySymbol, val);
+              }
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TAB IMPLEMENTATIONS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -405,11 +473,7 @@ class _GeneralTab extends ConsumerWidget {
         _SettingsCard(
           title: 'REGIONAL',
           children: [
-            const _SettingTextField(
-              settingKey: SettingKeys.currencySymbol,
-              label: 'Currency Symbol',
-              hint: 'e.g.  \$  €  £',
-            ),
+            const _CurrencyDropdown(),
             const _SettingDropdown(
               settingKey: SettingKeys.language,
               label: 'Language',
@@ -435,6 +499,21 @@ class _GeneralTab extends ConsumerWidget {
               label: 'Tax Included in Price by Default',
               subtitle:
                   'All new products will default to tax-inclusive pricing',
+            ),
+          ],
+        ),
+        _SettingsCard(
+          title: 'APPEARANCE',
+          children: const [
+            _SettingDropdown(
+              settingKey: SettingKeys.themeMode,
+              label: 'Theme Mode',
+              options: ['dark', 'light'],
+            ),
+            _SettingTextField(
+              settingKey: SettingKeys.themeAccentColor,
+              label: 'Accent Color',
+              hint: 'e.g. #FF5733',
             ),
           ],
         ),
@@ -535,6 +614,21 @@ class _ProductsTab extends ConsumerWidget {
               settingKey: SettingKeys.barcodeFormat,
               label: 'Default Barcode Format',
               options: ['EAN-13', 'EAN-8', 'UPC-A', 'Code128', 'QR'],
+            ),
+          ],
+        ),
+        _SettingsCard(
+          title: 'MENU GRID',
+          children: const [
+            _SettingDropdown(
+              settingKey: SettingKeys.menuGridCols,
+              label: 'Columns',
+              options: ['4', '5'],
+            ),
+            _SettingDropdown(
+              settingKey: SettingKeys.menuGridRows,
+              label: 'Rows',
+              options: ['3', '4', '5'],
             ),
           ],
         ),

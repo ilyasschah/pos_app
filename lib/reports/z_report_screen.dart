@@ -7,6 +7,7 @@ import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/cart/payment_provider.dart';
 import 'package:pos_app/reports/z_report_model.dart';
 import 'package:pos_app/reports/z_report_provider.dart';
+import 'package:pos_app/currency/currencies_provider.dart';
 
 class EndOfDayScreen extends ConsumerStatefulWidget {
   const EndOfDayScreen({super.key});
@@ -77,6 +78,7 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
   }
 
   void _showReceiptDialog(ZReportModel report) {
+    final sym = ref.read(currencySymbolProvider);
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -105,15 +107,15 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
                     "#${report.fromDocumentId} to #${report.toDocumentId}"),
                 const Divider(),
                 _receiptRow(
-                    "Total Sales", "\$${report.totalSales.toStringAsFixed(2)}"),
+                    "Total Sales", "$sym${report.totalSales.toStringAsFixed(2)}"),
                 _receiptRow("Total Returns",
-                    "\$${report.totalReturns.toStringAsFixed(2)}"),
+                    "$sym${report.totalReturns.toStringAsFixed(2)}"),
                 _receiptRow("Discounts",
-                    "\$${report.discountsGranted.toStringAsFixed(2)}"),
+                    "$sym${report.discountsGranted.toStringAsFixed(2)}"),
                 _receiptRow("Taxable Total",
-                    "\$${report.taxableTotal.toStringAsFixed(2)}"),
+                    "$sym${report.taxableTotal.toStringAsFixed(2)}"),
                 _receiptRow(
-                    "Total Tax", "\$${report.totalTax.toStringAsFixed(2)}"),
+                    "Total Tax", "$sym${report.totalTax.toStringAsFixed(2)}"),
                 const Divider(thickness: 2),
                 const SizedBox(height: 8),
                 const Text("TENDER TYPES",
@@ -126,10 +128,10 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
                       style: TextStyle(fontStyle: FontStyle.italic)),
                 ...report.paymentSummaries.map((p) => _receiptRow(
                     p.paymentTypeName ?? "Unknown",
-                    "\$${p.totalAmount.toStringAsFixed(2)}")),
+                    "$sym${p.totalAmount.toStringAsFixed(2)}")),
                 const Divider(thickness: 2),
                 _receiptRow(
-                    "GRAND TOTAL", "\$${report.grandTotal.toStringAsFixed(2)}",
+                    "GRAND TOTAL", "$sym${report.grandTotal.toStringAsFixed(2)}",
                     isBold: true),
               ],
             ),
@@ -367,6 +369,7 @@ class _ZReportHistoryTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final sym = ref.watch(currencySymbolProvider);
     final asyncReports = ref.watch(allZReportsProvider);
 
     return asyncReports.when(
@@ -393,7 +396,7 @@ class _ZReportHistoryTab extends ConsumerWidget {
                 title: Text(
                     "Z-Report generated on ${report.dateCreated.toIso8601String().split('T').first}"),
                 subtitle: Text(
-                    "Documents: #${report.fromDocumentId} - #${report.toDocumentId} | Grand Total: \$${report.grandTotal.toStringAsFixed(2)}"),
+                    "Documents: #${report.fromDocumentId} - #${report.toDocumentId} | Grand Total: $sym${report.grandTotal.toStringAsFixed(2)}"),
                 trailing: IconButton(
                   icon: const Icon(Icons.receipt_long, color: Colors.teal),
                   onPressed: () => onViewReceipt(report),

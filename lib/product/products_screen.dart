@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/product/product_group_provider.dart';
+import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/product/product_model.dart';
 import 'package:pos_app/product/product_group_model.dart';
 import 'package:pos_app/product/product_provider.dart';
@@ -282,6 +283,7 @@ class _ProductListContent extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final sym = ref.watch(currencySymbolProvider);
     final asyncProducts = ref.watch(productsByGroupProvider);
     final groups = ref.watch(allProductGroupsProvider).value ?? [];
 
@@ -364,11 +366,11 @@ class _ProductListContent extends ConsumerWidget {
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold)),
                         )),
-                        DataCell(Text("\$${p.price.toStringAsFixed(2)}",
+                        DataCell(Text("$sym${p.price.toStringAsFixed(2)}",
                             style: const TextStyle(
                                 color: Colors.green,
                                 fontWeight: FontWeight.bold))),
-                        DataCell(Text("\$${p.cost.toStringAsFixed(2)}",
+                        DataCell(Text("$sym${p.cost.toStringAsFixed(2)}",
                             style: const TextStyle(color: Colors.redAccent))),
                         DataCell(Row(
                           mainAxisSize: MainAxisSize.min,
