@@ -497,6 +497,26 @@ class _GeneralTab extends ConsumerWidget {
           ],
         ),
         _SettingsCard(
+          title: 'FEATURES',
+          children: const [
+            _SettingSwitch(
+              settingKey: SettingKeys.featureFloorPlanEnabled,
+              label: 'Enable Floor Plan / Tables',
+              subtitle: 'Show the Tables button in the POS and allow floor plan navigation',
+            ),
+            _SettingSwitch(
+              settingKey: SettingKeys.featureBookingEnabled,
+              label: 'Enable Bookings / Calendar',
+              subtitle: 'Show the Bookings button in the POS and allow calendar navigation',
+            ),
+            _SettingTextField(
+              settingKey: SettingKeys.tablesButtonLabel,
+              label: 'Tables Button Label',
+              hint: 'e.g. Tables, Rooms, Resources',
+            ),
+          ],
+        ),
+        _SettingsCard(
           title: 'TAX',
           children: [
             const _SettingSwitch(

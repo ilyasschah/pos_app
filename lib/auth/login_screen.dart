@@ -7,6 +7,9 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/company/company_model.dart';
 import 'package:pos_app/settings/settings_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_screen.dart';
+import 'package:pos_app/bookings/bookings_screen.dart';
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -107,8 +110,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     return InkWell(
       onTap: () {
         ref.read(currentUserProvider.notifier).state = user;
+        final settings = ref.read(appSettingsProvider);
+        final industryMode = settings[SettingKeys.industryMode] ?? 'FB';
+        final destination = industryMode == 'Service'
+            ? const BookingsScreen()
+            : const FloorPlanScreen();
         Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => const FloorPlanScreen()));
+            MaterialPageRoute(builder: (context) => destination));
       },
       child: Card(
         elevation: 4,

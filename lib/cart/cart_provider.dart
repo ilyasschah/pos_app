@@ -22,10 +22,12 @@ class CartState {
   final double? customerDiscountValue;
   final int? customerDiscountType;
   final int? selectedProductId;
-  final int serviceType; // 0 for Dine In, 1 for Takeaway
+  final int serviceType; // 0 for Dine In / Appointment, 1 for Takeaway / Walk-In
   final int serviceStatus; // 1 for Active, etc.
   final int? floorPlanTableId;
   final int? activeWarehouseId;
+  final int? bookingId;
+  final int? bookingStaffId;
 
   CartState({
     this.activePosOrderId,
@@ -43,6 +45,8 @@ class CartState {
     this.serviceStatus = 1,
     this.floorPlanTableId,
     this.activeWarehouseId,
+    this.bookingId,
+    this.bookingStaffId,
   });
 
   CartState copyWith({
@@ -61,6 +65,8 @@ class CartState {
     int? serviceStatus,
     int? floorPlanTableId,
     int? activeWarehouseId,
+    int? bookingId,
+    int? bookingStaffId,
   }) {
     return CartState(
       activePosOrderId: activePosOrderId ?? this.activePosOrderId,
@@ -81,6 +87,8 @@ class CartState {
       serviceStatus: serviceStatus ?? this.serviceStatus,
       floorPlanTableId: floorPlanTableId ?? this.floorPlanTableId,
       activeWarehouseId: activeWarehouseId ?? this.activeWarehouseId,
+      bookingId: bookingId ?? this.bookingId,
+      bookingStaffId: bookingStaffId ?? this.bookingStaffId,
     );
   }
 }
@@ -267,6 +275,42 @@ class CartNotifier extends Notifier<CartState> {
         selectedCustomerDiscount: state.selectedCustomerDiscount,
         customerDiscountValue: state.customerDiscountValue,
         customerDiscountType: state.customerDiscountType,
+      );
+    } catch (e) {
+      state = state.copyWith(isLoading: false);
+      rethrow;
+    }
+  }
+
+  Future<void> startBookingOrder(
+    ApiClient apiClient,
+    int companyId,
+    int userId,
+    int bookingId,
+    String guestName, {
+    int? staffUserId,
+    int? floorPlanTableId,
+  }) async {
+    state = state.copyWith(isLoading: true);
+    try {
+      final newOrderId = await apiClient.createPosOrder(
+        companyId,
+        userId,
+        0, // Appointment
+        null,
+        guestName,
+        effectiveWarehouseId,
+        bookingId: bookingId,
+      );
+      state = CartState(
+        activePosOrderId: newOrderId,
+        serviceType: 0,
+        serviceStatus: 1,
+        floorPlanTableId: floorPlanTableId,
+        orderNumber: 'APT- $guestName',
+        activeWarehouseId: effectiveWarehouseId,
+        bookingId: bookingId,
+        bookingStaffId: staffUserId,
       );
     } catch (e) {
       state = state.copyWith(isLoading: false);
@@ -714,6 +758,15 @@ class CartNotifier extends Notifier<CartState> {
       );
 
       if (success) {
+        // Auto-complete any linked booking
+        if (state.bookingId != null) {
+          try {
+            await apiClient.updateBookingStatus(
+                companyId, state.bookingId!, 4);
+          } catch (_) {
+            // Non-fatal: payment succeeded, booking status update failure is acceptable
+          }
+        }
         clearCart();
         return true;
       }

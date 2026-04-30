@@ -127,8 +127,9 @@ class ApiClient {
     int serviceType,
     int? floorPlanTableId,
     String orderLabel,
-    int warehouseId,
-  ) async {
+    int warehouseId, {
+    int? bookingId,
+  }) async {
     try {
       final response = await _dio.post(
         '/PosOrder/Create',
@@ -144,7 +145,7 @@ class ApiClient {
           "serviceStatus": 1,
           "floorPlanTableId": floorPlanTableId,
           "warehouseId": warehouseId,
-          "bookingId": null,
+          "bookingId": bookingId,
         },
       );
 
@@ -368,6 +369,28 @@ class ApiClient {
       return response.statusCode == 200;
     } catch (e) {
       throw Exception('Failed to update booking status: $e');
+    }
+  }
+
+  Future<bool> updateBookingResource(
+    int companyId,
+    int bookingId, {
+    int? userId,
+    int? floorPlanTableId,
+  }) async {
+    try {
+      final response = await _dio.patch(
+        '/Bookings/UpdateResource',
+        queryParameters: {'companyId': companyId},
+        data: {
+          'bookingId': bookingId,
+          'userId': userId,
+          'floorPlanTableId': floorPlanTableId,
+        },
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      throw Exception('Failed to update booking resource: $e');
     }
   }
 

@@ -38,6 +38,9 @@ import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/promotions/promotions_list_screen.dart';
 import 'package:pos_app/bookings/bookings_screen.dart';
+import 'package:pos_app/bookings/bookings_provider.dart';
+import 'package:pos_app/floor_plan/floor_plan_table.dart';
+import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/product/product_comment_model.dart';
 import 'package:pos_app/product/product_comment_provider.dart';
 
@@ -55,29 +58,6 @@ class MenuScreen extends ConsumerWidget {
     Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
   }
 
-  static IconData _serviceTypeIcon(int type, {String industryMode = 'FB'}) {
-    if (industryMode == 'Service') {
-      const icons = {0: Icons.event, 1: Icons.directions_walk};
-      return icons[type] ?? Icons.event;
-    }
-    const icons = {0: Icons.restaurant, 1: Icons.takeout_dining, 2: Icons.delivery_dining};
-    return icons[type] ?? Icons.restaurant;
-  }
-
-  static String _serviceTypeLabel(int type, {String industryMode = 'FB'}) {
-    if (industryMode == 'Service') {
-      const labels = {0: "Appointment", 1: "Walk-In"};
-      return labels[type] ?? "Appointment";
-    }
-    const labels = {0: "Dine In", 1: "Takeaway", 2: "Delivery"};
-    return labels[type] ?? "Dine In";
-  }
-
-  static Color _serviceTypeColor(int type) {
-    const colors = {0: Colors.indigo, 1: Colors.deepOrange, 2: Colors.green};
-    return colors[type] ?? Colors.indigo;
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currentUser = ref.watch(currentUserProvider);
@@ -86,7 +66,9 @@ class MenuScreen extends ConsumerWidget {
     final currentCustomer = ref.watch(currentCustomerProvider);
     final asyncCustomers = ref.watch(allCustomersProvider);
     final settings = ref.watch(appSettingsProvider);
-    final industryMode = settings[SettingKeys.industryMode] ?? 'FB';
+    final notifier    = ref.read(appSettingsProvider.notifier);
+    final orderTypes  = notifier.activeOrderTypes;
+    final svcStatuses = notifier.serviceStatuses;
 
     // ✨ Task 2: Auto-select Walk-In Customer if none selected
     ref.listen(allCustomersProvider, (previous, next) {
@@ -380,82 +362,51 @@ class MenuScreen extends ConsumerWidget {
                       );
                     },
                   ),
+                  // ── Dynamic Order Type button ──────────────────────────
                   Padding(
                     padding: const EdgeInsets.only(right: 6),
-                    child: ElevatedButton.icon(
-                      icon: Icon(_serviceTypeIcon(cartState.serviceType, industryMode: industryMode), size: 15),
-                      label: Text(_serviceTypeLabel(cartState.serviceType, industryMode: industryMode), style: const TextStyle(fontSize: 12)),
+                    child: ElevatedButton(
                       onPressed: () async {
                         final val = await showDialog<int>(
                           context: context,
-                          builder: (context) {
-                            const typeColors = {0: Colors.indigo, 1: Colors.deepOrange, 2: Colors.green};
-                            final typeIcons = industryMode == 'Service'
-                                ? {0: Icons.event, 1: Icons.directions_walk}
-                                : {0: Icons.restaurant, 1: Icons.takeout_dining, 2: Icons.delivery_dining};
-                            final typeLabels = industryMode == 'Service'
-                                ? {0: "Appointment", 1: "Walk-In"}
-                                : {0: "Dine In", 1: "Takeaway", 2: "Delivery"};
-                            final availableTypes = industryMode == 'Service' ? [0, 1] : [0, 1, 2];
-                            return AlertDialog(
-                              title: Text(industryMode == 'Service' ? 'Select Booking Type' : 'Select Order Type'),
-                              contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                              content: SizedBox(
-                                width: 500,
-                                child: Row(
-                                  children: availableTypes.expand((type) => [
-                                    if (type > 0) const SizedBox(width: 12),
-                                    Expanded(
-                                      child: ElevatedButton(
-                                        onPressed: () => Navigator.pop(context, type),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: typeColors[type],
-                                          minimumSize: const Size(0, 100),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-                                        ),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(typeIcons[type] ?? Icons.circle, color: Colors.white, size: 32),
-                                            const SizedBox(height: 10),
-                                            Text(
-                                              typeLabels[type]!,
-                                              textAlign: TextAlign.center,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Select Order Type'),
+                            contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                            content: SizedBox(
+                              width: 500,
+                              child: Row(
+                                children: orderTypes.asMap().entries.expand((e) => [
+                                  if (e.key > 0) const SizedBox(width: 12),
+                                  Expanded(
+                                    child: ElevatedButton(
+                                      onPressed: () => Navigator.pop(ctx, e.key),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: _kOrderTypePalette[e.key % _kOrderTypePalette.length],
+                                        minimumSize: const Size(0, 100),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                                      ),
+                                      child: Text(
+                                        e.value,
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
                                       ),
                                     ),
-                                  ]).toList(),
-                                ),
+                                  ),
+                                ]).toList(),
                               ),
-                            );
-                          },
+                            ),
+                          ),
                         );
                         if (val == null) return;
                         if (val != 0) {
-                          // Takeaway / Delivery — clear any selected table
                           ref.read(cartProvider.notifier).clearFloorPlanTable(val);
-                          // If no active order yet, create a tableless one now
                           if (ref.read(cartProvider).activePosOrderId == null) {
                             final companyId = ref.read(selectedCompanyProvider)?.id;
                             final user = ref.read(currentUserProvider);
                             if (companyId != null && user != null) {
                               try {
-                                await ref.read(cartProvider.notifier).startTablelessOrder(
-                                  ApiClient(),
-                                  companyId,
-                                  user.id,
-                                  val,
-                                );
+                                await ref.read(cartProvider.notifier).startTablelessOrder(ApiClient(), companyId, user.id, val);
                               } catch (e) {
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
@@ -466,67 +417,75 @@ class MenuScreen extends ConsumerWidget {
                             }
                           }
                         } else {
-                          // Dine In — just update type; table must be selected via Floor Plan
-                          ref.read(cartProvider.notifier).state =
-                              ref.read(cartProvider).copyWith(serviceType: val);
+                          ref.read(cartProvider.notifier).state = ref.read(cartProvider).copyWith(serviceType: val);
                         }
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: _serviceTypeColor(cartState.serviceType),
+                        backgroundColor: _kOrderTypePalette[cartState.serviceType % _kOrderTypePalette.length],
                         padding: const EdgeInsets.symmetric(horizontal: 10),
                         visualDensity: VisualDensity.compact,
                       ),
+                      child: Text(
+                        cartState.serviceType < orderTypes.length ? orderTypes[cartState.serviceType] : 'Order Type',
+                        style: const TextStyle(fontSize: 12),
+                      ),
                     ),
                   ),
+                  // ── Dynamic Service Status button ──────────────────────
                   Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: ElevatedButton.icon(
                       icon: Icon(ServiceStatusHelper.getIcon(cartState.serviceStatus), size: 15),
-                      label: Text(ServiceStatusHelper.getLabel(cartState.serviceStatus), style: const TextStyle(fontSize: 12)),
+                      label: Text(
+                        svcStatuses
+                            .where((s) => s['id'] == cartState.serviceStatus)
+                            .map((s) => s['label'] as String)
+                            .firstOrNull ?? ServiceStatusHelper.getLabel(cartState.serviceStatus),
+                        style: const TextStyle(fontSize: 12),
+                      ),
                       onPressed: () {
+                        final enabled = svcStatuses.where((s) => s['enabled'] == true).toList();
                         showDialog<int>(
                           context: context,
-                          builder: (context) {
-                            const statusColors = {1: Colors.blue, 2: Colors.orange, 3: Colors.teal};
-                            final statusList = industryMode == 'Service' ? [1] : [1, 2, 3];
+                          builder: (ctx) {
+                            if (enabled.isEmpty) {
+                              return AlertDialog(
+                                title: const Text('Service Status'),
+                                content: const Text('No service statuses configured.'),
+                                actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+                              );
+                            }
                             return AlertDialog(
                               title: const Text('Select Service Status'),
                               contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
                               content: SizedBox(
                                 width: 500,
                                 child: Row(
-                                  children: statusList.expand((status) => [
-                                    if (status > 1) const SizedBox(width: 12),
-                                    Expanded(
-                                      child: ElevatedButton(
-                                        onPressed: () => Navigator.pop(context, status),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: statusColors[status],
-                                          minimumSize: const Size(0, 100),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(12),
+                                  children: enabled.asMap().entries.expand((e) {
+                                    final s     = e.value;
+                                    final id    = s['id'] as int? ?? 0;
+                                    final label = s['label'] as String? ?? 'Status';
+                                    final color = _colorFromName(s['color'] as String? ?? '');
+                                    return [
+                                      if (e.key > 0) const SizedBox(width: 12),
+                                      Expanded(
+                                        child: ElevatedButton(
+                                          onPressed: () => Navigator.pop(ctx, id),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: color,
+                                            minimumSize: const Size(0, 100),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
                                           ),
-                                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-                                        ),
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(ServiceStatusHelper.getIcon(status), color: Colors.white, size: 32),
-                                            const SizedBox(height: 10),
-                                            Text(
-                                              industryMode == 'Service' ? 'In Service' : ServiceStatusHelper.getLabel(status),
-                                              textAlign: TextAlign.center,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                          ],
+                                          child: Text(
+                                            label,
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  ]).toList(),
+                                    ];
+                                  }).toList(),
                                 ),
                               ),
                             );
@@ -538,7 +497,10 @@ class MenuScreen extends ConsumerWidget {
                         });
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: ServiceStatusHelper.getColor(cartState.serviceStatus),
+                        backgroundColor: svcStatuses
+                            .where((s) => s['id'] == cartState.serviceStatus)
+                            .map((s) => _colorFromName(s['color'] as String? ?? ''))
+                            .firstOrNull ?? ServiceStatusHelper.getColor(cartState.serviceStatus),
                         padding: const EdgeInsets.symmetric(horizontal: 10),
                         visualDensity: VisualDensity.compact,
                       ),
@@ -563,6 +525,16 @@ class MenuScreen extends ConsumerWidget {
                       final item = cartState.items.firstWhere((i) => i.productId == selectedProductId);
                       showDialog(context: context, builder: (_) => _ItemTaxDialog(item: item));
                     },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.swap_horiz, color: Colors.white),
+                    tooltip: "Transfer",
+                    onPressed: cartState.activePosOrderId == null
+                        ? null
+                        : () => showDialog(
+                              context: context,
+                              builder: (_) => _TransferDialog(cartState: cartState),
+                            ),
                   ),
                 ],
               ),
@@ -608,7 +580,6 @@ class MenuScreen extends ConsumerWidget {
             ),
 
           // --- Warehouse Switcher ---
-          if (industryMode != 'Service')
           Consumer(
             builder: (context, ref, child) {
               final selectedWarehouse = ref.watch(selectedWarehouseProvider);
@@ -665,32 +636,41 @@ class MenuScreen extends ConsumerWidget {
             },
           ),
 
-          TextButton.icon(
-            onPressed: () {
-              ref.read(cartProvider.notifier).clearCart();
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => industryMode == 'Service'
-                      ? const BookingsScreen()
-                      : const FloorPlanScreen(),
-                ),
-                (route) => false,
-              );
-            },
-            icon: Icon(
-              industryMode == 'Service' ? Icons.calendar_month : Icons.grid_view,
-              color: Colors.white,
-            ),
-            label: Text(
-              industryMode == 'Service' ? "Bookings" : "Tables",
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+          if ((settings[SettingKeys.featureBookingEnabled] ?? 'true') == 'true')
+            TextButton.icon(
+              onPressed: () {
+                ref.read(cartProvider.notifier).clearCart();
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const BookingsScreen()),
+                  (route) => false,
+                );
+              },
+              icon: const Icon(Icons.calendar_month, color: Colors.white),
+              label: const Text(
+                'Bookings',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
               ),
             ),
-          ),
+          if ((settings[SettingKeys.featureFloorPlanEnabled] ?? 'true') == 'true') ...[
+            if ((settings[SettingKeys.featureBookingEnabled] ?? 'true') == 'true')
+              const SizedBox(width: 4),
+            TextButton.icon(
+              onPressed: () {
+                ref.read(cartProvider.notifier).clearCart();
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
+                  (route) => false,
+                );
+              },
+              icon: const Icon(Icons.grid_view, color: Colors.white),
+              label: Text(
+                settings[SettingKeys.tablesButtonLabel] ?? 'Tables',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+          ],
           const SizedBox(width: 8),
         ],
       ),
@@ -728,6 +708,33 @@ class MenuScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+// Colour palette cycled by order-type index (no colour in the JSON for order types).
+const _kOrderTypePalette = [
+  Colors.indigo,
+  Colors.deepOrange,
+  Colors.green,
+  Colors.purple,
+  Colors.teal,
+  Colors.brown,
+];
+
+// Maps a colour-name string (from the service-status JSON) to a Flutter Color.
+Color _colorFromName(String name) {
+  switch (name.toLowerCase()) {
+    case 'blue':   return Colors.blue;
+    case 'orange': return Colors.orange;
+    case 'teal':   return Colors.teal;
+    case 'green':  return Colors.green;
+    case 'purple': return Colors.purple;
+    case 'red':    return Colors.red;
+    case 'indigo': return Colors.indigo;
+    case 'amber':  return Colors.amber;
+    case 'pink':   return Colors.pink;
+    case 'grey':   return Colors.grey;
+    default:       return Colors.blueGrey;
   }
 }
 
@@ -1476,8 +1483,59 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final grandTotal = cartNotifier.grandTotal;
     final sym = ref.watch(currencySymbolProvider);
 
+    // Booking banner data
+    final allUsers = ref.watch(allUsersProvider).value ?? [];
+    final staffName = cartState.bookingStaffId != null
+        ? allUsers
+            .where((u) => u.id == cartState.bookingStaffId)
+            .map((u) => u.displayName)
+            .firstOrNull ?? 'Staff #${cartState.bookingStaffId}'
+        : null;
+    final guestName = cartState.orderNumber?.replaceFirst('APT- ', '');
+
     return Column(
       children: [
+        if (cartState.bookingId != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            color: Colors.teal.withValues(alpha: 0.15),
+            child: Row(
+              children: [
+                const Icon(Icons.event, size: 16, color: Colors.teal),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text.rich(
+                    TextSpan(children: [
+                      const TextSpan(
+                        text: 'Booking: ',
+                        style: TextStyle(
+                            color: Colors.teal, fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                      TextSpan(
+                        text: guestName ?? '—',
+                        style: const TextStyle(
+                            color: Colors.teal, fontSize: 12),
+                      ),
+                      if (staffName != null) ...[
+                        const TextSpan(
+                          text: '  ·  Staff: ',
+                          style: TextStyle(
+                              color: Colors.teal, fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                        TextSpan(
+                          text: staffName,
+                          style: const TextStyle(
+                              color: Colors.teal, fontSize: 12),
+                        ),
+                      ],
+                    ]),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
@@ -2271,6 +2329,181 @@ class _ItemTaxDialogState extends ConsumerState<_ItemTaxDialog> {
             Navigator.pop(context);
           },
           child: const Text("Apply Taxes"),
+        ),
+      ],
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Transfer Dialog — reassign staff and/or room for the active order/booking
+// ────────────────────────────────────────────────────────────────────────────
+class _TransferDialog extends ConsumerStatefulWidget {
+  final CartState cartState;
+
+  const _TransferDialog({required this.cartState});
+
+  @override
+  ConsumerState<_TransferDialog> createState() => _TransferDialogState();
+}
+
+class _TransferDialogState extends ConsumerState<_TransferDialog> {
+  User? _selectedStaff;
+  FloorPlanTable? _selectedRoom;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-select current staff if bookingStaffId is set
+    final staffId = widget.cartState.bookingStaffId;
+    if (staffId != null) {
+      final users = ref.read(allUsersProvider).value ?? [];
+      _selectedStaff = users.where((u) => u.id == staffId).firstOrNull;
+    }
+    // Pre-select current room if floorPlanTableId is set
+    final tableId = widget.cartState.floorPlanTableId;
+    if (tableId != null) {
+      final rooms = ref.read(allRoomsProvider).value ?? [];
+      _selectedRoom = rooms.where((r) => r.id == tableId).firstOrNull;
+    }
+  }
+
+  Future<void> _confirm() async {
+    setState(() => _saving = true);
+    try {
+      // Update CartState
+      ref.read(cartProvider.notifier).state = widget.cartState.copyWith(
+        bookingStaffId: _selectedStaff?.id,
+        floorPlanTableId: _selectedRoom?.id,
+      );
+
+      // Sync backend if this order is linked to a booking
+      final bookingId = widget.cartState.bookingId;
+      final companyId = ref.read(selectedCompanyProvider)?.id;
+      if (bookingId != null && companyId != null) {
+        await ApiClient().updateBookingResource(
+          companyId,
+          bookingId,
+          userId: _selectedStaff?.id,
+          floorPlanTableId: _selectedRoom?.id,
+        );
+      }
+
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Transfer failed: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final usersAsync  = ref.watch(allUsersProvider);
+    final roomsAsync  = ref.watch(allRoomsProvider);
+
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.swap_horiz),
+          SizedBox(width: 8),
+          Text('Transfer Order'),
+        ],
+      ),
+      content: SizedBox(
+        width: 380,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Staff dropdown
+            usersAsync.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (_, __) => const SizedBox.shrink(),
+              data: (users) {
+                final enabled = users.where((u) => u.isEnabled).toList();
+                return DropdownButtonFormField<User?>(
+                  initialValue: _selectedStaff,
+                  decoration: const InputDecoration(
+                    labelText: 'Assign Staff',
+                    prefixIcon: Icon(Icons.badge),
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem<User?>(value: null, child: Text('Unassigned')),
+                    ...enabled.map((u) => DropdownMenuItem<User?>(
+                          value: u,
+                          child: Text(u.displayName),
+                        )),
+                  ],
+                  onChanged: (u) => setState(() => _selectedStaff = u),
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+            // Room / resource dropdown
+            roomsAsync.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (_, __) => const SizedBox.shrink(),
+              data: (rooms) => DropdownButtonFormField<FloorPlanTable?>(
+                initialValue: _selectedRoom,
+                decoration: const InputDecoration(
+                  labelText: 'Assign Room / Resource',
+                  prefixIcon: Icon(Icons.meeting_room),
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem<FloorPlanTable?>(
+                      value: null, child: Text('No room')),
+                  ...rooms.map((t) => DropdownMenuItem<FloorPlanTable?>(
+                        value: t,
+                        child: Text(t.name),
+                      )),
+                ],
+                onChanged: (t) => setState(() => _selectedRoom = t),
+              ),
+            ),
+            if (widget.cartState.bookingId != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(Icons.sync, size: 14,
+                      color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Calendar booking will be updated automatically.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          icon: _saving
+              ? const SizedBox(
+                  width: 14, height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : const Icon(Icons.swap_horiz, color: Colors.white),
+          label: const Text('Confirm Transfer',
+              style: TextStyle(color: Colors.white)),
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+          onPressed: _saving ? null : _confirm,
         ),
       ],
     );

@@ -6,6 +6,7 @@ import 'package:pos_app/cart/payment_type_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_screen.dart';
+import 'package:pos_app/bookings/bookings_screen.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 
 class CheckoutDialog extends ConsumerStatefulWidget {
@@ -43,6 +44,9 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
       return;
     }
 
+    // Capture before checkout clears the cart
+    final wasBookingOrder = ref.read(cartProvider).bookingId != null;
+
     try {
       final success = await cartNotifier.checkoutOrder(
         apiClient: apiClient,
@@ -56,12 +60,19 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
       if (success && mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Payment Successful! Table is now free.')),
+          SnackBar(
+            content: Text(wasBookingOrder
+                ? 'Payment successful! Booking marked as completed.'
+                : 'Payment Successful! Table is now free.'),
+          ),
         );
         Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
+            MaterialPageRoute(
+              builder: (_) => wasBookingOrder
+                  ? const BookingsScreen()
+                  : const FloorPlanScreen(),
+            ),
             (route) => false);
       }
     } catch (e) {

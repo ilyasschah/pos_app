@@ -3,9 +3,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/auth/user_model.dart';
+import 'package:pos_app/auth/users_screen.dart';
 import 'package:pos_app/bookings/booking_model.dart';
 import 'package:pos_app/bookings/bookings_provider.dart';
+import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/company/my_company_screen.dart';
+import 'package:pos_app/currency/currencies_screen.dart';
+import 'package:pos_app/document/documents_screen.dart';
+import 'package:pos_app/floor_plan/floor_plan_table.dart';
+import 'package:pos_app/menu/menu_screen.dart';
+import 'package:pos_app/product/products_screen.dart';
+import 'package:pos_app/reports/reports_screen.dart';
+import 'package:pos_app/settings/settings_screen.dart';
+import 'package:pos_app/stock/stock_screen.dart';
+import 'package:pos_app/stock/warehouses_screen.dart';
+import 'package:pos_app/tax/tax_rates_screen.dart';
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 const double _slotHeight = 64.0;
@@ -53,6 +66,8 @@ String _fmtTime(TimeOfDay t) {
 
 String _fmtDateTime(DateTime dt) => _fmtTime(TimeOfDay.fromDateTime(dt));
 
+enum _PostSaveAction { stay, open }
+
 // ────────────────────────────────────────────────────────────────────────────
 // BookingsScreen
 // ────────────────────────────────────────────────────────────────────────────
@@ -70,7 +85,143 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
     final bookingsAsync = ref.watch(allBookingsProvider);
     final usersAsync = ref.watch(allUsersProvider);
 
+    final company = ref.watch(selectedCompanyProvider);
+    final currentUser = ref.watch(currentUserProvider);
+
     return Scaffold(
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: const BoxDecoration(color: Colors.blueGrey),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  const Icon(Icons.event_note, color: Colors.white, size: 36),
+                  const SizedBox(height: 8),
+                  Text(company?.name ?? 'POS System',
+                      style: const TextStyle(
+                          color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text(currentUser?.displayName ?? '',
+                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.point_of_sale),
+              title: const Text('POS / Menu'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const MenuScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.business),
+              title: const Text('My Company'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const MyCompanyScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.description),
+              title: const Text('Documents'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const DocumentsScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.fastfood),
+              title: const Text('Products'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const ProductsScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.inventory),
+              title: const Text('Stock'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const StockScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.warehouse),
+              title: const Text('Warehouses'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const WarehousesScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.percent),
+              title: const Text('Tax Rates'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const TaxRatesScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.currency_exchange),
+              title: const Text('Currencies'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const CurrenciesScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.manage_accounts),
+              title: const Text('Users'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const UsersScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.bar_chart),
+              title: const Text('Reports'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const ReportsScreen()));
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.settings),
+              title: const Text('Settings'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const SettingsScreen()));
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.red),
+              title: const Text('Logout', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                ref.read(currentUserProvider.notifier).state = null;
+                ref.read(cartProvider.notifier).clearCart();
+                Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+              },
+            ),
+          ],
+        ),
+      ),
       appBar: AppBar(
         title: const Text('Bookings'),
         actions: [
@@ -557,6 +708,7 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
   late TimeOfDay _startTime;
   late TimeOfDay _endTime;
   User? _selectedStaff;
+  FloorPlanTable? _selectedRoom;
   bool _saving = false;
 
   @override
@@ -595,25 +747,74 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
     if (companyId == null) return;
 
     try {
-      await ApiClient().createBooking(companyId, {
+      final createdMap = await ApiClient().createBooking(companyId, {
         'reservationName': _nameController.text.trim(),
         'guestCount': int.tryParse(_guestController.text) ?? 1,
         'startTime': _toDateTime(_startTime).toIso8601String(),
         'endTime': _toDateTime(_endTime).toIso8601String(),
         'userId': _selectedStaff?.id,
+        'floorPlanTableId': _selectedRoom?.id,
         'note': _noteController.text.trim().isEmpty
             ? null
             : _noteController.text.trim(),
       });
+      final created = Booking.fromJson(createdMap);
       widget.onSaved();
-      if (mounted) Navigator.pop(context);
+      if (!mounted) return;
+
+      // Post-save confirmation
+      final action = await showDialog<_PostSaveAction>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Booking Saved!'),
+          content: Text(
+            '${created.reservationName} has been scheduled for '
+            '${_fmtDateTime(created.startTime)}.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, _PostSaveAction.stay),
+              child: const Text('Stay on Calendar'),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.play_arrow, color: Colors.white),
+              label: const Text('Open Order Now',
+                  style: TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+              onPressed: () => Navigator.pop(ctx, _PostSaveAction.open),
+            ),
+          ],
+        ),
+      );
+
+      if (!mounted) return;
+      if (action == _PostSaveAction.open) {
+        final user = ref.read(currentUserProvider);
+        if (user != null) {
+          await ref.read(cartProvider.notifier).startBookingOrder(
+                ApiClient(),
+                companyId,
+                user.id,
+                created.id,
+                created.reservationName,
+                staffUserId: created.userId,
+                floorPlanTableId: created.floorPlanTableId,
+              );
+          if (!mounted) return;
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const MenuScreen()),
+            (route) => false,
+          );
+        }
+      } else {
+        Navigator.pop(context);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -705,6 +906,29 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
                 ],
               ),
               const SizedBox(height: 12),
+              ref.watch(allRoomsProvider).when(
+                loading: () => const LinearProgressIndicator(),
+                error: (_, __) => const SizedBox.shrink(),
+                data: (rooms) => DropdownButtonFormField<FloorPlanTable?>(
+                  initialValue: _selectedRoom,
+                  decoration: const InputDecoration(
+                    labelText: 'Room / Resource (optional)',
+                    prefixIcon: Icon(Icons.meeting_room),
+                  ),
+                  items: [
+                    const DropdownMenuItem<FloorPlanTable?>(
+                      value: null,
+                      child: Text('No room assigned'),
+                    ),
+                    ...rooms.map((t) => DropdownMenuItem<FloorPlanTable?>(
+                          value: t,
+                          child: Text(t.name),
+                        )),
+                  ],
+                  onChanged: (t) => setState(() => _selectedRoom = t),
+                ),
+              ),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: _noteController,
                 decoration: const InputDecoration(
@@ -779,6 +1003,46 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
           .updateBookingStatus(companyId, widget.booking.id, newStatus);
       widget.onUpdated();
       if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _startService() async {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    final user = ref.read(currentUserProvider);
+    if (companyId == null || user == null) return;
+
+    setState(() => _saving = true);
+    try {
+      // Mark booking as In Service
+      await ApiClient().updateBookingStatus(
+          companyId, widget.booking.id, 3);
+
+      // Create PosOrder linked to this booking and populate the cart
+      await ref.read(cartProvider.notifier).startBookingOrder(
+            ApiClient(),
+            companyId,
+            user.id,
+            widget.booking.id,
+            widget.booking.reservationName,
+            staffUserId: widget.booking.userId,
+            floorPlanTableId: widget.booking.floorPlanTableId,
+          );
+
+      widget.onUpdated();
+      if (!mounted) return;
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const MenuScreen()),
+        (route) => false,
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -897,40 +1161,71 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
                 icon: Icons.badge, text: _staffName(b.userId)),
             if (b.note != null && b.note!.isNotEmpty)
               _DetailRow(icon: Icons.notes, text: b.note!),
-            const SizedBox(height: 16),
-            Text('Update Status',
-                style: theme.textTheme.labelMedium?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6))),
-            const SizedBox(height: 8),
-            // Row 1: Scheduled → Arrived → In Service
-            Row(
-              children: [1, 2, 3].expand((s) => [
-                if (s > 1) const SizedBox(width: 6),
-                Expanded(child: _statusBtn(b.status, s)),
-              ]).toList(),
-            ),
-            const SizedBox(height: 6),
-            // Row 2: Completed & Paid | No Show
-            Row(
-              children: [4, 5].expand((s) => [
-                if (s > 4) const SizedBox(width: 6),
-                Expanded(child: _statusBtn(b.status, s)),
-              ]).toList(),
-            ),
+            if (b.floorPlanTableId != null)
+              _DetailRow(icon: Icons.meeting_room, text: 'Room #${b.floorPlanTableId}'),
+            if (b.status == 4) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.lock, size: 14, color: Colors.green),
+                    SizedBox(width: 8),
+                    Text('This booking is completed and cannot be modified.',
+                        style: TextStyle(color: Colors.green, fontSize: 12)),
+                  ],
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 16),
+              Text('Update Status',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6))),
+              const SizedBox(height: 8),
+              Row(
+                children: [1, 2, 3].expand((s) => [
+                  if (s > 1) const SizedBox(width: 6),
+                  Expanded(child: _statusBtn(b.status, s)),
+                ]).toList(),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [4, 5].expand((s) => [
+                  if (s > 4) const SizedBox(width: 6),
+                  Expanded(child: _statusBtn(b.status, s)),
+                ]).toList(),
+              ),
+            ],
           ],
         ),
       ),
       actions: [
-        TextButton.icon(
-          icon: const Icon(Icons.delete, color: Colors.red),
-          label: const Text('Delete', style: TextStyle(color: Colors.red)),
-          onPressed: _saving ? null : _delete,
-        ),
+        if (b.status != 4)
+          TextButton.icon(
+            icon: const Icon(Icons.delete, color: Colors.red),
+            label: const Text('Delete', style: TextStyle(color: Colors.red)),
+            onPressed: _saving ? null : _delete,
+          ),
         const Spacer(),
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('Close'),
         ),
+        if (b.status != 4 && b.status != 5) ...[
+          const SizedBox(width: 8),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.play_arrow, color: Colors.white),
+            label: const Text('Start Service',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+            onPressed: _saving ? null : _startService,
+          ),
+        ],
       ],
     );
   }

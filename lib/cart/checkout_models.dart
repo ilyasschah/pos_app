@@ -37,6 +37,7 @@ class MenuProduct {
   final bool isPriceChangeAllowed;
   final bool isUsingDefaultQuantity;
   final String? measurementUnit;
+  final bool isService;
 
   MenuProduct({
     required this.id,
@@ -51,6 +52,7 @@ class MenuProduct {
     this.isPriceChangeAllowed = false,
     this.isUsingDefaultQuantity = true,
     this.measurementUnit,
+    this.isService = false,
   });
 
   factory MenuProduct.fromJson(Map<String, dynamic> json) {
@@ -69,6 +71,7 @@ class MenuProduct {
       isPriceChangeAllowed: json['isPriceChangeAllowed'] ?? false,
       isUsingDefaultQuantity: json['isUsingDefaultQuantity'] ?? true,
       measurementUnit: json['measurementUnit'],
+      isService: json['isService'] ?? false,
     );
   }
 }
@@ -116,6 +119,7 @@ class CartItem {
   List<MenuTax> appliedTaxes;
   int? warehouseId; // Add optional warehouseId for split sourcing
   String? measurementUnit;
+  final bool isService;
 
   CartItem({
     required this.posOrderId,
@@ -133,6 +137,7 @@ class CartItem {
     required this.appliedTaxes,
     this.warehouseId,
     this.measurementUnit,
+    this.isService = false,
   });
 
   Map<String, dynamic> toJson() {
