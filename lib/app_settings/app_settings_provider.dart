@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:pos_app/api/api_client.dart';
@@ -48,29 +46,21 @@ class AppSettingsNotifier extends Notifier<Map<String, String>> {
 
   bool getBool(String key) => get(key).toLowerCase() == 'true';
 
-  List<String> get activeOrderTypes {
-    try {
-      final raw = state[SettingKeys.appActiveOrderTypes] ??
-          kSettingDefaults[SettingKeys.appActiveOrderTypes] ??
-          '';
-      if (raw.isEmpty) return ['Dine-In', 'Takeaway'];
-      return (jsonDecode(raw) as List).cast<String>();
-    } catch (_) {
-      return ['Dine-In', 'Takeaway'];
-    }
-  }
+  bool get serviceTypeEnabled =>
+      getBool(SettingKeys.featureServiceTypeEnabled);
 
-  List<Map<String, dynamic>> get serviceStatuses {
-    try {
-      final raw = state[SettingKeys.appServiceStatuses] ??
-          kSettingDefaults[SettingKeys.appServiceStatuses] ??
-          '';
-      if (raw.isEmpty) return [];
-      return (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
-    } catch (_) {
-      return [];
-    }
-  }
+  String get serviceTypePack =>
+      get(SettingKeys.appServiceTypePack).isNotEmpty
+          ? get(SettingKeys.appServiceTypePack)
+          : 'Restaurant';
+
+  bool get serviceStatusEnabled =>
+      getBool(SettingKeys.featureServiceStatusEnabled);
+
+  String get serviceStatusPack =>
+      get(SettingKeys.appServiceStatusPack).isNotEmpty
+          ? get(SettingKeys.appServiceStatusPack)
+          : 'Restaurant';
 
   Future<void> set(String key, String value) async {
     state = {...state, key: value};

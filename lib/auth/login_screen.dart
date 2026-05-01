@@ -8,6 +8,7 @@ import 'package:pos_app/company/company_model.dart';
 import 'package:pos_app/settings/settings_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_screen.dart';
 import 'package:pos_app/bookings/bookings_screen.dart';
+import 'package:pos_app/menu/menu_screen.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 
@@ -111,10 +112,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       onTap: () {
         ref.read(currentUserProvider.notifier).state = user;
         final settings = ref.read(appSettingsProvider);
-        final industryMode = settings[SettingKeys.industryMode] ?? 'FB';
-        final destination = industryMode == 'Service'
-            ? const BookingsScreen()
-            : const FloorPlanScreen();
+        final bookingEnabled   = settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
+        final floorPlanEnabled = settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+        final Widget destination;
+        if (bookingEnabled) {
+          destination = const BookingsScreen();
+        } else if (floorPlanEnabled) {
+          destination = const FloorPlanScreen();
+        } else {
+          destination = const MenuScreen();
+        }
         Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (context) => destination));
       },

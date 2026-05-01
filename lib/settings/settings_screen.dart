@@ -375,6 +375,55 @@ class _SettingDropdown extends ConsumerWidget {
   }
 }
 
+class _WorkflowCard extends ConsumerWidget {
+  const _WorkflowCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appSettingsProvider);
+    final typeEnabled   = settings[SettingKeys.featureServiceTypeEnabled]?.toLowerCase() == 'true';
+    final statusEnabled = settings[SettingKeys.featureServiceStatusEnabled]?.toLowerCase() == 'true';
+
+    return _SettingsCard(
+      title: 'WORKFLOW',
+      children: [
+        const _SettingSwitch(
+          settingKey: SettingKeys.featureServiceTypeEnabled,
+          label: 'Service Type Selector',
+          subtitle: 'Show order type buttons (e.g. Dine-In, Takeaway) on the POS',
+        ),
+        Opacity(
+          opacity: typeEnabled ? 1.0 : 0.4,
+          child: IgnorePointer(
+            ignoring: !typeEnabled,
+            child: const _SettingDropdown(
+              settingKey: SettingKeys.appServiceTypePack,
+              label: 'Service Type Pack',
+              options: ['Restaurant', 'Salon', 'Hotel'],
+            ),
+          ),
+        ),
+        const _SettingSwitch(
+          settingKey: SettingKeys.featureServiceStatusEnabled,
+          label: 'Service Status Selector',
+          subtitle: 'Show service status badge on table/booking cards',
+        ),
+        Opacity(
+          opacity: statusEnabled ? 1.0 : 0.4,
+          child: IgnorePointer(
+            ignoring: !statusEnabled,
+            child: const _SettingDropdown(
+              settingKey: SettingKeys.appServiceStatusPack,
+              label: 'Service Status Pack',
+              options: ['Restaurant', 'Salon', 'Hotel'],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // Currency picker — loads from /Currencies/GetAll and saves code to settings
 class _CurrencyDropdown extends ConsumerWidget {
   const _CurrencyDropdown();
@@ -516,6 +565,7 @@ class _GeneralTab extends ConsumerWidget {
             ),
           ],
         ),
+        const _WorkflowCard(),
         _SettingsCard(
           title: 'TAX',
           children: [

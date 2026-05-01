@@ -103,9 +103,11 @@ class SettingKeys {
   static const featureBookingEnabled   = 'Feature_Booking_Enabled';
   static const tablesButtonLabel       = 'Feature.TablesButtonLabel';
 
-  // Dynamic workflow
-  static const appActiveOrderTypes = 'App_Active_Order_Types';
-  static const appServiceStatuses  = 'App_Service_Statuses';
+  // Industry Pack workflow
+  static const featureServiceTypeEnabled   = 'Feature_ServiceType_Enabled';
+  static const appServiceTypePack          = 'App_ServiceType_Pack';
+  static const featureServiceStatusEnabled = 'Feature_ServiceStatus_Enabled';
+  static const appServiceStatusPack        = 'App_ServiceStatus_Pack';
 }
 
 const Map<String, String> kSettingDefaults = {
@@ -155,13 +157,11 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.menuGridCols: '4',
   SettingKeys.menuGridRows: '4',
   SettingKeys.industryMode: 'FB',
-  SettingKeys.featureFloorPlanEnabled: 'true',
-  SettingKeys.featureBookingEnabled:   'true',
-  SettingKeys.tablesButtonLabel:       'Tables',
-  SettingKeys.appActiveOrderTypes:
-      '["Dine-In","Takeaway","Delivery"]',
-  SettingKeys.appServiceStatuses:
-      '[{"id":1,"label":"Occupied","color":"blue","enabled":true},'
-      '{"id":2,"label":"In Kitchen","color":"orange","enabled":true},'
-      '{"id":3,"label":"Ready","color":"teal","enabled":true}]',
+  SettingKeys.featureFloorPlanEnabled:     'true',
+  SettingKeys.featureBookingEnabled:       'true',
+  SettingKeys.tablesButtonLabel:           'Tables',
+  SettingKeys.featureServiceTypeEnabled:   'true',
+  SettingKeys.appServiceTypePack:          'Restaurant',
+  SettingKeys.featureServiceStatusEnabled: 'true',
+  SettingKeys.appServiceStatusPack:        'Restaurant',
 };

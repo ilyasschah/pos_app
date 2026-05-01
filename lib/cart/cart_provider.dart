@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:pos_app/cart/checkout_models.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
@@ -8,6 +9,8 @@ import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
 import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
+
+final dailyOrderNumberProvider = StateProvider<int>((ref) => 1);
 
 class CartState {
   final int? activePosOrderId;

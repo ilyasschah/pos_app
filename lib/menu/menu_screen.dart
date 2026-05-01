@@ -33,6 +33,7 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/tax/tax_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:pos_app/app_settings/industry_packs.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 
 import 'package:pos_app/promotions/promotion_provider.dart';
@@ -66,9 +67,14 @@ class MenuScreen extends ConsumerWidget {
     final currentCustomer = ref.watch(currentCustomerProvider);
     final asyncCustomers = ref.watch(allCustomersProvider);
     final settings = ref.watch(appSettingsProvider);
-    final notifier    = ref.read(appSettingsProvider.notifier);
-    final orderTypes  = notifier.activeOrderTypes;
-    final svcStatuses = notifier.serviceStatuses;
+    final bookingEnabled       = settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
+    final floorPlanEnabled     = settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+    final serviceTypeEnabled   = settings[SettingKeys.featureServiceTypeEnabled]?.toLowerCase() == 'true';
+    final serviceStatusEnabled = settings[SettingKeys.featureServiceStatusEnabled]?.toLowerCase() == 'true';
+    final serviceTypePack   = settings[SettingKeys.appServiceTypePack]   ?? 'Restaurant';
+    final serviceStatusPack = settings[SettingKeys.appServiceStatusPack] ?? 'Restaurant';
+    final orderTypes  = IndustryPacks.getOrderTypes(serviceTypePack);
+    final svcStatuses = IndustryPacks.getServiceStatuses(serviceStatusPack);
 
     // ✨ Task 2: Auto-select Walk-In Customer if none selected
     ref.listen(allCustomersProvider, (previous, next) {
@@ -363,7 +369,7 @@ class MenuScreen extends ConsumerWidget {
                     },
                   ),
                   // ── Dynamic Order Type button ──────────────────────────
-                  Padding(
+                  if (serviceTypeEnabled) Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: ElevatedButton(
                       onPressed: () async {
@@ -432,7 +438,7 @@ class MenuScreen extends ConsumerWidget {
                     ),
                   ),
                   // ── Dynamic Service Status button ──────────────────────
-                  Padding(
+                  if (serviceStatusEnabled) Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: ElevatedButton.icon(
                       icon: Icon(ServiceStatusHelper.getIcon(cartState.serviceStatus), size: 15),
@@ -444,7 +450,7 @@ class MenuScreen extends ConsumerWidget {
                         style: const TextStyle(fontSize: 12),
                       ),
                       onPressed: () {
-                        final enabled = svcStatuses.where((s) => s['enabled'] == true).toList();
+                        final enabled = svcStatuses;
                         showDialog<int>(
                           context: context,
                           builder: (ctx) {
@@ -636,7 +642,7 @@ class MenuScreen extends ConsumerWidget {
             },
           ),
 
-          if ((settings[SettingKeys.featureBookingEnabled] ?? 'true') == 'true')
+          if (bookingEnabled)
             TextButton.icon(
               onPressed: () {
                 ref.read(cartProvider.notifier).clearCart();
@@ -652,8 +658,8 @@ class MenuScreen extends ConsumerWidget {
                 style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
               ),
             ),
-          if ((settings[SettingKeys.featureFloorPlanEnabled] ?? 'true') == 'true') ...[
-            if ((settings[SettingKeys.featureBookingEnabled] ?? 'true') == 'true')
+          if (floorPlanEnabled) ...[
+            if (bookingEnabled)
               const SizedBox(width: 4),
             TextButton.icon(
               onPressed: () {
@@ -1493,6 +1499,26 @@ class _CartSectionState extends ConsumerState<CartSection> {
         : null;
     final guestName = cartState.orderNumber?.replaceFirst('APT- ', '');
 
+    // Dynamic context label
+    final allRooms = ref.watch(allRoomsProvider).value ?? [];
+    final dailyOrderNumber = ref.watch(dailyOrderNumberProvider);
+    final String contextLabel;
+    if (cartState.bookingId != null) {
+      final tableName = cartState.floorPlanTableId != null
+          ? allRooms.where((t) => t.id == cartState.floorPlanTableId).firstOrNull?.name
+          : null;
+      final prefix = tableName ?? (guestName?.isNotEmpty == true ? guestName! : 'Booking');
+      contextLabel = staffName != null ? '$prefix · Staff: $staffName' : prefix;
+    } else if (cartState.floorPlanTableId != null) {
+      contextLabel = allRooms
+              .where((t) => t.id == cartState.floorPlanTableId)
+              .firstOrNull
+              ?.name ??
+          'Table #${cartState.floorPlanTableId}';
+    } else {
+      contextLabel = 'Order #$dailyOrderNumber';
+    }
+
     return Column(
       children: [
         if (cartState.bookingId != null)
@@ -1543,9 +1569,12 @@ class _CartSectionState extends ConsumerState<CartSection> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                "Order Details",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              Flexible(
+                child: Text(
+                  contextLabel,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
 
               ElevatedButton.icon(
