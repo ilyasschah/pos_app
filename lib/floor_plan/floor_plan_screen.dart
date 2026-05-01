@@ -10,6 +10,7 @@ import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'widgets/table_widget.dart';
 import 'widgets/side_panel.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
+import 'package:pos_app/widgets/shared_drawer.dart';
 
 class FloorPlanScreen extends ConsumerStatefulWidget {
   const FloorPlanScreen({Key? key}) : super(key: key);
@@ -59,6 +60,7 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF2C3E50),
+      drawer: const SharedDrawer(),
       endDrawer: SidePanel(isService: isService),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1F2937),

@@ -62,7 +62,7 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
       );
 
       if (success && mounted) {
-        ref.read(dailyOrderNumberProvider.notifier).state += 1;
+        await syncLatestOrderNumber(ref, company.id);
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

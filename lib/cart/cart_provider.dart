@@ -25,7 +25,8 @@ class CartState {
   final double? customerDiscountValue;
   final int? customerDiscountType;
   final int? selectedProductId;
-  final int serviceType; // 0 for Dine In / Appointment, 1 for Takeaway / Walk-In
+  final int
+  serviceType; // 0 for Dine In / Appointment, 1 for Takeaway / Walk-In
   final int serviceStatus; // 1 for Active, etc.
   final int? floorPlanTableId;
   final int? activeWarehouseId;
@@ -255,8 +256,8 @@ class CartNotifier extends Notifier<CartState> {
     int userId,
     int serviceType,
   ) async {
-    const labels = {0: "Dine In", 1: "Takeaway", 2: "Delivery"};
-    final label = labels[serviceType] ?? "Order";
+    final orderNum = ref.read(dailyOrderNumberProvider);
+    final label = orderNum.toString().padLeft(3, '0');
     state = state.copyWith(isLoading: true);
     try {
       final newOrderId = await apiClient.createPosOrder(
@@ -272,7 +273,7 @@ class CartNotifier extends Notifier<CartState> {
         serviceType: serviceType,
         serviceStatus: 1,
         floorPlanTableId: null,
-        orderNumber: "ORD- $label",
+        orderNumber: "ORD-$label",
         activeWarehouseId: effectiveWarehouseId,
         selectedCustomer: state.selectedCustomer,
         selectedCustomerDiscount: state.selectedCustomerDiscount,
@@ -299,7 +300,7 @@ class CartNotifier extends Notifier<CartState> {
       final newOrderId = await apiClient.createPosOrder(
         companyId,
         userId,
-        0, // Appointment
+        0,
         null,
         guestName,
         effectiveWarehouseId,
@@ -315,6 +316,11 @@ class CartNotifier extends Notifier<CartState> {
         bookingId: bookingId,
         bookingStaffId: staffUserId,
       );
+      try {
+        await apiClient.linkBookingToPosOrder(companyId, bookingId, newOrderId);
+      } catch (e) {
+        print("Failed to link booking: $e");
+      }
     } catch (e) {
       state = state.copyWith(isLoading: false);
       rethrow;
@@ -323,7 +329,6 @@ class CartNotifier extends Notifier<CartState> {
 
   void setWarehouseId(int warehouseId) {
     state = state.copyWith(activeWarehouseId: warehouseId);
-    // Sync global provider
     final warehouses = ref.read(allWarehousesProvider).value ?? [];
     final wh = warehouses.where((w) => w.id == warehouseId).firstOrNull;
     if (wh != null) {
@@ -712,6 +717,30 @@ class CartNotifier extends Notifier<CartState> {
         );
       }
 
+      // Sync order header (customer, discounts, total) before finalising payment
+      String orderNumber = state.orderNumber ?? "ORD- Takeaway";
+      if (state.orderNumber == null) {
+        final tableId = ref.read(floorPlanTableProvider);
+        if (tableId != null) {
+          final tables = ref.read(tablesByFloorPlanProvider).value ?? [];
+          final table = tables.where((t) => t.id == tableId).firstOrNull;
+          if (table != null) orderNumber = "ORD- ${table.name}";
+        }
+      }
+      await apiClient.updatePosOrder(companyId, {
+        "id": state.activePosOrderId,
+        "userId": userId,
+        "number": orderNumber,
+        "discount": state.manualCartDiscount,
+        "discountType": state.manualCartDiscountType,
+        "total": grandTotal,
+        "customerId": state.selectedCustomer?.id,
+        "serviceType": state.serviceType,
+        "serviceStatus": state.serviceStatus,
+        "floorPlanTableId": state.floorPlanTableId,
+        "warehouseId": effectiveWarehouseId,
+      });
+
       List<CheckoutItemDto> checkoutItems = [];
       for (var item in state.items) {
         double priceAfterDiscount =
@@ -763,8 +792,7 @@ class CartNotifier extends Notifier<CartState> {
         // Auto-complete any linked booking
         if (state.bookingId != null) {
           try {
-            await apiClient.updateBookingStatus(
-                companyId, state.bookingId!, 4);
+            await apiClient.updateBookingStatus(companyId, state.bookingId!, 4);
           } catch (_) {
             // Non-fatal: payment succeeded, booking status update failure is acceptable
           }
@@ -784,6 +812,30 @@ class CartNotifier extends Notifier<CartState> {
 final cartProvider = NotifierProvider<CartNotifier, CartState>(
   () => CartNotifier(),
 );
+
+Future<void> syncLatestOrderNumber(WidgetRef ref, int companyId) async {
+  try {
+    final client = ApiClient();
+    final results = await Future.wait([
+      client.getAllPosOrders(companyId).catchError((_) => <dynamic>[]),
+      client.getAllDocuments(companyId).catchError((_) => <dynamic>[]),
+    ]);
+    final allRecords = [...results[0], ...results[1]];
+    int max = 0;
+    for (final o in allRecords) {
+      final raw = (o['number'] ?? o['Number'] ?? '') as String;
+      // Match any prefix followed by a dash and digits (e.g. ORD-007, DOC-007)
+      final match = RegExp(r'-(\d+)$').firstMatch(raw);
+      if (match != null) {
+        final parsed = int.tryParse(match.group(1)!);
+        if (parsed != null && parsed > max) max = parsed;
+      }
+    }
+    ref.read(dailyOrderNumberProvider.notifier).state = max + 1;
+  } catch (_) {
+    // Non-fatal — keep current counter value
+  }
+}
 
 final cartTotalProvider = Provider<double>((ref) {
   final cartState = ref.watch(cartProvider);

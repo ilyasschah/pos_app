@@ -79,8 +79,9 @@ class ApiClient {
     List<CartItem> items,
   ) async {
     try {
-      final List<Map<String, dynamic>> jsonList =
-          items.map((item) => item.toJson()).toList();
+      final List<Map<String, dynamic>> jsonList = items
+          .map((item) => item.toJson())
+          .toList();
 
       final response = await _dio.post(
         '/PosOrderItem/BulkAdd',
@@ -136,7 +137,7 @@ class ApiClient {
         queryParameters: {'companyId': companyId},
         data: {
           "userId": userId,
-          "number": "ORD- $orderLabel",
+          "number": "ORD-$orderLabel",
           "discount": 0.0,
           "discountType": 0,
           "total": 0.0,
@@ -236,14 +237,18 @@ class ApiClient {
     }
   }
 
-  Future<bool> deletePosOrder(int companyId, int posOrderId, int warehouseId) async {
+  Future<bool> deletePosOrder(
+    int companyId,
+    int posOrderId,
+    int warehouseId,
+  ) async {
     try {
       final response = await _dio.delete(
         '/PosOrder/Delete',
         queryParameters: {
           'id': posOrderId,
           'companyId': companyId,
-          'warehouseId': warehouseId
+          'warehouseId': warehouseId,
         },
       );
       return response.statusCode == 200;
@@ -253,7 +258,12 @@ class ApiClient {
   }
 
   // --- Stock Management ---
-  Future<bool> addStock(int companyId, int productId, int warehouseId, double quantity) async {
+  Future<bool> addStock(
+    int companyId,
+    int productId,
+    int warehouseId,
+    double quantity,
+  ) async {
     try {
       final response = await _dio.post(
         '/Stocks/Add',
@@ -270,7 +280,13 @@ class ApiClient {
     }
   }
 
-  Future<bool> updateStock(int companyId, int stockId, int productId, int warehouseId, double quantity) async {
+  Future<bool> updateStock(
+    int companyId,
+    int stockId,
+    int productId,
+    int warehouseId,
+    double quantity,
+  ) async {
     try {
       final response = await _dio.patch(
         '/Stocks/Update',
@@ -300,7 +316,6 @@ class ApiClient {
     }
   }
 
-
   Future<List<dynamic>> getAllActiveOrders(int companyId) async {
     try {
       final response = await _dio.get(
@@ -322,6 +337,36 @@ class ApiClient {
       return [];
     } on DioException catch (e) {
       throw Exception('Failed to fetch active orders: ${e.message}');
+    }
+  }
+
+  Future<List<dynamic>> getAllPosOrders(int companyId) async {
+    try {
+      final response = await _dio.get(
+        '/PosOrder/GetAll',
+        queryParameters: {'companyId': companyId},
+      );
+      if (response.statusCode == 200) {
+        return response.data as List<dynamic>;
+      }
+      return [];
+    } on DioException catch (e) {
+      throw Exception('Failed to fetch orders: ${e.message}');
+    }
+  }
+
+  Future<List<dynamic>> getAllDocuments(int companyId) async {
+    try {
+      final response = await _dio.get(
+        '/Document/GetAll',
+        queryParameters: {'companyId': companyId},
+      );
+      if (response.statusCode == 200) {
+        return response.data as List<dynamic>;
+      }
+      return [];
+    } on DioException catch (e) {
+      throw Exception('Failed to fetch documents: ${e.message}');
     }
   }
 
@@ -364,7 +409,11 @@ class ApiClient {
       final response = await _dio.patch(
         '/Bookings/UpdateStatus',
         queryParameters: {'companyId': companyId},
-        data: {'bookingId': bookingId, 'status': status, 'documentId': documentId},
+        data: {
+          'bookingId': bookingId,
+          'status': status,
+          'documentId': documentId,
+        },
       );
       return response.statusCode == 200;
     } catch (e) {
@@ -394,15 +443,45 @@ class ApiClient {
     }
   }
 
-  Future<bool> deleteBooking(int companyId, int bookingId) async {
+  Future<bool> deleteBooking(
+    int companyId,
+    int bookingId,
+    int warehouseId,
+  ) async {
     try {
       final response = await _dio.delete(
         '/Bookings/Delete',
-        queryParameters: {'id': bookingId, 'companyId': companyId},
+        queryParameters: {
+          'companyId': companyId,
+          'id': bookingId,
+          'warehouseid': warehouseId,
+        },
+      );
+      return response.statusCode == 200 || response.statusCode == 204;
+    } catch (e) {
+      print('Error deleting booking: $e');
+      return false;
+    }
+  }
+
+  Future<bool> linkBookingToPosOrder(
+    int companyId,
+    int bookingId,
+    int posOrderId,
+  ) async {
+    try {
+      final response = await _dio.patch(
+        '/Bookings/LinkPosOrder',
+        queryParameters: {
+          'companyId': companyId,
+          'bookingId': bookingId,
+          'posOrderId': posOrderId,
+        },
       );
       return response.statusCode == 200;
     } catch (e) {
-      throw Exception('Failed to delete booking: $e');
+      print('Error linking booking to POS Order: $e');
+      return false;
     }
   }
 
@@ -431,14 +510,17 @@ class ApiClient {
       );
       if (response.statusCode == 200) {
         final List<dynamic> data = response.data;
-        return data.map((json) {
-          try {
-            return PromotionDto.fromJson(json);
-          } catch (e) {
-            print("Error parsing promotion: $e");
-            return null;
-          }
-        }).whereType<PromotionDto>().toList();
+        return data
+            .map((json) {
+              try {
+                return PromotionDto.fromJson(json);
+              } catch (e) {
+                print("Error parsing promotion: $e");
+                return null;
+              }
+            })
+            .whereType<PromotionDto>()
+            .toList();
       }
       return [];
     } catch (e) {
@@ -448,7 +530,9 @@ class ApiClient {
   }
 
   Future<PromotionDto> createPromotion(
-      int companyId, CreatePromotionRequest request) async {
+    int companyId,
+    CreatePromotionRequest request,
+  ) async {
     try {
       final response = await _dio.post(
         '/Promotions/Add',
@@ -465,7 +549,9 @@ class ApiClient {
   }
 
   Future<bool> updatePromotion(
-      int companyId, UpdatePromotionRequest request) async {
+    int companyId,
+    UpdatePromotionRequest request,
+  ) async {
     try {
       final response = await _dio.put(
         '/Promotions/Update',
@@ -492,7 +578,9 @@ class ApiClient {
 
   // --- Customer Discounts ---
   Future<CustomerDiscountDto?> getCustomerDiscount(
-      int companyId, int customerId) async {
+    int companyId,
+    int customerId,
+  ) async {
     try {
       final response = await _dio.get(
         '/CustomerDiscounts/GetByCustomerId',
@@ -508,7 +596,9 @@ class ApiClient {
   }
 
   Future<CustomerDiscountDto> createCustomerDiscount(
-      int companyId, CreateCustomerDiscountRequest request) async {
+    int companyId,
+    CreateCustomerDiscountRequest request,
+  ) async {
     try {
       final response = await _dio.post(
         '/CustomerDiscounts/Create',
@@ -525,7 +615,9 @@ class ApiClient {
   }
 
   Future<bool> updateCustomerDiscount(
-      int companyId, UpdateCustomerDiscountRequest request) async {
+    int companyId,
+    UpdateCustomerDiscountRequest request,
+  ) async {
     try {
       final response = await _dio.patch(
         '/CustomerDiscounts/Update',

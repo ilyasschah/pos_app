@@ -3,30 +3,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/auth/user_model.dart';
-import 'package:pos_app/auth/users_screen.dart';
 import 'package:pos_app/bookings/booking_model.dart';
 import 'package:pos_app/bookings/bookings_provider.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
-import 'package:pos_app/company/my_company_screen.dart';
-import 'package:pos_app/currency/currencies_screen.dart';
-import 'package:pos_app/document/documents_screen.dart';
 import 'package:pos_app/floor_plan/floor_plan_table.dart';
 import 'package:pos_app/menu/menu_screen.dart';
-import 'package:pos_app/product/products_screen.dart';
-import 'package:pos_app/reports/reports_screen.dart';
-import 'package:pos_app/settings/settings_screen.dart';
-import 'package:pos_app/stock/stock_screen.dart';
-import 'package:pos_app/stock/warehouses_screen.dart';
-import 'package:pos_app/tax/tax_rates_screen.dart';
+import 'package:pos_app/stock/warehouse_provider.dart';
+import 'package:pos_app/widgets/shared_drawer.dart';
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 const double _slotHeight = 64.0;
 const double _timeColWidth = 72.0;
 const double _staffColWidth = 180.0;
 const double _headerRowHeight = 48.0;
-const int _dayStart = 8;  // 08:00
-const int _dayEnd = 22;   // 22:00
+const int _dayStart = 8; // 08:00
+const int _dayEnd = 22; // 22:00
 const int _totalSlots = (_dayEnd - _dayStart) * 2; // 28 half-hour slots
 const double _totalHeight = _totalSlots * _slotHeight; // 1792px
 
@@ -52,8 +44,20 @@ String _statusLabel(int s) => _statusLabels[s] ?? 'Unknown';
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const _months   = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const _months = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+];
 
 String _fmtHeaderDate(DateTime d) =>
     '${_weekdays[d.weekday - 1]}, ${_months[d.month - 1]} ${d.day}';
@@ -85,151 +89,17 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
     final bookingsAsync = ref.watch(allBookingsProvider);
     final usersAsync = ref.watch(allUsersProvider);
 
-    final company = ref.watch(selectedCompanyProvider);
-    final currentUser = ref.watch(currentUserProvider);
-
     return Scaffold(
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            DrawerHeader(
-              decoration: const BoxDecoration(color: Colors.blueGrey),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  const Icon(Icons.event_note, color: Colors.white, size: 36),
-                  const SizedBox(height: 8),
-                  Text(company?.name ?? 'POS System',
-                      style: const TextStyle(
-                          color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                  Text(currentUser?.displayName ?? '',
-                      style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                ],
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.point_of_sale),
-              title: const Text('POS / Menu'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const MenuScreen()));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.business),
-              title: const Text('My Company'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const MyCompanyScreen()));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.description),
-              title: const Text('Documents'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const DocumentsScreen()));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.fastfood),
-              title: const Text('Products'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const ProductsScreen()));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.inventory),
-              title: const Text('Stock'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const StockScreen()));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.warehouse),
-              title: const Text('Warehouses'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const WarehousesScreen()));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.percent),
-              title: const Text('Tax Rates'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const TaxRatesScreen()));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.currency_exchange),
-              title: const Text('Currencies'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const CurrenciesScreen()));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.manage_accounts),
-              title: const Text('Users'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const UsersScreen()));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.bar_chart),
-              title: const Text('Reports'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const ReportsScreen()));
-              },
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.settings),
-              title: const Text('Settings'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const SettingsScreen()));
-              },
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.red),
-              title: const Text('Logout', style: TextStyle(color: Colors.red)),
-              onTap: () {
-                ref.read(currentUserProvider.notifier).state = null;
-                ref.read(cartProvider.notifier).clearCart();
-                Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-              },
-            ),
-          ],
-        ),
-      ),
+      drawer: const SharedDrawer(),
       appBar: AppBar(
         title: const Text('Bookings'),
         actions: [
           IconButton(
             icon: const Icon(Icons.chevron_left),
             tooltip: 'Previous day',
-            onPressed: () => ref.read(selectedBookingDateProvider.notifier).state =
-                selectedDate.subtract(const Duration(days: 1)),
+            onPressed: () =>
+                ref.read(selectedBookingDateProvider.notifier).state =
+                    selectedDate.subtract(const Duration(days: 1)),
           ),
           TextButton(
             onPressed: () async {
@@ -251,8 +121,9 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
           IconButton(
             icon: const Icon(Icons.chevron_right),
             tooltip: 'Next day',
-            onPressed: () => ref.read(selectedBookingDateProvider.notifier).state =
-                selectedDate.add(const Duration(days: 1)),
+            onPressed: () =>
+                ref.read(selectedBookingDateProvider.notifier).state =
+                    selectedDate.add(const Duration(days: 1)),
           ),
           const SizedBox(width: 8),
           Padding(
@@ -301,7 +172,8 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
                   prefilledStaff: staffMember,
                   prefilledTime: time,
                 ),
-                onBookingTap: (booking) => _showDetailDialog(context, booking, staff),
+                onBookingTap: (booking) =>
+                    _showDetailDialog(context, booking, staff),
               );
             },
           );
@@ -329,7 +201,11 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
     );
   }
 
-  void _showDetailDialog(BuildContext context, Booking booking, List<User> staff) {
+  void _showDetailDialog(
+    BuildContext context,
+    Booking booking,
+    List<User> staff,
+  ) {
     showDialog(
       context: context,
       builder: (_) => _BookingDetailDialog(
@@ -381,9 +257,10 @@ class _CalendarView extends StatelessWidget {
         // Fill screen width if staff fit
         final effectiveColWidth = staff.isEmpty
             ? constraints.maxWidth
-            : (constraints.maxWidth - _timeColWidth) / totalCols < _staffColWidth
-                ? _staffColWidth
-                : (constraints.maxWidth - _timeColWidth) / totalCols;
+            : (constraints.maxWidth - _timeColWidth) / totalCols <
+                  _staffColWidth
+            ? _staffColWidth
+            : (constraints.maxWidth - _timeColWidth) / totalCols;
         final effectiveGridWidth = totalCols * effectiveColWidth;
 
         return SingleChildScrollView(
@@ -409,8 +286,9 @@ class _CalendarView extends StatelessWidget {
                               _slotLabel(i),
                               style: TextStyle(
                                 fontSize: 11,
-                                color: theme.colorScheme.onSurface
-                                    .withValues(alpha: 0.5),
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.5,
+                                ),
                               ),
                             ),
                           ),
@@ -442,14 +320,16 @@ class _CalendarView extends StatelessWidget {
                                     ),
                                   ]
                                 : staff
-                                    .map((u) => SizedBox(
+                                      .map(
+                                        (u) => SizedBox(
                                           width: effectiveColWidth,
                                           child: _StaffHeader(
                                             name: u.displayName,
                                             theme: theme,
                                           ),
-                                        ))
-                                    .toList(),
+                                        ),
+                                      )
+                                      .toList(),
                           ),
                         ),
 
@@ -467,7 +347,8 @@ class _CalendarView extends StatelessWidget {
                                   child: Container(
                                     height: i % 2 == 0 ? 1.0 : 0.5,
                                     color: theme.dividerColor.withValues(
-                                        alpha: i % 2 == 0 ? 0.5 : 0.25),
+                                      alpha: i % 2 == 0 ? 0.5 : 0.25,
+                                    ),
                                   ),
                                 ),
 
@@ -479,7 +360,9 @@ class _CalendarView extends StatelessWidget {
                                   bottom: 0,
                                   child: Container(
                                     width: 1,
-                                    color: theme.dividerColor.withValues(alpha: 0.4),
+                                    color: theme.dividerColor.withValues(
+                                      alpha: 0.4,
+                                    ),
                                   ),
                                 ),
 
@@ -489,7 +372,8 @@ class _CalendarView extends StatelessWidget {
                                   behavior: HitTestBehavior.translucent,
                                   onTapDown: (details) {
                                     final colIndex =
-                                        (details.localPosition.dx / effectiveColWidth)
+                                        (details.localPosition.dx /
+                                                effectiveColWidth)
                                             .floor()
                                             .clamp(0, totalCols - 1);
                                     final slotIndex =
@@ -502,7 +386,8 @@ class _CalendarView extends StatelessWidget {
                                       hour: totalMinutes ~/ 60,
                                       minute: totalMinutes % 60,
                                     );
-                                    final staffMember = staff.isNotEmpty &&
+                                    final staffMember =
+                                        staff.isNotEmpty &&
                                             colIndex < staff.length
                                         ? staff[colIndex]
                                         : null;
@@ -513,7 +398,10 @@ class _CalendarView extends StatelessWidget {
 
                               // Booking chips
                               ..._buildBookingChips(
-                                  staff, effectiveColWidth, gridWidth),
+                                staff,
+                                effectiveColWidth,
+                                gridWidth,
+                              ),
                             ],
                           ),
                         ),
@@ -530,12 +418,17 @@ class _CalendarView extends StatelessWidget {
   }
 
   List<Widget> _buildBookingChips(
-      List<User> staff, double colWidth, double totalWidth) {
+    List<User> staff,
+    double colWidth,
+    double totalWidth,
+  ) {
     final chips = <Widget>[];
 
     for (final booking in bookings) {
       final top = _bookingTop(booking);
-      final height = _bookingHeight(booking).clamp(_slotHeight * 0.5, double.infinity);
+      final height = _bookingHeight(
+        booking,
+      ).clamp(_slotHeight * 0.5, double.infinity);
 
       // Find column index by userId
       int colIndex = 0;
@@ -644,7 +537,9 @@ class _BookingChip extends StatelessWidget {
             timeStr,
             style: TextStyle(
               fontSize: 10,
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.7),
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -652,21 +547,21 @@ class _BookingChip extends StatelessWidget {
           if (booking.guestCount > 1)
             Row(
               children: [
-                Icon(Icons.people,
-                    size: 10,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.5)),
+                Icon(
+                  Icons.people,
+                  size: 10,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withValues(alpha: 0.5),
+                ),
                 const SizedBox(width: 2),
                 Text(
                   '${booking.guestCount}',
                   style: TextStyle(
                     fontSize: 10,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.6),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.6),
                   ),
                 ),
               ],
@@ -719,7 +614,8 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
       hour: (_startTime.hour + 1).clamp(0, 23),
       minute: _startTime.minute,
     );
-    _selectedStaff = widget.prefilledStaff ??
+    _selectedStaff =
+        widget.prefilledStaff ??
         (widget.users.isNotEmpty ? widget.users.first : null);
   }
 
@@ -732,12 +628,12 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
   }
 
   DateTime _toDateTime(TimeOfDay t) => DateTime(
-        widget.date.year,
-        widget.date.month,
-        widget.date.day,
-        t.hour,
-        t.minute,
-      );
+    widget.date.year,
+    widget.date.month,
+    widget.date.day,
+    t.hour,
+    t.minute,
+  );
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
@@ -779,8 +675,10 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
             ),
             ElevatedButton.icon(
               icon: const Icon(Icons.play_arrow, color: Colors.white),
-              label: const Text('Open Order Now',
-                  style: TextStyle(color: Colors.white)),
+              label: const Text(
+                'Open Order Now',
+                style: TextStyle(color: Colors.white),
+              ),
               style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
               onPressed: () => Navigator.pop(ctx, _PostSaveAction.open),
             ),
@@ -792,7 +690,9 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
       if (action == _PostSaveAction.open) {
         final user = ref.read(currentUserProvider);
         if (user != null) {
-          await ref.read(cartProvider.notifier).startBookingOrder(
+          await ref
+              .read(cartProvider.notifier)
+              .startBookingOrder(
                 ApiClient(),
                 companyId,
                 user.id,
@@ -906,28 +806,32 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
                 ],
               ),
               const SizedBox(height: 12),
-              ref.watch(allRoomsProvider).when(
-                loading: () => const LinearProgressIndicator(),
-                error: (_, __) => const SizedBox.shrink(),
-                data: (rooms) => DropdownButtonFormField<FloorPlanTable?>(
-                  initialValue: _selectedRoom,
-                  decoration: const InputDecoration(
-                    labelText: 'Room / Resource (optional)',
-                    prefixIcon: Icon(Icons.meeting_room),
-                  ),
-                  items: [
-                    const DropdownMenuItem<FloorPlanTable?>(
-                      value: null,
-                      child: Text('No room assigned'),
+              ref
+                  .watch(allRoomsProvider)
+                  .when(
+                    loading: () => const LinearProgressIndicator(),
+                    error: (_, __) => const SizedBox.shrink(),
+                    data: (rooms) => DropdownButtonFormField<FloorPlanTable?>(
+                      initialValue: _selectedRoom,
+                      decoration: const InputDecoration(
+                        labelText: 'Room / Resource (optional)',
+                        prefixIcon: Icon(Icons.meeting_room),
+                      ),
+                      items: [
+                        const DropdownMenuItem<FloorPlanTable?>(
+                          value: null,
+                          child: Text('No room assigned'),
+                        ),
+                        ...rooms.map(
+                          (t) => DropdownMenuItem<FloorPlanTable?>(
+                            value: t,
+                            child: Text(t.name),
+                          ),
+                        ),
+                      ],
+                      onChanged: (t) => setState(() => _selectedRoom = t),
                     ),
-                    ...rooms.map((t) => DropdownMenuItem<FloorPlanTable?>(
-                          value: t,
-                          child: Text(t.name),
-                        )),
-                  ],
-                  onChanged: (t) => setState(() => _selectedRoom = t),
-                ),
-              ),
+                  ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _noteController,
@@ -957,7 +861,9 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
                   width: 16,
                   height: 16,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.white),
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 )
               : const Text('Save'),
         ),
@@ -999,8 +905,11 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
     try {
-      await ApiClient()
-          .updateBookingStatus(companyId, widget.booking.id, newStatus);
+      await ApiClient().updateBookingStatus(
+        companyId,
+        widget.booking.id,
+        newStatus,
+      );
       widget.onUpdated();
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -1022,11 +931,12 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
     setState(() => _saving = true);
     try {
       // Mark booking as In Service
-      await ApiClient().updateBookingStatus(
-          companyId, widget.booking.id, 3);
+      await ApiClient().updateBookingStatus(companyId, widget.booking.id, 3);
 
       // Create PosOrder linked to this booking and populate the cart
-      await ref.read(cartProvider.notifier).startBookingOrder(
+      await ref
+          .read(cartProvider.notifier)
+          .startBookingOrder(
             ApiClient(),
             companyId,
             user.id,
@@ -1060,14 +970,18 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Booking'),
         content: Text(
-            'Delete booking for "${widget.booking.reservationName}"?'),
+          'Delete booking for "${widget.booking.reservationName}"?',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red, foregroundColor: Colors.white),
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('Delete'),
           ),
@@ -1078,9 +992,18 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
 
     setState(() => _saving = true);
     final companyId = ref.read(selectedCompanyProvider)?.id;
-    if (companyId == null) return;
+    final warehouseId = ref.read(selectedWarehouseProvider)?.id ?? 1;
+
+    if (companyId == null) {
+      setState(() => _saving = false);
+      return;
+    }
     try {
-      await ApiClient().deleteBooking(companyId, widget.booking.id);
+      await ApiClient().deleteBooking(
+        companyId,
+        widget.booking.id,
+        warehouseId,
+      );
       widget.onUpdated();
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -1096,7 +1019,9 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
 
   Widget _statusBtn(int currentStatus, int s) {
     return ElevatedButton(
-      onPressed: (currentStatus == s || _saving) ? null : () => _updateStatus(s),
+      onPressed: (currentStatus == s || _saving)
+          ? null
+          : () => _updateStatus(s),
       style: ElevatedButton.styleFrom(
         backgroundColor: _statusColor(s),
         disabledBackgroundColor: _statusColor(s).withValues(alpha: 0.3),
@@ -1107,7 +1032,10 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
       child: Text(
         _statusLabel(s),
         style: const TextStyle(
-            color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
         textAlign: TextAlign.center,
       ),
     );
@@ -1137,9 +1065,10 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
             child: Text(
               _statusLabel(b.status),
               style: TextStyle(
-                  color: statusColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12),
+                color: statusColor,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
             ),
           ),
         ],
@@ -1152,53 +1081,71 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
           children: [
             _DetailRow(
               icon: Icons.access_time,
-              text:
-                  '${_fmtDateTime(b.startTime)} – ${_fmtDateTime(b.endTime)}',
+              text: '${_fmtDateTime(b.startTime)} – ${_fmtDateTime(b.endTime)}',
             ),
-            _DetailRow(
-                icon: Icons.people, text: '${b.guestCount} guest(s)'),
-            _DetailRow(
-                icon: Icons.badge, text: _staffName(b.userId)),
+            _DetailRow(icon: Icons.people, text: '${b.guestCount} guest(s)'),
+            _DetailRow(icon: Icons.badge, text: _staffName(b.userId)),
             if (b.note != null && b.note!.isNotEmpty)
               _DetailRow(icon: Icons.notes, text: b.note!),
             if (b.floorPlanTableId != null)
-              _DetailRow(icon: Icons.meeting_room, text: 'Room #${b.floorPlanTableId}'),
+              _DetailRow(
+                icon: Icons.meeting_room,
+                text: 'Room #${b.floorPlanTableId}',
+              ),
             if (b.status == 4) ...[
               const SizedBox(height: 16),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.green.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                  border: Border.all(
+                    color: Colors.green.withValues(alpha: 0.4),
+                  ),
                 ),
                 child: const Row(
                   children: [
                     Icon(Icons.lock, size: 14, color: Colors.green),
                     SizedBox(width: 8),
-                    Text('This booking is completed and cannot be modified.',
-                        style: TextStyle(color: Colors.green, fontSize: 12)),
+                    Text(
+                      'This booking is completed and cannot be modified.',
+                      style: TextStyle(color: Colors.green, fontSize: 12),
+                    ),
                   ],
                 ),
               ),
             ] else ...[
               const SizedBox(height: 16),
-              Text('Update Status',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6))),
+              Text(
+                'Update Status',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
               const SizedBox(height: 8),
               Row(
-                children: [1, 2, 3].expand((s) => [
-                  if (s > 1) const SizedBox(width: 6),
-                  Expanded(child: _statusBtn(b.status, s)),
-                ]).toList(),
+                children: [1, 2, 3]
+                    .expand(
+                      (s) => [
+                        if (s > 1) const SizedBox(width: 6),
+                        Expanded(child: _statusBtn(b.status, s)),
+                      ],
+                    )
+                    .toList(),
               ),
               const SizedBox(height: 6),
               Row(
-                children: [4, 5].expand((s) => [
-                  if (s > 4) const SizedBox(width: 6),
-                  Expanded(child: _statusBtn(b.status, s)),
-                ]).toList(),
+                children: [4, 5]
+                    .expand(
+                      (s) => [
+                        if (s > 4) const SizedBox(width: 6),
+                        Expanded(child: _statusBtn(b.status, s)),
+                      ],
+                    )
+                    .toList(),
               ),
             ],
           ],
@@ -1220,8 +1167,13 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
           const SizedBox(width: 8),
           ElevatedButton.icon(
             icon: const Icon(Icons.play_arrow, color: Colors.white),
-            label: const Text('Start Service',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            label: const Text(
+              'Start Service',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
             onPressed: _saving ? null : _startService,
           ),
@@ -1243,18 +1195,22 @@ class _DetailRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         children: [
-          Icon(icon,
-              size: 14,
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withValues(alpha: 0.6)),
+          Icon(
+            icon,
+            size: 14,
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(text,
-                style: TextStyle(
-                    fontSize: 13,
-                    color: Theme.of(context).colorScheme.onSurface)),
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 13,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
           ),
         ],
       ),
@@ -1292,8 +1248,10 @@ class _TimePicker extends StatelessWidget {
           labelText: label,
           prefixIcon: const Icon(Icons.access_time, size: 18),
           border: const OutlineInputBorder(),
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 8,
+          ),
         ),
         child: Text(_fmtTime(time), style: const TextStyle(fontSize: 14)),
       ),

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
-import 'package:pos_app/customer/customers_screen.dart';
 import 'package:pos_app/product/product_provider.dart';
 import 'package:pos_app/product/product_model.dart';
 import 'package:pos_app/cart/cart_provider.dart';
@@ -9,33 +8,19 @@ import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 import 'package:pos_app/utils/status_helper.dart';
-import 'package:pos_app/document/documents_screen.dart';
 import 'package:pos_app/company/company_provider.dart';
-import 'package:pos_app/company/my_company_screen.dart';
 import 'package:pos_app/menu/discount_dialog.dart';
-import 'package:pos_app/auth/users_screen.dart';
-import 'package:pos_app/reports/reports_screen.dart';
-import 'package:pos_app/cart/payment_types_screen.dart';
-import 'package:pos_app/stock/warehouses_screen.dart';
-import 'package:pos_app/tax/tax_rates_screen.dart';
-import 'package:pos_app/stock/stock_screen.dart';
-import 'package:pos_app/product/product_groups_screen.dart';
-import 'package:pos_app/currency/currencies_screen.dart';
-import 'package:pos_app/product/products_screen.dart';
-import 'package:pos_app/reports/z_report_screen.dart';
 import 'package:pos_app/product/product_group_model.dart';
 import 'package:pos_app/product/product_group_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_screen.dart';
 import 'package:pos_app/cart/checkout_models.dart';
 import 'package:pos_app/cart/checkout_dialog.dart';
-import 'package:pos_app/settings/settings_screen.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/tax/tax_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/app_settings/industry_packs.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
-
 import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/promotions/promotions_list_screen.dart';
 import 'package:pos_app/bookings/bookings_screen.dart';
@@ -44,37 +29,56 @@ import 'package:pos_app/floor_plan/floor_plan_table.dart';
 import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/product/product_comment_model.dart';
 import 'package:pos_app/product/product_comment_provider.dart';
-import 'package:pos_app/menu/open_orders_screen.dart';
+import 'package:pos_app/widgets/shared_drawer.dart';
 
 final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
 final searchQueryProvider = StateProvider<String>((ref) => "");
 final cartWidthProvider = StateProvider<double>((ref) => 350.0);
 
 // --- MAIN SCREEN ---
-class MenuScreen extends ConsumerWidget {
+class MenuScreen extends ConsumerStatefulWidget {
   const MenuScreen({super.key});
 
-  void _handleLogout(BuildContext context, WidgetRef ref) {
-    ref.invalidate(currentUserProvider);
-    ref.read(cartProvider.notifier).clearCart();
-    Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+  @override
+  ConsumerState<MenuScreen> createState() => _MenuScreenState();
+}
+
+class _MenuScreenState extends ConsumerState<MenuScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final company = ref.read(selectedCompanyProvider);
+      if (company != null) {
+        final hasActiveOrder = ref.read(cartProvider).activePosOrderId != null;
+        if (!hasActiveOrder) {
+          syncLatestOrderNumber(ref, company.id);
+        }
+      }
+    });
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final currentUser = ref.watch(currentUserProvider);
-    final selectedCompany = ref.watch(selectedCompanyProvider);
+  Widget build(BuildContext context) {
     final cartState = ref.watch(cartProvider);
     final currentCustomer = ref.watch(currentCustomerProvider);
     final asyncCustomers = ref.watch(allCustomersProvider);
     final settings = ref.watch(appSettingsProvider);
-    final bookingEnabled       = settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
-    final floorPlanEnabled     = settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
-    final serviceTypeEnabled   = settings[SettingKeys.featureServiceTypeEnabled]?.toLowerCase() == 'true';
-    final serviceStatusEnabled = settings[SettingKeys.featureServiceStatusEnabled]?.toLowerCase() == 'true';
-    final serviceTypePack   = settings[SettingKeys.appServiceTypePack]   ?? 'Restaurant';
-    final serviceStatusPack = settings[SettingKeys.appServiceStatusPack] ?? 'Restaurant';
-    final orderTypes  = IndustryPacks.getOrderTypes(serviceTypePack);
+    final bookingEnabled =
+        settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
+    final floorPlanEnabled =
+        settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+    final serviceTypeEnabled =
+        settings[SettingKeys.featureServiceTypeEnabled]?.toLowerCase() ==
+        'true';
+    final serviceStatusEnabled =
+        settings[SettingKeys.featureServiceStatusEnabled]?.toLowerCase() ==
+        'true';
+    final serviceTypePack =
+        settings[SettingKeys.appServiceTypePack] ?? 'Restaurant';
+    final serviceStatusPack =
+        settings[SettingKeys.appServiceStatusPack] ?? 'Restaurant';
+    final orderTypes = IndustryPacks.getOrderTypes(serviceTypePack);
     final svcStatuses = IndustryPacks.getServiceStatuses(serviceStatusPack);
 
     // ✨ Task 2: Auto-select Walk-In Customer if none selected
@@ -95,229 +99,18 @@ class MenuScreen extends ConsumerWidget {
       });
     });
 
+    // Sync daily order counter when company changes mid-session
+    ref.listen(selectedCompanyProvider, (previous, next) {
+      if (next != null && previous?.id != next.id) {
+        final hasActiveOrder = ref.read(cartProvider).activePosOrderId != null;
+        if (!hasActiveOrder) {
+          syncLatestOrderNumber(ref, next.id);
+        }
+      }
+    });
+
     return Scaffold(
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            DrawerHeader(
-              decoration: const BoxDecoration(color: Colors.blueGrey),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  const Icon(
-                    Icons.point_of_sale,
-                    color: Colors.white,
-                    size: 36,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    selectedCompany?.name ?? "POS System",
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  Text(
-                    currentUser?.displayName ?? "",
-                    style: const TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.business),
-              title: const Text("My Company"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const MyCompanyScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.description),
-              title: const Text("Documents"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const DocumentsScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.people),
-              title: const Text("Customers"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const CustomersScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.payment),
-              title: const Text("Payment Types"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PaymentTypesScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.inventory),
-              title: const Text("Stock"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const StockScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.currency_exchange),
-              title: const Text("Currencies"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const CurrenciesScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.percent),
-              title: const Text("Tax Rates"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const TaxRatesScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.warehouse),
-              title: const Text("Warehouses"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const WarehousesScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.fastfood),
-              title: const Text("Products"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ProductsScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.folder_special),
-              title: const Text("Product Groups"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ProductGroupsScreen(),
-                  ),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.local_offer),
-              title: const Text("Promotions"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const PromotionsListScreen(),
-                  ),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.manage_accounts),
-              title: const Text("Users"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const UsersScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.bar_chart),
-              title: const Text("Reports"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ReportsScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.lock_clock),
-              title: const Text("End of Day"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const EndOfDayScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.pending_actions),
-              title: const Text("Open Orders"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => const OpenOrdersScreen()),
-                );
-              },
-            ),
-            const Divider();
-            ListTile(
-              leading: const Icon(Icons.settings),
-              title: const Text("Settings"),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                );
-              },
-            ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.logout, color: Colors.red),
-              title: const Text("Logout", style: TextStyle(color: Colors.red)),
-              onTap: () => _handleLogout(context, ref),
-            ),
-          ],
-        ),
-      ),
+      drawer: const SharedDrawer(),
       appBar: AppBar(
         title: const Text("POS System"),
         actions: [
@@ -329,7 +122,11 @@ class MenuScreen extends ConsumerWidget {
               child: Row(
                 children: [
                   asyncCustomers.when(
-                    loading: () => const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                    loading: () => const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                     error: (_, __) => const SizedBox.shrink(),
                     data: (all) {
                       final customers = all.where((c) => c.isCustomer).toList();
@@ -357,12 +154,22 @@ class MenuScreen extends ConsumerWidget {
                                     return ListTile(
                                       leading: const Icon(Icons.person),
                                       title: Text(c.name),
-                                      subtitle: Text(c.phoneNumber ?? c.email ?? ""),
+                                      subtitle: Text(
+                                        c.phoneNumber ?? c.email ?? "",
+                                      ),
                                       onTap: () {
-                                        ref.read(currentCustomerProvider.notifier).setCustomer(c);
-                                        final companyId = ref.read(selectedCompanyProvider)?.id;
+                                        ref
+                                            .read(
+                                              currentCustomerProvider.notifier,
+                                            )
+                                            .setCustomer(c);
+                                        final companyId = ref
+                                            .read(selectedCompanyProvider)
+                                            ?.id;
                                         if (companyId != null) {
-                                          ref.read(cartProvider.notifier).setCustomer(companyId, c);
+                                          ref
+                                              .read(cartProvider.notifier)
+                                              .setCustomer(companyId, c);
                                         }
                                         Navigator.pop(ctx);
                                       },
@@ -373,7 +180,9 @@ class MenuScreen extends ConsumerWidget {
                             ),
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Theme.of(context).colorScheme.surface,
+                            backgroundColor: Theme.of(
+                              context,
+                            ).colorScheme.surface,
                             padding: const EdgeInsets.symmetric(horizontal: 10),
                             visualDensity: VisualDensity.compact,
                           ),
@@ -382,153 +191,257 @@ class MenuScreen extends ConsumerWidget {
                     },
                   ),
                   // ── Dynamic Order Type button ──────────────────────────
-                  if (serviceTypeEnabled) Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        final val = await showDialog<int>(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('Select Order Type'),
-                            contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                            content: SizedBox(
-                              width: 500,
-                              child: Row(
-                                children: orderTypes.asMap().entries.expand((e) => [
-                                  if (e.key > 0) const SizedBox(width: 12),
-                                  Expanded(
-                                    child: ElevatedButton(
-                                      onPressed: () => Navigator.pop(ctx, e.key),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: _kOrderTypePalette[e.key % _kOrderTypePalette.length],
-                                        minimumSize: const Size(0, 100),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
-                                      ),
-                                      child: Text(
-                                        e.value,
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                                      ),
-                                    ),
-                                  ),
-                                ]).toList(),
+                  if (serviceTypeEnabled)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          final val = await showDialog<int>(
+                            context: context,
+                            builder: (ctx) => AlertDialog(
+                              title: const Text('Select Order Type'),
+                              contentPadding: const EdgeInsets.fromLTRB(
+                                16,
+                                16,
+                                16,
+                                16,
                               ),
-                            ),
-                          ),
-                        );
-                        if (val == null) return;
-                        if (val != 0) {
-                          ref.read(cartProvider.notifier).clearFloorPlanTable(val);
-                          if (ref.read(cartProvider).activePosOrderId == null) {
-                            final companyId = ref.read(selectedCompanyProvider)?.id;
-                            final user = ref.read(currentUserProvider);
-                            if (companyId != null && user != null) {
-                              try {
-                                await ref.read(cartProvider.notifier).startTablelessOrder(ApiClient(), companyId, user.id, val);
-                              } catch (e) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Error creating order: $e'), backgroundColor: Colors.red),
-                                  );
-                                }
-                              }
-                            }
-                          }
-                        } else {
-                          ref.read(cartProvider.notifier).state = ref.read(cartProvider).copyWith(serviceType: val);
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _kOrderTypePalette[cartState.serviceType % _kOrderTypePalette.length],
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      child: Text(
-                        cartState.serviceType < orderTypes.length ? orderTypes[cartState.serviceType] : 'Order Type',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  ),
-                  // ── Dynamic Service Status button ──────────────────────
-                  if (serviceStatusEnabled) Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: ElevatedButton.icon(
-                      icon: Icon(ServiceStatusHelper.getIcon(cartState.serviceStatus), size: 15),
-                      label: Text(
-                        svcStatuses
-                            .where((s) => s['id'] == cartState.serviceStatus)
-                            .map((s) => s['label'] as String)
-                            .firstOrNull ?? ServiceStatusHelper.getLabel(cartState.serviceStatus),
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      onPressed: () {
-                        final enabled = svcStatuses;
-                        showDialog<int>(
-                          context: context,
-                          builder: (ctx) {
-                            if (enabled.isEmpty) {
-                              return AlertDialog(
-                                title: const Text('Service Status'),
-                                content: const Text('No service statuses configured.'),
-                                actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
-                              );
-                            }
-                            return AlertDialog(
-                              title: const Text('Select Service Status'),
-                              contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
                               content: SizedBox(
                                 width: 500,
                                 child: Row(
-                                  children: enabled.asMap().entries.expand((e) {
-                                    final s     = e.value;
-                                    final id    = s['id'] as int? ?? 0;
-                                    final label = s['label'] as String? ?? 'Status';
-                                    final color = _colorFromName(s['color'] as String? ?? '');
-                                    return [
-                                      if (e.key > 0) const SizedBox(width: 12),
-                                      Expanded(
-                                        child: ElevatedButton(
-                                          onPressed: () => Navigator.pop(ctx, id),
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: color,
-                                            minimumSize: const Size(0, 100),
-                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+                                  children: orderTypes
+                                      .asMap()
+                                      .entries
+                                      .expand(
+                                        (e) => [
+                                          if (e.key > 0)
+                                            const SizedBox(width: 12),
+                                          Expanded(
+                                            child: ElevatedButton(
+                                              onPressed: () =>
+                                                  Navigator.pop(ctx, e.key),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor:
+                                                    _kOrderTypePalette[e.key %
+                                                        _kOrderTypePalette
+                                                            .length],
+                                                minimumSize: const Size(0, 100),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(12),
+                                                ),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      vertical: 16,
+                                                      horizontal: 8,
+                                                    ),
+                                              ),
+                                              child: Text(
+                                                e.value,
+                                                textAlign: TextAlign.center,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 13,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
                                           ),
-                                          child: Text(
-                                            label,
-                                            textAlign: TextAlign.center,
-                                            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                                          ),
-                                        ),
-                                      ),
-                                    ];
-                                  }).toList(),
+                                        ],
+                                      )
+                                      .toList(),
                                 ),
                               ),
-                            );
-                          },
-                        ).then((val) {
-                          if (val != null) {
-                            ref.read(cartProvider.notifier).state = cartState.copyWith(serviceStatus: val);
+                            ),
+                          );
+                          if (val == null) return;
+                          if (val != 0) {
+                            ref
+                                .read(cartProvider.notifier)
+                                .clearFloorPlanTable(val);
+                            if (ref.read(cartProvider).activePosOrderId ==
+                                null) {
+                              final companyId = ref
+                                  .read(selectedCompanyProvider)
+                                  ?.id;
+                              final user = ref.read(currentUserProvider);
+                              if (companyId != null && user != null) {
+                                try {
+                                  await ref
+                                      .read(cartProvider.notifier)
+                                      .startTablelessOrder(
+                                        ApiClient(),
+                                        companyId,
+                                        user.id,
+                                        val,
+                                      );
+                                } catch (e) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Error creating order: $e',
+                                        ),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  }
+                                }
+                              }
+                            }
+                          } else {
+                            ref.read(cartProvider.notifier).state = ref
+                                .read(cartProvider)
+                                .copyWith(serviceType: val);
                           }
-                        });
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: svcStatuses
-                            .where((s) => s['id'] == cartState.serviceStatus)
-                            .map((s) => _colorFromName(s['color'] as String? ?? ''))
-                            .firstOrNull ?? ServiceStatusHelper.getColor(cartState.serviceStatus),
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        visualDensity: VisualDensity.compact,
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor:
+                              _kOrderTypePalette[cartState.serviceType %
+                                  _kOrderTypePalette.length],
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        child: Text(
+                          cartState.serviceType < orderTypes.length
+                              ? orderTypes[cartState.serviceType]
+                              : 'Order Type',
+                          style: const TextStyle(fontSize: 12),
+                        ),
                       ),
                     ),
-                  ),
+                  // ── Dynamic Service Status button ──────────────────────
+                  if (serviceStatusEnabled)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: ElevatedButton.icon(
+                        icon: Icon(
+                          ServiceStatusHelper.getIcon(cartState.serviceStatus),
+                          size: 15,
+                        ),
+                        label: Text(
+                          svcStatuses
+                                  .where(
+                                    (s) => s['id'] == cartState.serviceStatus,
+                                  )
+                                  .map((s) => s['label'] as String)
+                                  .firstOrNull ??
+                              ServiceStatusHelper.getLabel(
+                                cartState.serviceStatus,
+                              ),
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        onPressed: () {
+                          final enabled = svcStatuses;
+                          showDialog<int>(
+                            context: context,
+                            builder: (ctx) {
+                              if (enabled.isEmpty) {
+                                return AlertDialog(
+                                  title: const Text('Service Status'),
+                                  content: const Text(
+                                    'No service statuses configured.',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx),
+                                      child: const Text('Close'),
+                                    ),
+                                  ],
+                                );
+                              }
+                              return AlertDialog(
+                                title: const Text('Select Service Status'),
+                                contentPadding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  16,
+                                  16,
+                                  16,
+                                ),
+                                content: SizedBox(
+                                  width: 500,
+                                  child: Row(
+                                    children: enabled.asMap().entries.expand((
+                                      e,
+                                    ) {
+                                      final s = e.value;
+                                      final id = s['id'] as int? ?? 0;
+                                      final label =
+                                          s['label'] as String? ?? 'Status';
+                                      final color = _colorFromName(
+                                        s['color'] as String? ?? '',
+                                      );
+                                      return [
+                                        if (e.key > 0)
+                                          const SizedBox(width: 12),
+                                        Expanded(
+                                          child: ElevatedButton(
+                                            onPressed: () =>
+                                                Navigator.pop(ctx, id),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: color,
+                                              minimumSize: const Size(0, 100),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                              ),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    vertical: 16,
+                                                    horizontal: 8,
+                                                  ),
+                                            ),
+                                            child: Text(
+                                              label,
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ];
+                                    }).toList(),
+                                  ),
+                                ),
+                              );
+                            },
+                          ).then((val) {
+                            if (val != null) {
+                              ref.read(cartProvider.notifier).state = cartState
+                                  .copyWith(serviceStatus: val);
+                            }
+                          });
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor:
+                              svcStatuses
+                                  .where(
+                                    (s) => s['id'] == cartState.serviceStatus,
+                                  )
+                                  .map(
+                                    (s) => _colorFromName(
+                                      s['color'] as String? ?? '',
+                                    ),
+                                  )
+                                  .firstOrNull ??
+                              ServiceStatusHelper.getColor(
+                                cartState.serviceStatus,
+                              ),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ),
+                    ),
                   IconButton(
                     icon: const Icon(Icons.percent, color: Colors.white),
                     tooltip: "Discount",
-                    onPressed: () => showDialog(context: context, builder: (_) => const DiscountDialog()),
+                    onPressed: () => showDialog(
+                      context: context,
+                      builder: (_) => const DiscountDialog(),
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.receipt, color: Colors.white),
@@ -537,25 +450,33 @@ class MenuScreen extends ConsumerWidget {
                       final selectedProductId = cartState.selectedProductId;
                       if (selectedProductId == null) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text("Please select an item first"), backgroundColor: Colors.red),
+                          const SnackBar(
+                            content: Text("Please select an item first"),
+                            backgroundColor: Colors.red,
+                          ),
                         );
                         return;
                       }
-                      final item = cartState.items.firstWhere((i) => i.productId == selectedProductId);
-                      showDialog(context: context, builder: (_) => _ItemTaxDialog(item: item));
+                      final item = cartState.items.firstWhere(
+                        (i) => i.productId == selectedProductId,
+                      );
+                      showDialog(
+                        context: context,
+                        builder: (_) => _ItemTaxDialog(item: item),
+                      );
                     },
                   ),
-                  if (floorPlanEnabled || bookingEnabled)
-                    IconButton(
-                      icon: const Icon(Icons.swap_horiz, color: Colors.white),
-                      tooltip: "Transfer",
-                      onPressed: cartState.activePosOrderId == null
-                          ? null
-                          : () => showDialog(
-                                context: context,
-                                builder: (_) => _TransferDialog(cartState: cartState),
-                              ),
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.swap_horiz, color: Colors.white),
+                    tooltip: "Transfer",
+                    onPressed: cartState.activePosOrderId == null
+                        ? null
+                        : () => showDialog(
+                            context: context,
+                            builder: (_) =>
+                                _TransferDialog(cartState: cartState),
+                          ),
+                  ),
                 ],
               ),
             ),
@@ -669,12 +590,15 @@ class MenuScreen extends ConsumerWidget {
               icon: const Icon(Icons.calendar_month, color: Colors.white),
               label: const Text(
                 'Bookings',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
               ),
             ),
           if (floorPlanEnabled) ...[
-            if (bookingEnabled)
-              const SizedBox(width: 4),
+            if (bookingEnabled) const SizedBox(width: 4),
             TextButton.icon(
               onPressed: () {
                 ref.read(cartProvider.notifier).clearCart();
@@ -687,7 +611,11 @@ class MenuScreen extends ConsumerWidget {
               icon: const Icon(Icons.grid_view, color: Colors.white),
               label: Text(
                 settings[SettingKeys.tablesButtonLabel] ?? 'Tables',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
               ),
             ),
           ],
@@ -744,17 +672,28 @@ const _kOrderTypePalette = [
 // Maps a colour-name string (from the service-status JSON) to a Flutter Color.
 Color _colorFromName(String name) {
   switch (name.toLowerCase()) {
-    case 'blue':   return Colors.blue;
-    case 'orange': return Colors.orange;
-    case 'teal':   return Colors.teal;
-    case 'green':  return Colors.green;
-    case 'purple': return Colors.purple;
-    case 'red':    return Colors.red;
-    case 'indigo': return Colors.indigo;
-    case 'amber':  return Colors.amber;
-    case 'pink':   return Colors.pink;
-    case 'grey':   return Colors.grey;
-    default:       return Colors.blueGrey;
+    case 'blue':
+      return Colors.blue;
+    case 'orange':
+      return Colors.orange;
+    case 'teal':
+      return Colors.teal;
+    case 'green':
+      return Colors.green;
+    case 'purple':
+      return Colors.purple;
+    case 'red':
+      return Colors.red;
+    case 'indigo':
+      return Colors.indigo;
+    case 'amber':
+      return Colors.amber;
+    case 'pink':
+      return Colors.pink;
+    case 'grey':
+      return Colors.grey;
+    default:
+      return Colors.blueGrey;
   }
 }
 
@@ -1045,7 +984,11 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
       onTap: () async {
         final cartState = ref.read(cartProvider);
         if (cartState.activePosOrderId == null) {
-          final floorPlanOn = ref.read(appSettingsProvider)[SettingKeys.featureFloorPlanEnabled]
+          final floorPlanOn =
+              ref
+                  .read(
+                    appSettingsProvider,
+                  )[SettingKeys.featureFloorPlanEnabled]
                   ?.toLowerCase() ==
               'true';
           if (cartState.serviceType != 0 || !floorPlanOn) {
@@ -1054,16 +997,21 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
             final user = ref.read(currentUserProvider);
             if (companyId == null || user == null) return;
             try {
-              await ref.read(cartProvider.notifier).startTablelessOrder(
-                ApiClient(),
-                companyId,
-                user.id,
-                cartState.serviceType,
-              );
+              await ref
+                  .read(cartProvider.notifier)
+                  .startTablelessOrder(
+                    ApiClient(),
+                    companyId,
+                    user.id,
+                    cartState.serviceType,
+                  );
             } catch (e) {
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Error creating order: $e'), backgroundColor: Colors.red),
+                SnackBar(
+                  content: Text('Error creating order: $e'),
+                  backgroundColor: Colors.red,
+                ),
               );
               return;
             }
@@ -1072,7 +1020,9 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
             if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Please select a Table from the Floor Plan first!'),
+                content: Text(
+                  'Please select a Table from the Floor Plan first!',
+                ),
                 backgroundColor: Colors.red,
               ),
             );
@@ -1147,12 +1097,14 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
             isUsingDefaultQuantity: product.isUsingDefaultQuantity,
             measurementUnit: product.measurementUnit,
           );
-          ref.read(cartProvider.notifier).addItem(
-            menuProduct,
-            quantity: quantity,
-            comment: comment,
-            measurementUnit: product.measurementUnit,
-          );
+          ref
+              .read(cartProvider.notifier)
+              .addItem(
+                menuProduct,
+                quantity: quantity,
+                comment: comment,
+                measurementUnit: product.measurementUnit,
+              );
         } catch (e) {
           if (!context.mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1230,10 +1182,15 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
                             ),
                           ),
                         ),
-                        if (getActivePromotionCountForProduct(ref, product.id) > 0)
+                        if (getActivePromotionCountForProduct(ref, product.id) >
+                            0)
                           const Padding(
                             padding: EdgeInsets.only(left: 4),
-                            child: Icon(Icons.star, color: Colors.amber, size: 16),
+                            child: Icon(
+                              Icons.star,
+                              color: Colors.amber,
+                              size: 16,
+                            ),
                           ),
                       ],
                     ),
@@ -1241,7 +1198,9 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
                     Text(
                       "${product.price.toStringAsFixed(2)} $sym",
                       style: TextStyle(
-                        color: isDark ? Colors.greenAccent[400] : Colors.green[800],
+                        color: isDark
+                            ? Colors.greenAccent[400]
+                            : Colors.green[800],
                         fontWeight: FontWeight.w900,
                         fontSize: 15,
                       ),
@@ -1295,8 +1254,16 @@ class _PaginationBar extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          _NavButton(label: '<<', tooltip: 'First', onTap: isFirst ? null : onFirst),
-          _NavButton(label: '<', tooltip: 'Previous', onTap: isFirst ? null : onPrevious),
+          _NavButton(
+            label: '<<',
+            tooltip: 'First',
+            onTap: isFirst ? null : onFirst,
+          ),
+          _NavButton(
+            label: '<',
+            tooltip: 'Previous',
+            onTap: isFirst ? null : onPrevious,
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Text(
@@ -1308,8 +1275,16 @@ class _PaginationBar extends StatelessWidget {
               ),
             ),
           ),
-          _NavButton(label: '>', tooltip: 'Next', onTap: isLast ? null : onNext),
-          _NavButton(label: '>>', tooltip: 'Last', onTap: isLast ? null : onLast),
+          _NavButton(
+            label: '>',
+            tooltip: 'Next',
+            onTap: isLast ? null : onNext,
+          ),
+          _NavButton(
+            label: '>>',
+            tooltip: 'Last',
+            onTap: isLast ? null : onLast,
+          ),
         ],
       ),
     );
@@ -1368,10 +1343,12 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final List<String> capturedWarnings = [];
 
     // Capture routing context before saveOrderToServer clears the cart
-    final wasBookingOrder  = ref.read(cartProvider).bookingId != null;
-    final wasTableOrder    = ref.read(cartProvider).floorPlanTableId != null;
-    final savedSettings    = ref.read(appSettingsProvider);
-    final floorPlanEnabled = savedSettings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+    final wasBookingOrder = ref.read(cartProvider).bookingId != null;
+    final wasTableOrder = ref.read(cartProvider).floorPlanTableId != null;
+    final savedSettings = ref.read(appSettingsProvider);
+    final floorPlanEnabled =
+        savedSettings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() ==
+        'true';
 
     try {
       final result = await ref
@@ -1426,11 +1403,13 @@ class _CartSectionState extends ConsumerState<CartSection> {
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(wasBookingOrder
-                  ? 'Booking Saved!'
-                  : wasTableOrder
-                      ? 'Order Saved to Table!'
-                      : 'Order Saved!'),
+              content: Text(
+                wasBookingOrder
+                    ? 'Booking Saved!'
+                    : wasTableOrder
+                    ? 'Order Saved to Table!'
+                    : 'Order Saved!',
+              ),
               backgroundColor: Colors.blue,
             ),
           );
@@ -1448,8 +1427,9 @@ class _CartSectionState extends ConsumerState<CartSection> {
             MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
             (route) => false,
           );
+        } else {
+          await syncLatestOrderNumber(ref, companyId);
         }
-        // else: walk-in with both features off — stay on MenuScreen
       } else {
         // success == false
         final fallbackWarehouses = result['fallbackWarehouses'] as List?;
@@ -1529,9 +1509,10 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final allUsers = ref.watch(allUsersProvider).value ?? [];
     final staffName = cartState.bookingStaffId != null
         ? allUsers
-            .where((u) => u.id == cartState.bookingStaffId)
-            .map((u) => u.displayName)
-            .firstOrNull ?? 'Staff #${cartState.bookingStaffId}'
+                  .where((u) => u.id == cartState.bookingStaffId)
+                  .map((u) => u.displayName)
+                  .firstOrNull ??
+              'Staff #${cartState.bookingStaffId}'
         : null;
     final guestName = cartState.orderNumber?.replaceFirst('APT- ', '');
 
@@ -1541,18 +1522,30 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final String contextLabel;
     if (cartState.bookingId != null) {
       final tableName = cartState.floorPlanTableId != null
-          ? allRooms.where((t) => t.id == cartState.floorPlanTableId).firstOrNull?.name
+          ? allRooms
+                .where((t) => t.id == cartState.floorPlanTableId)
+                .firstOrNull
+                ?.name
           : null;
-      final prefix = tableName ?? (guestName?.isNotEmpty == true ? guestName! : 'Booking');
+      final prefix =
+          tableName ?? (guestName?.isNotEmpty == true ? guestName! : 'Booking');
       contextLabel = staffName != null ? '$prefix · Staff: $staffName' : prefix;
     } else if (cartState.floorPlanTableId != null) {
-      contextLabel = allRooms
+      contextLabel =
+          allRooms
               .where((t) => t.id == cartState.floorPlanTableId)
               .firstOrNull
               ?.name ??
           'Table #${cartState.floorPlanTableId}';
     } else {
-      contextLabel = 'Order #$dailyOrderNumber';
+      final stored = cartState.orderNumber;
+      if (stored != null && stored.isNotEmpty) {
+        contextLabel = stored.startsWith('ORD-')
+            ? 'Order #${stored.substring(4)}'
+            : stored;
+      } else {
+        contextLabel = 'Order #$dailyOrderNumber';
+      }
     }
 
     return Column(
@@ -1568,30 +1561,42 @@ class _CartSectionState extends ConsumerState<CartSection> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text.rich(
-                    TextSpan(children: [
-                      const TextSpan(
-                        text: 'Booking: ',
-                        style: TextStyle(
-                            color: Colors.teal, fontWeight: FontWeight.bold, fontSize: 12),
-                      ),
-                      TextSpan(
-                        text: guestName ?? '—',
-                        style: const TextStyle(
-                            color: Colors.teal, fontSize: 12),
-                      ),
-                      if (staffName != null) ...[
+                    TextSpan(
+                      children: [
                         const TextSpan(
-                          text: '  ·  Staff: ',
+                          text: 'Booking: ',
                           style: TextStyle(
-                              color: Colors.teal, fontWeight: FontWeight.bold, fontSize: 12),
+                            color: Colors.teal,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
                         ),
                         TextSpan(
-                          text: staffName,
+                          text: guestName ?? '—',
                           style: const TextStyle(
-                              color: Colors.teal, fontSize: 12),
+                            color: Colors.teal,
+                            fontSize: 12,
+                          ),
                         ),
+                        if (staffName != null) ...[
+                          const TextSpan(
+                            text: '  ·  Staff: ',
+                            style: TextStyle(
+                              color: Colors.teal,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                          TextSpan(
+                            text: staffName,
+                            style: const TextStyle(
+                              color: Colors.teal,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ],
-                    ]),
+                    ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -1608,7 +1613,10 @@ class _CartSectionState extends ConsumerState<CartSection> {
               Flexible(
                 child: Text(
                   contextLabel,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -1743,9 +1751,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                         ],
                       ),
 
-                      subtitle: Text(
-                        "${_formatCartQty(item)} (Tap to modify)",
-                      ),
+                      subtitle: Text("${_formatCartQty(item)} (Tap to modify)"),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -1772,7 +1778,10 @@ class _CartSectionState extends ConsumerState<CartSection> {
                                   title: const Text("Enter Quantity"),
                                   content: TextField(
                                     controller: controller,
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
                                     autofocus: true,
                                     decoration: InputDecoration(
                                       labelText: "Quantity",
@@ -1786,20 +1795,26 @@ class _CartSectionState extends ConsumerState<CartSection> {
                                     ),
                                     ElevatedButton(
                                       onPressed: () {
-                                        final newQty = double.tryParse(controller.text);
+                                        final newQty = double.tryParse(
+                                          controller.text,
+                                        );
                                         if (newQty != null && newQty >= 0) {
-                                          ref.read(cartProvider.notifier).addItem(
-                                            MenuProduct(
-                                              id: item.productId,
-                                              name: item.productName,
-                                              price: item.price,
-                                              isTaxInclusivePrice: true, // fallback
-                                              color: "Transparent",
-                                              stockQuantity: 9999,
-                                              taxes: item.appliedTaxes,
-                                            ),
-                                            quantity: newQty - item.quantity,
-                                          );
+                                          ref
+                                              .read(cartProvider.notifier)
+                                              .addItem(
+                                                MenuProduct(
+                                                  id: item.productId,
+                                                  name: item.productName,
+                                                  price: item.price,
+                                                  isTaxInclusivePrice:
+                                                      true, // fallback
+                                                  color: "Transparent",
+                                                  stockQuantity: 9999,
+                                                  taxes: item.appliedTaxes,
+                                                ),
+                                                quantity:
+                                                    newQty - item.quantity,
+                                              );
                                         }
                                         Navigator.pop(ctx);
                                       },
@@ -2029,6 +2044,8 @@ class _CartSectionState extends ConsumerState<CartSection> {
                       if (companyId == null ||
                           cartState.activePosOrderId == null)
                         return;
+                      final wasBookingOrder = cartState.bookingId != null;
+                      final wasTableOrder = cartState.floorPlanTableId != null;
                       try {
                         await ApiClient().deletePosOrder(
                           companyId,
@@ -2036,20 +2053,37 @@ class _CartSectionState extends ConsumerState<CartSection> {
                           cartState.activeWarehouseId ?? 1,
                         );
                         ref.read(cartProvider.notifier).clearCart();
+                        await syncLatestOrderNumber(ref, companyId);
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content: Text('Order Deleted from Database'),
+                              content: Text('Order Voided'),
                               backgroundColor: Colors.red,
                             ),
                           );
-                          Navigator.pushAndRemoveUntil(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const FloorPlanScreen(),
-                            ),
-                            (route) => false,
-                          );
+                          final settings = ref.read(appSettingsProvider);
+                          final bookingEnabled = settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
+                          final floorPlanEnabled = settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+                          if (wasBookingOrder) {
+                            Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(builder: (_) => const BookingsScreen()),
+                              (route) => false,
+                            );
+                          } else if (wasTableOrder || floorPlanEnabled) {
+                            Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
+                              (route) => false,
+                            );
+                          } else if (bookingEnabled) {
+                            Navigator.pushAndRemoveUntil(
+                              context,
+                              MaterialPageRoute(builder: (_) => const BookingsScreen()),
+                              (route) => false,
+                            );
+                          }
+                          // Pure retail: stay on MenuScreen, snackbar already shown
                         }
                       } catch (e) {
                         if (context.mounted)
@@ -2143,10 +2177,7 @@ Future<double?> _showQuantityInputDialog(
         controller: controller,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         autofocus: true,
-        decoration: InputDecoration(
-          labelText: 'Quantity',
-          suffixText: unit,
-        ),
+        decoration: InputDecoration(labelText: 'Quantity', suffixText: unit),
       ),
       actions: [
         TextButton(
@@ -2181,10 +2212,7 @@ Future<double?> _showPriceInputDialog(
         controller: controller,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         autofocus: true,
-        decoration: const InputDecoration(
-          labelText: 'Price',
-          prefixText: '\$',
-        ),
+        decoration: const InputDecoration(labelText: 'Price', prefixText: '\$'),
       ),
       actions: [
         TextButton(
@@ -2203,10 +2231,7 @@ Future<double?> _showPriceInputDialog(
   );
 }
 
-Future<bool> _showAgeRestrictionDialog(
-  BuildContext context,
-  int minAge,
-) async {
+Future<bool> _showAgeRestrictionDialog(BuildContext context, int minAge) async {
   final result = await showDialog<bool>(
     context: context,
     barrierDismissible: false,
@@ -2436,16 +2461,28 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
 
   Future<void> _confirm() async {
     setState(() => _saving = true);
+    final companyId = ref.read(selectedCompanyProvider)?.id;
     try {
-      // Update CartState
-      ref.read(cartProvider.notifier).state = widget.cartState.copyWith(
-        bookingStaffId: _selectedStaff?.id,
-        floorPlanTableId: _selectedRoom?.id,
-      );
-
-      // Sync backend if this order is linked to a booking
+      final activePosOrderId = widget.cartState.activePosOrderId;
       final bookingId = widget.cartState.bookingId;
-      final companyId = ref.read(selectedCompanyProvider)?.id;
+
+      if (activePosOrderId != null && companyId != null) {
+        final updateRequest = {
+          "id": activePosOrderId,
+          "userId": _selectedStaff?.id ?? ref.read(currentUserProvider)?.id ?? 0,
+          "number": widget.cartState.orderNumber ?? "ORD-TEMP",
+          "discount": widget.cartState.manualCartDiscount,
+          "discountType": widget.cartState.manualCartDiscountType,
+          "total": ref.read(cartTotalProvider),
+          "customerId": widget.cartState.selectedCustomer?.id,
+          "serviceType": widget.cartState.serviceType,
+          "serviceStatus": widget.cartState.serviceStatus,
+          "floorPlanTableId": _selectedRoom?.id,
+          "warehouseId": widget.cartState.activeWarehouseId ?? ref.read(selectedWarehouseProvider)?.id ?? 1,
+        };
+        await ApiClient().updatePosOrder(companyId, updateRequest);
+      }
+
       if (bookingId != null && companyId != null) {
         await ApiClient().updateBookingResource(
           companyId,
@@ -2455,11 +2492,22 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
         );
       }
 
-      if (mounted) Navigator.pop(context);
+      ref.read(cartProvider.notifier).clearCart();
+      await syncLatestOrderNumber(ref, companyId!);
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Order Transferred')),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Transfer failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Transfer failed: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -2469,9 +2517,11 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final usersAsync   = ref.watch(allUsersProvider);
-    final roomsAsync   = ref.watch(allRoomsProvider);
-    final floorPlanOn  = ref.watch(appSettingsProvider)[SettingKeys.featureFloorPlanEnabled]
+    final usersAsync = ref.watch(allUsersProvider);
+    final roomsAsync = ref.watch(allRoomsProvider);
+    final floorPlanOn =
+        ref
+            .watch(appSettingsProvider)[SettingKeys.featureFloorPlanEnabled]
             ?.toLowerCase() ==
         'true';
 
@@ -2502,11 +2552,16 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
                     border: OutlineInputBorder(),
                   ),
                   items: [
-                    const DropdownMenuItem<User?>(value: null, child: Text('Unassigned')),
-                    ...enabled.map((u) => DropdownMenuItem<User?>(
-                          value: u,
-                          child: Text(u.displayName),
-                        )),
+                    const DropdownMenuItem<User?>(
+                      value: null,
+                      child: Text('Unassigned'),
+                    ),
+                    ...enabled.map(
+                      (u) => DropdownMenuItem<User?>(
+                        value: u,
+                        child: Text(u.displayName),
+                      ),
+                    ),
                   ],
                   onChanged: (u) => setState(() => _selectedStaff = u),
                 );
@@ -2527,11 +2582,15 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
                   ),
                   items: [
                     const DropdownMenuItem<FloorPlanTable?>(
-                        value: null, child: Text('No room')),
-                    ...rooms.map((t) => DropdownMenuItem<FloorPlanTable?>(
-                          value: t,
-                          child: Text(t.name),
-                        )),
+                      value: null,
+                      child: Text('No room'),
+                    ),
+                    ...rooms.map(
+                      (t) => DropdownMenuItem<FloorPlanTable?>(
+                        value: t,
+                        child: Text(t.name),
+                      ),
+                    ),
                   ],
                   onChanged: (t) => setState(() => _selectedRoom = t),
                 ),
@@ -2541,8 +2600,11 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Icon(Icons.sync, size: 14,
-                      color: Theme.of(context).colorScheme.primary),
+                  Icon(
+                    Icons.sync,
+                    size: 14,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -2567,11 +2629,18 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
         ElevatedButton.icon(
           icon: _saving
               ? const SizedBox(
-                  width: 14, height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
               : const Icon(Icons.swap_horiz, color: Colors.white),
-          label: const Text('Confirm Transfer',
-              style: TextStyle(color: Colors.white)),
+          label: const Text(
+            'Confirm Transfer',
+            style: TextStyle(color: Colors.white),
+          ),
           style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
           onPressed: _saving ? null : _confirm,
         ),
