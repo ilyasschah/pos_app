@@ -44,6 +44,7 @@ import 'package:pos_app/floor_plan/floor_plan_table.dart';
 import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/product/product_comment_model.dart';
 import 'package:pos_app/product/product_comment_provider.dart';
+import 'package:pos_app/menu/open_orders_screen.dart';
 
 final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
 final searchQueryProvider = StateProvider<String>((ref) => "");
@@ -284,7 +285,19 @@ class MenuScreen extends ConsumerWidget {
                 );
               },
             ),
-            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.pending_actions),
+              title: const Text("Open Orders"),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const OpenOrdersScreen()),
+                );
+              },
+            ),
+            const Divider();
             ListTile(
               leading: const Icon(Icons.settings),
               title: const Text("Settings"),
@@ -532,16 +545,17 @@ class MenuScreen extends ConsumerWidget {
                       showDialog(context: context, builder: (_) => _ItemTaxDialog(item: item));
                     },
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.swap_horiz, color: Colors.white),
-                    tooltip: "Transfer",
-                    onPressed: cartState.activePosOrderId == null
-                        ? null
-                        : () => showDialog(
-                              context: context,
-                              builder: (_) => _TransferDialog(cartState: cartState),
-                            ),
-                  ),
+                  if (floorPlanEnabled || bookingEnabled)
+                    IconButton(
+                      icon: const Icon(Icons.swap_horiz, color: Colors.white),
+                      tooltip: "Transfer",
+                      onPressed: cartState.activePosOrderId == null
+                          ? null
+                          : () => showDialog(
+                                context: context,
+                                builder: (_) => _TransferDialog(cartState: cartState),
+                              ),
+                    ),
                 ],
               ),
             ),
@@ -1031,8 +1045,11 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
       onTap: () async {
         final cartState = ref.read(cartProvider);
         if (cartState.activePosOrderId == null) {
-          if (cartState.serviceType != 0) {
-            // Takeaway / Delivery — auto-create a tableless order on first tap
+          final floorPlanOn = ref.read(appSettingsProvider)[SettingKeys.featureFloorPlanEnabled]
+                  ?.toLowerCase() ==
+              'true';
+          if (cartState.serviceType != 0 || !floorPlanOn) {
+            // Walk-in / Takeaway / Delivery (or floor plan disabled) — auto-create a tableless order
             final companyId = ref.read(selectedCompanyProvider)?.id;
             final user = ref.read(currentUserProvider);
             if (companyId == null || user == null) return;
@@ -1051,7 +1068,7 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
               return;
             }
           } else {
-            // Dine In — a table must be selected from the Floor Plan first
+            // Dine-In with floor plan enabled — a table must be selected first
             if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -1350,6 +1367,12 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final currentUser = ref.read(currentUserProvider);
     final List<String> capturedWarnings = [];
 
+    // Capture routing context before saveOrderToServer clears the cart
+    final wasBookingOrder  = ref.read(cartProvider).bookingId != null;
+    final wasTableOrder    = ref.read(cartProvider).floorPlanTableId != null;
+    final savedSettings    = ref.read(appSettingsProvider);
+    final floorPlanEnabled = savedSettings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+
     try {
       final result = await ref
           .read(cartProvider.notifier)
@@ -1402,18 +1425,31 @@ class _CartSectionState extends ConsumerState<CartSection> {
           );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Order Saved to Table!'),
+            SnackBar(
+              content: Text(wasBookingOrder
+                  ? 'Booking Saved!'
+                  : wasTableOrder
+                      ? 'Order Saved to Table!'
+                      : 'Order Saved!'),
               backgroundColor: Colors.blue,
             ),
           );
         }
 
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
-          (route) => false,
-        );
+        if (wasBookingOrder) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const BookingsScreen()),
+            (route) => false,
+          );
+        } else if (wasTableOrder || floorPlanEnabled) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
+            (route) => false,
+          );
+        }
+        // else: walk-in with both features off — stay on MenuScreen
       } else {
         // success == false
         final fallbackWarehouses = result['fallbackWarehouses'] as List?;
@@ -2433,8 +2469,11 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final usersAsync  = ref.watch(allUsersProvider);
-    final roomsAsync  = ref.watch(allRoomsProvider);
+    final usersAsync   = ref.watch(allUsersProvider);
+    final roomsAsync   = ref.watch(allRoomsProvider);
+    final floorPlanOn  = ref.watch(appSettingsProvider)[SettingKeys.featureFloorPlanEnabled]
+            ?.toLowerCase() ==
+        'true';
 
     return AlertDialog(
       title: const Row(
@@ -2473,29 +2512,31 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
                 );
               },
             ),
-            const SizedBox(height: 16),
-            // Room / resource dropdown
-            roomsAsync.when(
-              loading: () => const LinearProgressIndicator(),
-              error: (_, __) => const SizedBox.shrink(),
-              data: (rooms) => DropdownButtonFormField<FloorPlanTable?>(
-                initialValue: _selectedRoom,
-                decoration: const InputDecoration(
-                  labelText: 'Assign Room / Resource',
-                  prefixIcon: Icon(Icons.meeting_room),
-                  border: OutlineInputBorder(),
+            if (floorPlanOn) ...[
+              const SizedBox(height: 16),
+              // Room / resource dropdown
+              roomsAsync.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (_, __) => const SizedBox.shrink(),
+                data: (rooms) => DropdownButtonFormField<FloorPlanTable?>(
+                  initialValue: _selectedRoom,
+                  decoration: const InputDecoration(
+                    labelText: 'Assign Room / Resource',
+                    prefixIcon: Icon(Icons.meeting_room),
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    const DropdownMenuItem<FloorPlanTable?>(
+                        value: null, child: Text('No room')),
+                    ...rooms.map((t) => DropdownMenuItem<FloorPlanTable?>(
+                          value: t,
+                          child: Text(t.name),
+                        )),
+                  ],
+                  onChanged: (t) => setState(() => _selectedRoom = t),
                 ),
-                items: [
-                  const DropdownMenuItem<FloorPlanTable?>(
-                      value: null, child: Text('No room')),
-                  ...rooms.map((t) => DropdownMenuItem<FloorPlanTable?>(
-                        value: t,
-                        child: Text(t.name),
-                      )),
-                ],
-                onChanged: (t) => setState(() => _selectedRoom = t),
               ),
-            ),
+            ],
             if (widget.cartState.bookingId != null) ...[
               const SizedBox(height: 12),
               Row(

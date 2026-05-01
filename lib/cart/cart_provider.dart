@@ -353,7 +353,6 @@ class CartNotifier extends Notifier<CartState> {
 
   void clearCart({bool keepCustomer = false}) {
     state = CartState(
-      activePosOrderId: state.activePosOrderId,
       items: const [],
       isLoading: false,
       selectedCustomer: keepCustomer ? state.selectedCustomer : null,

@@ -8,6 +8,9 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_screen.dart';
 import 'package:pos_app/bookings/bookings_screen.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:pos_app/menu/menu_screen.dart';
 
 class CheckoutDialog extends ConsumerStatefulWidget {
   const CheckoutDialog({Key? key}) : super(key: key);
@@ -46,6 +49,7 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
 
     // Capture before checkout clears the cart
     final wasBookingOrder = ref.read(cartProvider).bookingId != null;
+    final wasTableOrder   = ref.read(cartProvider).floorPlanTableId != null;
 
     try {
       final success = await cartNotifier.checkoutOrder(
@@ -64,16 +68,29 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
           SnackBar(
             content: Text(wasBookingOrder
                 ? 'Payment successful! Booking marked as completed.'
-                : 'Payment Successful! Table is now free.'),
+                : wasTableOrder
+                    ? 'Payment successful! Table is now free.'
+                    : 'Payment successful!'),
           ),
         );
+        final settings = ref.read(appSettingsProvider);
+        final bookingEnabled   = settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
+        final floorPlanEnabled = settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+        final Widget nextScreen;
+        if (wasBookingOrder) {
+          nextScreen = const BookingsScreen();
+        } else if (wasTableOrder) {
+          nextScreen = const FloorPlanScreen();
+        } else if (bookingEnabled) {
+          nextScreen = const BookingsScreen();
+        } else if (floorPlanEnabled) {
+          nextScreen = const FloorPlanScreen();
+        } else {
+          nextScreen = const MenuScreen();
+        }
         Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(
-              builder: (_) => wasBookingOrder
-                  ? const BookingsScreen()
-                  : const FloorPlanScreen(),
-            ),
+            MaterialPageRoute(builder: (_) => nextScreen),
             (route) => false);
       }
     } catch (e) {
