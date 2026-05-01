@@ -77,9 +77,9 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
         final bookingEnabled   = settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
         final floorPlanEnabled = settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
         final Widget nextScreen;
-        if (wasBookingOrder) {
+        if (wasBookingOrder && bookingEnabled) {
           nextScreen = const BookingsScreen();
-        } else if (wasTableOrder) {
+        } else if (wasTableOrder && floorPlanEnabled) {
           nextScreen = const FloorPlanScreen();
         } else if (bookingEnabled) {
           nextScreen = const BookingsScreen();

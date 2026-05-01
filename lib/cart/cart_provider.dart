@@ -230,11 +230,16 @@ class CartNotifier extends Notifier<CartState> {
     ref.read(currentCustomerProvider.notifier).setCustomer(customer);
   }
 
-  void clearFloorPlanTable(int newServiceType) {
+  Future<void> clearFloorPlanTable(int newServiceType, {required int companyId}) async {
+    if (state.floorPlanTableId != null) {
+      try {
+        await ApiClient().freeFloorPlanTable(companyId, state.floorPlanTableId!);
+      } catch (_) {}
+    }
     state = CartState(
       activePosOrderId: state.activePosOrderId,
       items: state.items,
-      orderNumber: state.orderNumber,
+      orderNumber: "ORD- Takeaway",
       isLoading: state.isLoading,
       selectedCustomer: state.selectedCustomer,
       selectedCustomerDiscount: state.selectedCustomerDiscount,
@@ -247,6 +252,8 @@ class CartNotifier extends Notifier<CartState> {
       serviceStatus: state.serviceStatus,
       floorPlanTableId: null,
       activeWarehouseId: state.activeWarehouseId,
+      bookingId: state.bookingId,
+      bookingStaffId: state.bookingStaffId,
     );
   }
 
@@ -569,15 +576,13 @@ class CartNotifier extends Notifier<CartState> {
       }
 
       // 2. Sync Order Header (Discounts & Total)
+      final activeTableId = state.floorPlanTableId ?? ref.read(floorPlanTableProvider);
       String orderNumber = state.orderNumber ?? "ORD- Takeaway";
-      if (state.orderNumber == null) {
-        final tableId = ref.read(floorPlanTableProvider);
-        if (tableId != null) {
-          final tables = ref.read(tablesByFloorPlanProvider).value ?? [];
-          final table = tables.where((t) => t.id == tableId).firstOrNull;
-          if (table != null) {
-            orderNumber = "ORD- ${table.name}";
-          }
+      if (state.orderNumber == null && activeTableId != null) {
+        final tables = ref.read(tablesByFloorPlanProvider).value ?? [];
+        final table = tables.where((t) => t.id == activeTableId).firstOrNull;
+        if (table != null) {
+          orderNumber = "ORD- ${table.name}";
         }
       }
 
@@ -591,7 +596,7 @@ class CartNotifier extends Notifier<CartState> {
         "customerId": state.selectedCustomer?.id,
         "serviceType": state.serviceType,
         "serviceStatus": state.serviceStatus,
-        "floorPlanTableId": state.floorPlanTableId,
+        "floorPlanTableId": activeTableId,
         "warehouseId": effectiveWarehouseId,
       };
 
@@ -718,14 +723,12 @@ class CartNotifier extends Notifier<CartState> {
       }
 
       // Sync order header (customer, discounts, total) before finalising payment
+      final activeTableId = state.floorPlanTableId ?? ref.read(floorPlanTableProvider);
       String orderNumber = state.orderNumber ?? "ORD- Takeaway";
-      if (state.orderNumber == null) {
-        final tableId = ref.read(floorPlanTableProvider);
-        if (tableId != null) {
-          final tables = ref.read(tablesByFloorPlanProvider).value ?? [];
-          final table = tables.where((t) => t.id == tableId).firstOrNull;
-          if (table != null) orderNumber = "ORD- ${table.name}";
-        }
+      if (state.orderNumber == null && activeTableId != null) {
+        final tables = ref.read(tablesByFloorPlanProvider).value ?? [];
+        final table = tables.where((t) => t.id == activeTableId).firstOrNull;
+        if (table != null) orderNumber = "ORD- ${table.name}";
       }
       await apiClient.updatePosOrder(companyId, {
         "id": state.activePosOrderId,
@@ -737,7 +740,7 @@ class CartNotifier extends Notifier<CartState> {
         "customerId": state.selectedCustomer?.id,
         "serviceType": state.serviceType,
         "serviceStatus": state.serviceStatus,
-        "floorPlanTableId": state.floorPlanTableId,
+        "floorPlanTableId": activeTableId,
         "warehouseId": effectiveWarehouseId,
       });
 

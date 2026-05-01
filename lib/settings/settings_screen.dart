@@ -293,11 +293,13 @@ class _SettingSwitch extends ConsumerWidget {
   final String settingKey;
   final String label;
   final String? subtitle;
+  final void Function(WidgetRef, bool)? onChanged;
 
   const _SettingSwitch({
     required this.settingKey,
     required this.label,
     this.subtitle,
+    this.onChanged,
   });
 
   @override
@@ -312,8 +314,10 @@ class _SettingSwitch extends ConsumerWidget {
       value: value,
       activeThumbColor: theme.colorScheme.primary,
       contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-      onChanged: (v) =>
-          ref.read(appSettingsProvider.notifier).setBool(settingKey, v),
+      onChanged: (v) {
+        ref.read(appSettingsProvider.notifier).setBool(settingKey, v);
+        onChanged?.call(ref, v);
+      },
     );
   }
 }
@@ -547,16 +551,28 @@ class _GeneralTab extends ConsumerWidget {
         ),
         _SettingsCard(
           title: 'FEATURES',
-          children: const [
+          children: [
             _SettingSwitch(
               settingKey: SettingKeys.featureFloorPlanEnabled,
               label: 'Enable Floor Plan / Tables',
               subtitle: 'Show the Tables button in the POS and allow floor plan navigation',
+              onChanged: (ref, enabled) {
+                if (!enabled) {
+                  ref.read(appSettingsProvider.notifier).setBool(
+                      SettingKeys.featureBookingEnabled, false);
+                }
+              },
             ),
             _SettingSwitch(
               settingKey: SettingKeys.featureBookingEnabled,
               label: 'Enable Bookings / Calendar',
-              subtitle: 'Show the Bookings button in the POS and allow calendar navigation',
+              subtitle: 'Requires Floor Plan / Tables to be enabled',
+              onChanged: (ref, enabled) {
+                if (enabled) {
+                  ref.read(appSettingsProvider.notifier).setBool(
+                      SettingKeys.featureFloorPlanEnabled, true);
+                }
+              },
             ),
             _SettingTextField(
               settingKey: SettingKeys.tablesButtonLabel,

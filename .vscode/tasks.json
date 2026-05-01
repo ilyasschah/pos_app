@@ -42,8 +42,24 @@
       "problemMatcher": [
         "$dart-build_runner"
       ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "label": "flutter: dart run build_runner build",
+      "detail": ""
+    },
+    {
+      "type": "flutter",
+      "command": "flutter",
+      "args": [
+        "build",
+        "windows"
+      ],
       "group": "build",
-      "label": "flutter: dart run build_runner build"
+      "problemMatcher": [],
+      "label": "flutter: flutter build windows",
+      "detail": ""
     }
   ]
 }

@@ -225,6 +225,18 @@ class ApiClient {
     }
   }
 
+  Future<bool> freeFloorPlanTable(int companyId, int tableId) async {
+    try {
+      final response = await _dio.patch(
+        '/FloorPlanTables/FreeTable',
+        queryParameters: {'companyId': companyId, 'tableId': tableId},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      throw Exception('Failed to free table: $e');
+    }
+  }
+
   Future<List<dynamic>> getOrderItems(int companyId, int posOrderId) async {
     try {
       final response = await _dio.get(

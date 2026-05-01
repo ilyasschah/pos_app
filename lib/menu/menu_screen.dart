@@ -255,15 +255,19 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                             ),
                           );
                           if (val == null) return;
+                          final companyId =
+                              ref.read(selectedCompanyProvider)?.id;
                           if (val != 0) {
-                            ref
-                                .read(cartProvider.notifier)
-                                .clearFloorPlanTable(val);
+                            if (companyId != null) {
+                              await ref
+                                  .read(cartProvider.notifier)
+                                  .clearFloorPlanTable(
+                                    val,
+                                    companyId: companyId,
+                                  );
+                            }
                             if (ref.read(cartProvider).activePosOrderId ==
                                 null) {
-                              final companyId = ref
-                                  .read(selectedCompanyProvider)
-                                  ?.id;
                               final user = ref.read(currentUserProvider);
                               if (companyId != null && user != null) {
                                 try {
@@ -1346,9 +1350,10 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final wasBookingOrder = ref.read(cartProvider).bookingId != null;
     final wasTableOrder = ref.read(cartProvider).floorPlanTableId != null;
     final savedSettings = ref.read(appSettingsProvider);
+    final bookingEnabled =
+        savedSettings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
     final floorPlanEnabled =
-        savedSettings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() ==
-        'true';
+        savedSettings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
 
     try {
       final result = await ref
@@ -1415,13 +1420,25 @@ class _CartSectionState extends ConsumerState<CartSection> {
           );
         }
 
-        if (wasBookingOrder) {
+        if (wasBookingOrder && bookingEnabled) {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (_) => const BookingsScreen()),
             (route) => false,
           );
-        } else if (wasTableOrder || floorPlanEnabled) {
+        } else if (wasTableOrder && floorPlanEnabled) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
+            (route) => false,
+          );
+        } else if (bookingEnabled) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const BookingsScreen()),
+            (route) => false,
+          );
+        } else if (floorPlanEnabled) {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
@@ -2064,26 +2081,24 @@ class _CartSectionState extends ConsumerState<CartSection> {
                           final settings = ref.read(appSettingsProvider);
                           final bookingEnabled = settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
                           final floorPlanEnabled = settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
-                          if (wasBookingOrder) {
-                            Navigator.pushAndRemoveUntil(
-                              context,
-                              MaterialPageRoute(builder: (_) => const BookingsScreen()),
-                              (route) => false,
-                            );
-                          } else if (wasTableOrder || floorPlanEnabled) {
-                            Navigator.pushAndRemoveUntil(
-                              context,
-                              MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
-                              (route) => false,
-                            );
+                          Widget? voidNext;
+                          if (wasBookingOrder && bookingEnabled) {
+                            voidNext = const BookingsScreen();
+                          } else if (wasTableOrder && floorPlanEnabled) {
+                            voidNext = const FloorPlanScreen();
                           } else if (bookingEnabled) {
+                            voidNext = const BookingsScreen();
+                          } else if (floorPlanEnabled) {
+                            voidNext = const FloorPlanScreen();
+                          }
+                          if (voidNext != null) {
                             Navigator.pushAndRemoveUntil(
                               context,
-                              MaterialPageRoute(builder: (_) => const BookingsScreen()),
+                              MaterialPageRoute(builder: (_) => voidNext!),
                               (route) => false,
                             );
                           }
-                          // Pure retail: stay on MenuScreen, snackbar already shown
+                          // else: pure retail, stay on MenuScreen
                         }
                       } catch (e) {
                         if (context.mounted)
