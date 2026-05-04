@@ -294,9 +294,67 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                               }
                             }
                           } else {
-                            ref.read(cartProvider.notifier).state = ref
-                                .read(cartProvider)
-                                .copyWith(serviceType: val);
+                            // Switching back to Dine-In / In-Service (type 0)
+                            final cart = ref.read(cartProvider);
+                            final floorPlanOn = ref.read(
+                                    appSettingsProvider)[
+                                  SettingKeys.featureFloorPlanEnabled]
+                                ?.toLowerCase() ==
+                                'true';
+
+                            if (cart.floorPlanTableId == null && floorPlanOn) {
+                              // No table assigned yet — demand one
+                              final selectedSpace =
+                                  await showDialog<FloorPlanTable>(
+                                context: context,
+                                builder: (_) =>
+                                    const _SelectAvailableSpaceDialog(),
+                              );
+                              if (selectedSpace == null) return; // cancelled
+                              if (!context.mounted) return;
+
+                              final cId = ref.read(selectedCompanyProvider)?.id;
+                              final uId =
+                                  ref.read(currentUserProvider)?.id ?? 0;
+                              if (cId == null) return;
+
+                              final newOrderNumber =
+                                  'ORD- ${selectedSpace.name}';
+
+                              // Sync the order + table atomically in the backend
+                              // (PosOrderService.Update will mark the table occupied)
+                              await ApiClient().updatePosOrder(cId, {
+                                'id': cart.activePosOrderId,
+                                'userId': uId,
+                                'number': newOrderNumber,
+                                'floorPlanTableId': selectedSpace.id,
+                                'serviceType': 0,
+                                'serviceStatus': cart.serviceStatus,
+                                'discount': cart.manualCartDiscount,
+                                'discountType': cart.manualCartDiscountType,
+                                'total': ref.read(cartTotalProvider),
+                                'customerId': cart.selectedCustomer?.id,
+                                'warehouseId': cart.activeWarehouseId ?? 1,
+                              });
+
+                              if (!context.mounted) return;
+
+                              ref.read(cartProvider.notifier).setOrderContext(
+                                    cart.activePosOrderId!,
+                                    cart.activeWarehouseId ?? 1,
+                                    tableId: selectedSpace.id,
+                                    orderNumber: newOrderNumber,
+                                  );
+                              ref.read(cartProvider.notifier).state = ref
+                                  .read(cartProvider)
+                                  .copyWith(serviceType: 0);
+                            } else {
+                              // Table already assigned (or floor plan disabled) —
+                              // just update the local service type
+                              ref.read(cartProvider.notifier).state = ref
+                                  .read(cartProvider)
+                                  .copyWith(serviceType: val);
+                            }
                           }
                         },
                         style: ElevatedButton.styleFrom(
@@ -2496,6 +2554,28 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
           "warehouseId": widget.cartState.activeWarehouseId ?? ref.read(selectedWarehouseProvider)?.id ?? 1,
         };
         await ApiClient().updatePosOrder(companyId, updateRequest);
+
+        // Free the old space if we moved to a different one
+        final oldTableId = widget.cartState.floorPlanTableId;
+        final newTable = _selectedRoom;
+        if (oldTableId != null &&
+            newTable != null &&
+            oldTableId != newTable.id) {
+          try {
+            await ApiClient().freeFloorPlanTable(companyId, oldTableId);
+          } catch (_) {}
+        }
+
+        // Refresh local CartState so the Menu UI shows the new space/order name
+        if (newTable != null) {
+          final newOrderNumber = 'ORD- ${newTable.name}';
+          ref.read(cartProvider.notifier).setOrderContext(
+                activePosOrderId,
+                widget.cartState.activeWarehouseId ?? 1,
+                tableId: newTable.id,
+                orderNumber: newOrderNumber,
+              );
+        }
       }
 
       if (bookingId != null && companyId != null) {
@@ -2506,9 +2586,6 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
           floorPlanTableId: _selectedRoom?.id,
         );
       }
-
-      ref.read(cartProvider.notifier).clearCart();
-      await syncLatestOrderNumber(ref, companyId!);
 
       if (mounted) {
         Navigator.pop(context);
@@ -2658,6 +2735,91 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
           ),
           style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
           onPressed: _saving ? null : _confirm,
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dialog: pick a free space when switching back to Dine-In / In-Service
+// ---------------------------------------------------------------------------
+class _SelectAvailableSpaceDialog extends ConsumerWidget {
+  const _SelectAvailableSpaceDialog();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final roomsAsync = ref.watch(allRoomsProvider);
+    final spaceLabel = ref.watch(appSettingsProvider)[SettingKeys.tablesButtonLabel] ?? 'Table';
+
+    return AlertDialog(
+      title: Text('Select Available $spaceLabel'),
+      contentPadding: const EdgeInsets.fromLTRB(0, 12, 0, 0),
+      content: SizedBox(
+        width: 380,
+        child: roomsAsync.when(
+          loading: () => const SizedBox(
+            height: 120,
+            child: Center(child: CircularProgressIndicator()),
+          ),
+          error: (e, _) => Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text('Error loading spaces: $e',
+                style: TextStyle(color: theme.colorScheme.error)),
+          ),
+          data: (rooms) {
+            final free = rooms.where((t) => t.status == 0).toList();
+            if (free.isEmpty) {
+              return Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.event_busy,
+                        size: 48,
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
+                    const SizedBox(height: 12),
+                    Text(
+                      'No free ${spaceLabel.toLowerCase()}s available',
+                      style: TextStyle(
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+                    ),
+                  ],
+                ),
+              );
+            }
+            return ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 360),
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: free.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (ctx, i) {
+                  final t = free[i];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor:
+                          theme.colorScheme.primary.withValues(alpha: 0.15),
+                      child: Icon(Icons.table_restaurant,
+                          size: 18, color: theme.colorScheme.primary),
+                    ),
+                    title: Text(t.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    trailing:
+                        const Icon(Icons.arrow_forward_ios, size: 14),
+                    onTap: () => Navigator.pop(ctx, t),
+                  );
+                },
+              ),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
         ),
       ],
     );

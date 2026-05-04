@@ -202,29 +202,43 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
 
                 if (serviceType == null) return;
 
-                final int newOrderId = await apiClient.createPosOrder(
-                  widget.companyId,
-                  widget.userId,
-                  serviceType,
-                  widget.table.id,
-                  widget.table.name,
-                  widget.warehouseId,
-                );
-
-                if (mounted) {
-                  ref
+                if (serviceType != 0) {
+                  // Takeaway / Delivery: tableless order — do NOT attach table
+                  await ref
                       .read(cartProvider.notifier)
-                      .setOrderContext(
-                        newOrderId,
-                        widget.warehouseId,
-                        tableId: widget.table.id,
-                        orderNumber: "ORD- ${widget.table.name}",
+                      .startTablelessOrder(
+                        apiClient,
+                        widget.companyId,
+                        widget.userId,
+                        serviceType,
                       );
-                  ref.read(cartProvider.notifier).state = ref
-                      .read(cartProvider)
-                      .copyWith(serviceType: serviceType);
-
-                  Navigator.pushReplacementNamed(context, '/menu');
+                  if (mounted) {
+                    Navigator.pushReplacementNamed(context, '/menu');
+                  }
+                } else {
+                  // Dine-In: reserve this specific table
+                  final int newOrderId = await apiClient.createPosOrder(
+                    widget.companyId,
+                    widget.userId,
+                    serviceType,
+                    widget.table.id,
+                    widget.table.name,
+                    widget.warehouseId,
+                  );
+                  if (mounted) {
+                    ref
+                        .read(cartProvider.notifier)
+                        .setOrderContext(
+                          newOrderId,
+                          widget.warehouseId,
+                          tableId: widget.table.id,
+                          orderNumber: "ORD- ${widget.table.name}",
+                        );
+                    ref.read(cartProvider.notifier).state = ref
+                        .read(cartProvider)
+                        .copyWith(serviceType: 0);
+                    Navigator.pushReplacementNamed(context, '/menu');
+                  }
                 }
               }
             } catch (e) {

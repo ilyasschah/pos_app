@@ -49,17 +49,6 @@
       "label": "flutter: dart run build_runner build",
       "detail": ""
     },
-    {
-      "type": "flutter",
-      "command": "flutter",
-      "args": [
-        "build",
-        "windows"
-      ],
-      "group": "build",
-      "problemMatcher": [],
-      "label": "flutter: flutter build windows",
-      "detail": ""
-    }
+    
   ]
 }

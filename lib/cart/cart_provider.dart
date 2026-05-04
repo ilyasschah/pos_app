@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:pos_app/cart/checkout_models.dart';
 import 'package:pos_app/api/api_client.dart';
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/api/customer_discount_models.dart';
@@ -102,6 +104,22 @@ class CartNotifier extends Notifier<CartState> {
   CartState build() => CartState();
 
   int get effectiveWarehouseId => ref.read(selectedWarehouseProvider)?.id ?? 1;
+
+  String _getServicePrefix(int serviceType) {
+    final pack = (ref.read(appSettingsProvider)[SettingKeys.appServiceTypePack] ?? 'Restaurant').toLowerCase();
+    if (pack == 'restaurant' || pack == 'food') {
+      if (serviceType == 1) return 'Takeaway';
+      if (serviceType == 2) return 'Delivery';
+    } else if (pack == 'salon' || pack == 'barber' || pack == 'beauty') {
+      if (serviceType == 1) return 'Walk-In';
+      if (serviceType == 2) return 'House Call';
+    } else if (pack == 'retail') {
+      if (serviceType == 1) return 'In-Store';
+      if (serviceType == 2) return 'Shipping';
+    }
+    if (serviceType == 1) return 'Walk-In';
+    return 'Order';
+  }
 
   double get subtotal =>
       state.items.fold(0, (sum, item) => sum + (item.price * item.quantity));
@@ -239,7 +257,7 @@ class CartNotifier extends Notifier<CartState> {
     state = CartState(
       activePosOrderId: state.activePosOrderId,
       items: state.items,
-      orderNumber: "ORD- Takeaway",
+      orderNumber: '${_getServicePrefix(newServiceType)} #${ref.read(dailyOrderNumberProvider).toString().padLeft(3, '0')}',
       isLoading: state.isLoading,
       selectedCustomer: state.selectedCustomer,
       selectedCustomerDiscount: state.selectedCustomerDiscount,
@@ -577,7 +595,8 @@ class CartNotifier extends Notifier<CartState> {
 
       // 2. Sync Order Header (Discounts & Total)
       final activeTableId = state.floorPlanTableId ?? ref.read(floorPlanTableProvider);
-      String orderNumber = state.orderNumber ?? "ORD- Takeaway";
+      final _saveOrderNum = ref.read(dailyOrderNumberProvider).toString().padLeft(3, '0');
+      String orderNumber = state.orderNumber ?? '${_getServicePrefix(state.serviceType)} #$_saveOrderNum';
       if (state.orderNumber == null && activeTableId != null) {
         final tables = ref.read(tablesByFloorPlanProvider).value ?? [];
         final table = tables.where((t) => t.id == activeTableId).firstOrNull;
@@ -724,7 +743,8 @@ class CartNotifier extends Notifier<CartState> {
 
       // Sync order header (customer, discounts, total) before finalising payment
       final activeTableId = state.floorPlanTableId ?? ref.read(floorPlanTableProvider);
-      String orderNumber = state.orderNumber ?? "ORD- Takeaway";
+      final _checkoutOrderNum = ref.read(dailyOrderNumberProvider).toString().padLeft(3, '0');
+      String orderNumber = state.orderNumber ?? '${_getServicePrefix(state.serviceType)} #$_checkoutOrderNum';
       if (state.orderNumber == null && activeTableId != null) {
         final tables = ref.read(tablesByFloorPlanProvider).value ?? [];
         final table = tables.where((t) => t.id == activeTableId).firstOrNull;
