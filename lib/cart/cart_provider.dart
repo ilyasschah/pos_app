@@ -109,7 +109,8 @@ class CartNotifier extends Notifier<CartState> {
   int get effectiveWarehouseId {
     final fromState = state.activeWarehouseId;
     if (fromState != null && fromState > 0) return fromState;
-    return ref.read(selectedWarehouseProvider)?.id ?? 1;
+    final fromProvider = ref.read(selectedWarehouseProvider)?.id ?? 0;
+    return fromProvider > 0 ? fromProvider : 1;
   }
 
   // Returns the ALL-CAPS order prefix for a given serviceType index.
@@ -959,8 +960,9 @@ class CartNotifier extends Notifier<CartState> {
     }
   }
 
-  // Deletes the active POS order from the backend (void / cancel flow), clears
-  // the cart, then syncs the counter so the next order gets the right number.
+  // Voids the active POS order: creates a tombstone Document on the backend
+  // (preserving the order number so syncOrderNumber can count it), restores
+  // stock, then clears the cart and advances the daily counter.
   Future<bool> voidOrder({
     required ApiClient apiClient,
     required int companyId,
@@ -968,7 +970,7 @@ class CartNotifier extends Notifier<CartState> {
     if (state.activePosOrderId == null) return false;
     state = state.copyWith(isLoading: true);
     try {
-      final success = await apiClient.deletePosOrder(
+      final success = await apiClient.voidPosOrder(
         companyId,
         state.activePosOrderId!,
         state.activeWarehouseId ?? 1,

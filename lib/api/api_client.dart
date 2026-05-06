@@ -269,6 +269,28 @@ class ApiClient {
     }
   }
 
+  Future<bool> voidPosOrder(
+    int companyId,
+    int posOrderId,
+    int warehouseId, {
+    int documentTypeId = 4,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/PosOrder/Void',
+        queryParameters: {
+          'posOrderId': posOrderId,
+          'companyId': companyId,
+          'warehouseId': warehouseId,
+          'documentTypeId': documentTypeId,
+        },
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      throw Exception('Failed to void order: $e');
+    }
+  }
+
   // --- Stock Management ---
   Future<bool> addStock(
     int companyId,

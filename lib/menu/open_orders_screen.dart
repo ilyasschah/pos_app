@@ -6,6 +6,7 @@ import 'package:pos_app/bookings/bookings_provider.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
+import 'package:pos_app/stock/warehouse_provider.dart';
 
 // TODO (backend): ensure /PosOrder/GetAll returns all unpaid orders for the company.
 // getAllActiveOrders already filters serviceStatus > 0, which covers open/parked orders.
@@ -83,12 +84,15 @@ class OpenOrdersScreen extends ConsumerWidget {
                   final staffId = o['userId'] ?? o['UserId'];
                   final tableId = o['floorPlanTableId'] ?? o['FloorPlanTableId'];
                   // PosOrderDto does not include WarehouseId (it is per-item,
-                  // not per-order header). Fall back to 1 so the loaded
-                  // activeWarehouseId is never 0, which would fail the backend
-                  // "Warehouse ID is required" guard on every subsequent update.
+                  // not per-order header). Use the currently selected warehouse
+                  // as the fallback — it is already loaded by the time this
+                  // screen is shown and points to a real DB row. Never fall
+                  // back to the literal 1, which may not exist in the DB.
                   final warehouseId =
-                      ((o['warehouseId'] ?? o['WarehouseId'] ?? 1) as num)
-                          .toInt();
+                      ((o['warehouseId'] ?? o['WarehouseId']) as num?)
+                          ?.toInt() ??
+                      ref.read(selectedWarehouseProvider)?.id ??
+                      0;
 
                   final staffName = staffId != null
                       ? allUsers
