@@ -29,6 +29,7 @@ import 'package:pos_app/floor_plan/floor_plan_table.dart';
 import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/product/product_comment_model.dart';
 import 'package:pos_app/product/product_comment_provider.dart';
+import 'package:pos_app/menu/open_orders_screen.dart';
 import 'package:pos_app/widgets/shared_drawer.dart';
 
 final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
@@ -350,10 +351,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                                   .copyWith(serviceType: 0);
                             } else {
                               // Table already assigned (or floor plan disabled) —
-                              // just update the local service type
-                              ref.read(cartProvider.notifier).state = ref
-                                  .read(cartProvider)
-                                  .copyWith(serviceType: val);
+                              // setServiceType updates both serviceType and the
+                              // orderNumber prefix atomically (e.g. TAKEAWAY #005
+                              // → ORDER #005) while keeping the counter number.
+                              ref.read(cartProvider.notifier).setServiceType(val);
                             }
                           }
                         },
@@ -1503,6 +1504,9 @@ class _CartSectionState extends ConsumerState<CartSection> {
             (route) => false,
           );
         } else {
+          // Tableless order saved — fully reset cart so the header shows the
+          // next order number rather than the just-saved one.
+          ref.read(cartProvider.notifier).clearCart();
           await syncLatestOrderNumber(ref, companyId);
         }
       } else {
@@ -1615,11 +1619,17 @@ class _CartSectionState extends ConsumerState<CartSection> {
     } else {
       final stored = cartState.orderNumber;
       if (stored != null && stored.isNotEmpty) {
-        contextLabel = stored.startsWith('ORD-')
-            ? 'Order #${stored.substring(4)}'
-            : stored;
+        contextLabel = stored;
       } else {
-        contextLabel = 'Order #$dailyOrderNumber';
+        // Cart is freshly cleared — show the upcoming order number using the
+        // correct prefix for the current serviceType.
+        final prefix = cartState.serviceType == 1
+            ? 'TAKEAWAY'
+            : cartState.serviceType == 2
+                ? 'DELIVERY'
+                : 'ORDER';
+        contextLabel =
+            '$prefix #${dailyOrderNumber.toString().padLeft(3, '0')}';
       }
     }
 
@@ -1694,6 +1704,20 @@ class _CartSectionState extends ConsumerState<CartSection> {
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
+              ),
+
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 20),
+                tooltip: 'Refresh order number',
+                onPressed: () async {
+                  final companyId = ref.read(selectedCompanyProvider)?.id;
+                  if (companyId == null) return;
+                  ref.invalidate(openOrdersProvider);
+                  await Future.delayed(const Duration(milliseconds: 300));
+                  await ref
+                      .read(cartProvider.notifier)
+                      .syncOrderNumber(companyId);
+                },
               ),
 
               ElevatedButton.icon(
@@ -2592,6 +2616,17 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Order Transferred')),
         );
+      }
+
+      // Exit-point cleanup — same pattern as checkoutOrder / voidOrder /
+      // saveAndSuspend. The transferred order no longer belongs to this
+      // session, so clear the local cart, drop the cached order list, and
+      // advance the daily counter to the next number.
+      ref.read(cartProvider.notifier).clearCart();
+      ref.invalidate(openOrdersProvider);
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (companyId != null) {
+        await syncLatestOrderNumber(ref, companyId);
       }
     } catch (e) {
       if (mounted) {

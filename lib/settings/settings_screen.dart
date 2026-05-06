@@ -2,9 +2,16 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:pos_app/auth/auth_provider.dart';
+import 'package:pos_app/auth/login_screen.dart';
+import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
+import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ENTRY POINT
@@ -45,6 +52,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Future<void> _saveAndRestart() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      ref.read(cartProvider.notifier).clearCart();
+      ref.read(floorPlanTableProvider.notifier).state = null;
+      ref.invalidate(currentUserProvider);
+
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (_) => false,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save settings: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -99,6 +134,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
+          TextButton.icon(
+            icon: const Icon(Icons.save_outlined),
+            label: const Text('Save & Restart'),
+            onPressed: _saveAndRestart,
+          ),
+          const SizedBox(width: 8),
         ],
       ),
       body: TabBarView(
@@ -537,11 +578,7 @@ class _GeneralTab extends ConsumerWidget {
               label: 'Date Format',
               options: ['dd-MM-yyyy', 'MM/dd/yyyy', 'yyyy-MM-dd', 'dd/MM/yyyy'],
             ),
-            const _SettingTextField(
-              settingKey: SettingKeys.timezone,
-              label: 'Timezone',
-              hint: 'e.g. UTC, Europe/Paris',
-            ),
+            const _TimezoneCard(),
             const _SettingDropdown(
               settingKey: SettingKeys.industryMode,
               label: 'Industry Mode',
@@ -1201,6 +1238,163 @@ class _InfoRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── Timezone Card ─────────────────────────────────────────────────────────────
+
+String _tzOffsetLabel(String name) {
+  try {
+    final loc = tz.getLocation(name);
+    final offsetMs = loc.currentTimeZone.offset;
+    final sign = offsetMs >= 0 ? '+' : '-';
+    final abs = offsetMs.abs();
+    final h = (abs ~/ 3600000).toString().padLeft(2, '0');
+    final m = ((abs % 3600000) ~/ 60000).toString().padLeft(2, '0');
+    return '$name (UTC$sign$h:$m)';
+  } catch (_) {
+    return name;
+  }
+}
+
+class _TimezoneCard extends ConsumerStatefulWidget {
+  const _TimezoneCard();
+
+  @override
+  ConsumerState<_TimezoneCard> createState() => _TimezoneCardState();
+}
+
+class _TimezoneCardState extends ConsumerState<_TimezoneCard> {
+  bool _detecting = false;
+  late final List<String> _tzIds;
+
+  @override
+  void initState() {
+    super.initState();
+    tz_data.initializeTimeZones();
+    _tzIds = tz.timeZoneDatabase.locations.keys.toList()..sort();
+  }
+
+  Future<void> _applyAutoTimezone() async {
+    setState(() => _detecting = true);
+    try {
+      final detected = await FlutterTimezone.getLocalTimezone();
+      await ref
+          .read(appSettingsProvider.notifier)
+          .set(SettingKeys.timezone, detected);
+    } catch (_) {
+      // Detection failed — keep the existing value.
+    } finally {
+      if (mounted) setState(() => _detecting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = ref.watch(appSettingsProvider);
+    final isAuto = (settings[SettingKeys.timezoneMode] ?? 'Auto') == 'Auto';
+    final currentTz = settings[SettingKeys.timezone] ?? 'UTC';
+    final safeId = _tzIds.contains(currentTz) ? currentTz : 'UTC';
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 8, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Timezone',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      isAuto
+                          ? 'Auto-detected: ${_tzOffsetLabel(currentTz)}'
+                          : 'Set timezone manually',
+                      style: TextStyle(fontSize: 12, color: theme.hintColor),
+                    ),
+                  ],
+                ),
+              ),
+              if (_detecting)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Switch(
+                  value: isAuto,
+                  onChanged: (val) async {
+                    await ref
+                        .read(appSettingsProvider.notifier)
+                        .set(SettingKeys.timezoneMode, val ? 'Auto' : 'Manual');
+                    if (val) await _applyAutoTimezone();
+                  },
+                ),
+              const SizedBox(width: 4),
+              Text(
+                'Auto',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: theme.colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(width: 12),
+            ],
+          ),
+        ),
+        if (!isAuto) ...[
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: DropdownButtonFormField<String>(
+              initialValue: safeId,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: 'IANA Timezone',
+                labelStyle: TextStyle(fontSize: 13, color: theme.hintColor),
+                filled: true,
+                fillColor: theme.colorScheme.surface,
+                border: const OutlineInputBorder(),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                isDense: true,
+              ),
+              dropdownColor: theme.colorScheme.surfaceContainerHighest,
+              items: _tzIds
+                  .map(
+                    (id) => DropdownMenuItem(
+                      value: id,
+                      child: Text(
+                        _tzOffsetLabel(id),
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  ref
+                      .read(appSettingsProvider.notifier)
+                      .set(SettingKeys.timezone, val);
+                }
+              },
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

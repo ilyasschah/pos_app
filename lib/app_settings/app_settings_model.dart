@@ -28,6 +28,7 @@ class SettingKeys {
   static const currencySymbol = 'CurrencySymbol';
   static const language = 'Application.Language';
   static const timezone = 'Application.Timezone';
+  static const timezoneMode = 'Application.TimezoneMode';
   static const dateFormat = 'Application.DateFormat';
   static const taxIncludedByDefault = 'General.TaxIncludedByDefault';
 
@@ -114,6 +115,7 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.currencySymbol: '\$',
   SettingKeys.language: 'en',
   SettingKeys.timezone: 'UTC',
+  SettingKeys.timezoneMode: 'Auto',
   SettingKeys.dateFormat: 'dd-MM-yyyy',
   SettingKeys.taxIncludedByDefault: 'true',
   SettingKeys.defaultPaymentType: 'Cash',

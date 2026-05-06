@@ -82,8 +82,12 @@ class OpenOrdersScreen extends ConsumerWidget {
                       (o['total'] ?? o['Total'] ?? 0.0 as num).toDouble();
                   final staffId = o['userId'] ?? o['UserId'];
                   final tableId = o['floorPlanTableId'] ?? o['FloorPlanTableId'];
+                  // PosOrderDto does not include WarehouseId (it is per-item,
+                  // not per-order header). Fall back to 1 so the loaded
+                  // activeWarehouseId is never 0, which would fail the backend
+                  // "Warehouse ID is required" guard on every subsequent update.
                   final warehouseId =
-                      ((o['warehouseId'] ?? o['WarehouseId'] ?? 0) as num)
+                      ((o['warehouseId'] ?? o['WarehouseId'] ?? 1) as num)
                           .toInt();
 
                   final staffName = staffId != null

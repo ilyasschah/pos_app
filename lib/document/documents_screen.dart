@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:timezone/data/latest.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
 import 'package:pos_app/api/api_client.dart';
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/document/document_model.dart';
 import 'package:pos_app/document/document_editor_screen.dart';
@@ -70,20 +74,53 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
   int? _filterPaidStatus; // null = all
 
   @override
+  void initState() {
+    super.initState();
+    tz_data.initializeTimeZones();
+  }
+
+  @override
   void dispose() {
     _tabController?.dispose();
     _searchCtrl.dispose();
     super.dispose();
   }
 
+  // Formats an ISO date/timestamp string using the timezone configured in
+  // settings. Full timestamps (containing 'T') are treated as UTC and
+  // converted to the local timezone before display. Date-only strings
+  // (e.g. "2026-05-06") are shown without a time component to avoid the
+  // misleading "00:00" that appears when there is no real time value.
   String _formatDate(String? iso) {
     if (iso == null || iso.isEmpty) return '-';
     try {
+      final isTimestamp = iso.contains('T') || iso.contains(' ');
       final dt = DateTime.parse(iso);
-      return "${dt.day.toString().padLeft(2, '0')}-"
-          "${_monthAbbr(dt.month)}-${dt.year.toString().substring(2)} "
-          "${dt.hour.toString().padLeft(2, '0')}:"
-          "${dt.minute.toString().padLeft(2, '0')}";
+
+      if (isTimestamp) {
+        // Normalise to UTC regardless of whether the string carried a Z/offset.
+        final utcDt = dt.isUtc
+            ? dt
+            : DateTime.utc(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+
+        final tzId = ref.read(appSettingsProvider)[SettingKeys.timezone] ?? 'UTC';
+        DateTime display;
+        try {
+          final location = tz.getLocation(tzId);
+          display = tz.TZDateTime.from(utcDt, location);
+        } catch (_) {
+          display = utcDt;
+        }
+
+        return '${display.day.toString().padLeft(2, '0')}-'
+            '${_monthAbbr(display.month)}-${display.year.toString().substring(2)} '
+            '${display.hour.toString().padLeft(2, '0')}:'
+            '${display.minute.toString().padLeft(2, '0')}';
+      } else {
+        // Date-only — no time component to show.
+        return '${dt.day.toString().padLeft(2, '0')}-'
+            '${_monthAbbr(dt.month)}-${dt.year.toString().substring(2)}';
+      }
     } catch (_) {
       return iso;
     }
@@ -613,7 +650,7 @@ class _DocumentTable extends ConsumerWidget {
       cells.add(DataCell(Text(d.customerName ?? '-')));
     }
     if (visibility['Date'] == true) {
-      cells.add(DataCell(Text(formatDate(d.date))));
+      cells.add(DataCell(Text(formatDate(d.dateCreated ?? d.date))));
     }
     if (visibility['Order #'] == true) {
       cells.add(DataCell(Text(d.orderNumber ?? 'N/A')));

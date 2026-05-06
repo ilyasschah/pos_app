@@ -103,22 +103,136 @@ class CartNotifier extends Notifier<CartState> {
   @override
   CartState build() => CartState();
 
-  int get effectiveWarehouseId => ref.read(selectedWarehouseProvider)?.id ?? 1;
+  // Prefer the warehouse that was set when this order was created/loaded.
+  // Fall back to the globally selected warehouse, then to 1 as a last resort.
+  // Never returns 0 — a zero would fail the backend's inventory guard.
+  int get effectiveWarehouseId {
+    final fromState = state.activeWarehouseId;
+    if (fromState != null && fromState > 0) return fromState;
+    return ref.read(selectedWarehouseProvider)?.id ?? 1;
+  }
 
-  String _getServicePrefix(int serviceType) {
-    final pack = (ref.read(appSettingsProvider)[SettingKeys.appServiceTypePack] ?? 'Restaurant').toLowerCase();
-    if (pack == 'restaurant' || pack == 'food') {
-      if (serviceType == 1) return 'Takeaway';
-      if (serviceType == 2) return 'Delivery';
-    } else if (pack == 'salon' || pack == 'barber' || pack == 'beauty') {
-      if (serviceType == 1) return 'Walk-In';
-      if (serviceType == 2) return 'House Call';
-    } else if (pack == 'retail') {
-      if (serviceType == 1) return 'In-Store';
-      if (serviceType == 2) return 'Shipping';
+  // Returns the ALL-CAPS order prefix for a given serviceType index.
+  // 0 = Dine-In / In-Service  → ORDER
+  // 1 = Takeaway / Walk-In    → TAKEAWAY
+  // 2 = Delivery / House Call → DELIVERY
+  // The counter (#NNN) stays global across all types for the day.
+  String _getPrefix(int serviceType) {
+    if (serviceType == 1) return 'TAKEAWAY';
+    if (serviceType == 2) return 'DELIVERY';
+    return 'ORDER';
+  }
+
+  // Per-company high-water mark for the daily sequence number.
+  // Keyed by companyId so switching tenants never cross-contaminates counters.
+  // Static so it survives Notifier rebuilds within the same app session.
+  static final Map<int, int> _highestSeenSequence = {};
+
+  // Scans BOTH open POS orders AND today's paid Documents to find the true
+  // daily maximum, then advances dailyOrderNumberProvider to max+1.
+  //
+  // Why both sources?
+  //   - Open orders:  carry the label in their `number` field.
+  //   - Paid docs:    the POS label is stored in `orderNumber`; once an order
+  //                   is checked out it disappears from the POS list.
+  // Filtering documents to today prevents yesterday's #099 from blocking
+  // today's counter from resetting to #1.
+  //
+  // The high-water map makes the counter strictly monotonic: transferring an
+  // order removes it from the open-orders list, so a naive scan would compute
+  // a lower max and silently re-use a sequence number.  By never letting the
+  // remembered value decrease we prevent that collision.
+  //
+  // No ref.invalidate needed: this method calls ApiClient() directly on every
+  // invocation — it never reads from a cached Riverpod provider, so the data
+  // is always fresh regardless of when it's called.
+  Future<void> syncOrderNumber(int companyId) async {
+    try {
+      final client = ApiClient();
+      final results = await Future.wait([
+        client.getAllPosOrders(companyId).catchError((_) => <dynamic>[]),
+        client.getAllDocuments(companyId).catchError((_) => <dynamic>[]),
+      ]);
+
+      // Compare in UTC throughout so a device timezone never shifts the day
+      // boundary relative to the ISO-8601 strings the API returns.
+      final todayUtc = DateTime.now().toUtc();
+      int absoluteMax = 0;
+
+      // Open POS orders — always current-session, no date filter needed.
+      for (final o in results[0]) {
+        final raw = (o['number'] ?? o['Number'] ?? '') as String;
+        final match = RegExp(r'[#-](\d+)$').firstMatch(raw);
+        if (match != null) {
+          final parsed = int.tryParse(match.group(1)!);
+          if (parsed != null && parsed > absoluteMax) absoluteMax = parsed;
+        }
+      }
+
+      // Paid documents — filter to today only so yesterday's numbers don't
+      // block a fresh daily reset.
+      for (final d in results[1]) {
+        // Prefer dateCreated (set by EF Core on insert); fall back to date
+        // (the business date, always present on Document).  A newly committed
+        // document may return dateCreated=null in the first API read, so the
+        // fallback ensures it is still counted.
+        final rawDate = (d['dateCreated'] ?? d['DateCreated'] ??
+            d['date'] ?? d['Date'] ?? '') as String;
+        if (rawDate.isNotEmpty) {
+          final created = DateTime.tryParse(rawDate)?.toUtc();
+          if (created != null) {
+            if (created.year != todayUtc.year ||
+                created.month != todayUtc.month ||
+                created.day != todayUtc.day) continue;
+          }
+          // If parse fails we still include the document (fail-open keeps
+          // the counter safe; we'd rather skip the reset than under-count).
+        }
+
+        final raw = (d['orderNumber'] ?? d['OrderNumber'] ?? '') as String;
+        if (raw.isEmpty) continue;
+        final match = RegExp(r'[#-](\d+)$').firstMatch(raw);
+        if (match != null) {
+          final parsed = int.tryParse(match.group(1)!);
+          if (parsed != null && parsed > absoluteMax) absoluteMax = parsed;
+        }
+      }
+
+      // Monotonic high-water mark — the counter for this company must never
+      // go backwards (e.g. after a transfer drops an order from the scan).
+      final currentHighWater = _highestSeenSequence[companyId] ?? 0;
+      if (absoluteMax > currentHighWater) {
+        _highestSeenSequence[companyId] = absoluteMax;
+      }
+      final nextNumber = _highestSeenSequence[companyId]! + 1;
+
+      ref.read(dailyOrderNumberProvider.notifier).state = nextNumber;
+    } catch (_) {
+      // Non-fatal — counter stays at current value
     }
-    if (serviceType == 1) return 'Walk-In';
-    return 'Order';
+  }
+
+  // Reactively switches serviceType and re-labels the orderNumber with the new
+  // prefix while preserving the existing counter number (e.g. TAKEAWAY #005 →
+  // ORDER #005). Silently blocks the switch if the service-type feature is
+  // globally disabled in settings.
+  void setServiceType(int newType) {
+    final settings = ref.read(appSettingsProvider);
+    final typeEnabled =
+        settings[SettingKeys.featureServiceTypeEnabled]?.toLowerCase() == 'true';
+    if (newType != 0 && !typeEnabled) return;
+
+    final numMatch = RegExp(r'[#-](\d+)$').firstMatch(state.orderNumber ?? '');
+    // Never read dailyOrderNumberProvider here — it is already one ahead of
+    // the current order, which would silently add +1 to the label.
+    // If extraction fails (e.g. a table name like "ORD- T1"), keep '001' as a
+    // safe fallback; the label is cosmetic only until the next syncOrderNumber.
+    final num = numMatch?.group(1) ?? '001';
+
+    state = state.copyWith(
+      serviceType: newType,
+      orderNumber: '${_getPrefix(newType)} #$num',
+    );
   }
 
   double get subtotal =>
@@ -254,10 +368,17 @@ class CartNotifier extends Notifier<CartState> {
         await ApiClient().freeFloorPlanTable(companyId, state.floorPlanTableId!);
       } catch (_) {}
     }
+    // Preserve the existing sequence number when only the service type is
+    // changing (tableless switch). Fall back to dailyOrderNumber only when
+    // there is no existing numeric label to extract from (e.g. a fresh cart).
+    final _existingNum = RegExp(r'[#-](\d+)$').firstMatch(state.orderNumber ?? '')?.group(1);
+    final _newOrderNumber = _existingNum != null
+        ? '${_getPrefix(newServiceType)} #$_existingNum'
+        : '${_getPrefix(newServiceType)} #${ref.read(dailyOrderNumberProvider).toString().padLeft(3, '0')}';
     state = CartState(
       activePosOrderId: state.activePosOrderId,
       items: state.items,
-      orderNumber: '${_getServicePrefix(newServiceType)} #${ref.read(dailyOrderNumberProvider).toString().padLeft(3, '0')}',
+      orderNumber: _newOrderNumber,
       isLoading: state.isLoading,
       selectedCustomer: state.selectedCustomer,
       selectedCustomerDiscount: state.selectedCustomerDiscount,
@@ -283,6 +404,7 @@ class CartNotifier extends Notifier<CartState> {
   ) async {
     final orderNum = ref.read(dailyOrderNumberProvider);
     final label = orderNum.toString().padLeft(3, '0');
+    final orderNumber = '${_getPrefix(serviceType)} #$label';
     state = state.copyWith(isLoading: true);
     try {
       final newOrderId = await apiClient.createPosOrder(
@@ -290,7 +412,7 @@ class CartNotifier extends Notifier<CartState> {
         userId,
         serviceType,
         null,
-        label,
+        orderNumber,
         effectiveWarehouseId,
       );
       state = CartState(
@@ -298,7 +420,7 @@ class CartNotifier extends Notifier<CartState> {
         serviceType: serviceType,
         serviceStatus: 1,
         floorPlanTableId: null,
-        orderNumber: "ORD-$label",
+        orderNumber: orderNumber,
         activeWarehouseId: effectiveWarehouseId,
         selectedCustomer: state.selectedCustomer,
         selectedCustomerDiscount: state.selectedCustomerDiscount,
@@ -596,7 +718,7 @@ class CartNotifier extends Notifier<CartState> {
       // 2. Sync Order Header (Discounts & Total)
       final activeTableId = state.floorPlanTableId ?? ref.read(floorPlanTableProvider);
       final _saveOrderNum = ref.read(dailyOrderNumberProvider).toString().padLeft(3, '0');
-      String orderNumber = state.orderNumber ?? '${_getServicePrefix(state.serviceType)} #$_saveOrderNum';
+      String orderNumber = state.orderNumber ?? '${_getPrefix(state.serviceType)} #$_saveOrderNum';
       if (state.orderNumber == null && activeTableId != null) {
         final tables = ref.read(tablesByFloorPlanProvider).value ?? [];
         final table = tables.where((t) => t.id == activeTableId).firstOrNull;
@@ -624,7 +746,9 @@ class CartNotifier extends Notifier<CartState> {
         updateRequest,
       );
       if (headerSuccess) {
-        clearCart();
+        // Preserve full order context (orderNumber, activePosOrderId, table, serviceType, etc.)
+        // Only clear the locally-drafted items since they are now committed to the backend.
+        state = state.copyWith(items: const []);
         return {'success': true, 'warnings': warnings};
       }
       return {'success': false, 'message': 'Failed to update order header.'};
@@ -744,7 +868,7 @@ class CartNotifier extends Notifier<CartState> {
       // Sync order header (customer, discounts, total) before finalising payment
       final activeTableId = state.floorPlanTableId ?? ref.read(floorPlanTableProvider);
       final _checkoutOrderNum = ref.read(dailyOrderNumberProvider).toString().padLeft(3, '0');
-      String orderNumber = state.orderNumber ?? '${_getServicePrefix(state.serviceType)} #$_checkoutOrderNum';
+      String orderNumber = state.orderNumber ?? '${_getPrefix(state.serviceType)} #$_checkoutOrderNum';
       if (state.orderNumber == null && activeTableId != null) {
         final tables = ref.read(tablesByFloorPlanProvider).value ?? [];
         final table = tables.where((t) => t.id == activeTableId).firstOrNull;
@@ -803,6 +927,7 @@ class CartNotifier extends Notifier<CartState> {
         warehouseId: effectiveWarehouseId,
         items: checkoutItems,
         grandTotal: grandTotal,
+        orderNumber: orderNumber,
       );
 
       final success = await apiClient.checkoutPosOrder(
@@ -821,9 +946,98 @@ class CartNotifier extends Notifier<CartState> {
           }
         }
         clearCart();
+        // Brief buffer so the DB write is visible to the subsequent GetAll read.
+        await Future.delayed(const Duration(milliseconds: 300));
+        await syncOrderNumber(companyId);
         return true;
       }
       return false;
+    } catch (e) {
+      rethrow;
+    } finally {
+      state = state.copyWith(isLoading: false);
+    }
+  }
+
+  // Deletes the active POS order from the backend (void / cancel flow), clears
+  // the cart, then syncs the counter so the next order gets the right number.
+  Future<bool> voidOrder({
+    required ApiClient apiClient,
+    required int companyId,
+  }) async {
+    if (state.activePosOrderId == null) return false;
+    state = state.copyWith(isLoading: true);
+    try {
+      final success = await apiClient.deletePosOrder(
+        companyId,
+        state.activePosOrderId!,
+        state.activeWarehouseId ?? 1,
+      );
+      if (success) {
+        clearCart();
+        await Future.delayed(const Duration(milliseconds: 300));
+        await syncOrderNumber(companyId);
+      }
+      return success;
+    } catch (e) {
+      rethrow;
+    } finally {
+      state = state.copyWith(isLoading: false);
+    }
+  }
+
+  // Commits all local items to the backend, updates the order header, then
+  // fully clears the cart (order stays open in DB for later retrieval) and
+  // advances the daily counter.
+  Future<bool> saveAndSuspend({
+    required ApiClient apiClient,
+    required int companyId,
+    required int userId,
+    void Function(List<String> warnings)? onWarnings,
+  }) async {
+    if (state.activePosOrderId == null) return false;
+    state = state.copyWith(isLoading: true);
+    try {
+      if (state.items.isNotEmpty) {
+        final response = await apiClient.bulkAddPosOrderItems(
+          companyId,
+          effectiveWarehouseId,
+          state.items,
+        );
+        if (response['success'] != true) {
+          throw Exception(
+            response['message'] ?? 'Failed to save items before suspending.',
+          );
+        }
+        final warnings = List<String>.from(response['warnings'] ?? []);
+        if (warnings.isNotEmpty) onWarnings?.call(warnings);
+      }
+
+      final activeTableId =
+          state.floorPlanTableId ?? ref.read(floorPlanTableProvider);
+      final num =
+          ref.read(dailyOrderNumberProvider).toString().padLeft(3, '0');
+      final orderNumber =
+          state.orderNumber ?? '${_getPrefix(state.serviceType)} #$num';
+
+      await apiClient.updatePosOrder(companyId, {
+        "id": state.activePosOrderId,
+        "userId": userId,
+        "number": orderNumber,
+        "discount": state.manualCartDiscount,
+        "discountType": state.manualCartDiscountType,
+        "total": grandTotal,
+        "customerId": state.selectedCustomer?.id,
+        "serviceType": state.serviceType,
+        "serviceStatus": state.serviceStatus,
+        "floorPlanTableId": activeTableId,
+        "warehouseId": effectiveWarehouseId,
+      });
+
+      clearCart();
+      await Future.delayed(const Duration(milliseconds: 300));
+      await syncOrderNumber(companyId);
+      return true;
     } catch (e) {
       rethrow;
     } finally {
@@ -836,29 +1050,10 @@ final cartProvider = NotifierProvider<CartNotifier, CartState>(
   () => CartNotifier(),
 );
 
-Future<void> syncLatestOrderNumber(WidgetRef ref, int companyId) async {
-  try {
-    final client = ApiClient();
-    final results = await Future.wait([
-      client.getAllPosOrders(companyId).catchError((_) => <dynamic>[]),
-      client.getAllDocuments(companyId).catchError((_) => <dynamic>[]),
-    ]);
-    final allRecords = [...results[0], ...results[1]];
-    int max = 0;
-    for (final o in allRecords) {
-      final raw = (o['number'] ?? o['Number'] ?? '') as String;
-      // Match any prefix followed by a dash and digits (e.g. ORD-007, DOC-007)
-      final match = RegExp(r'-(\d+)$').firstMatch(raw);
-      if (match != null) {
-        final parsed = int.tryParse(match.group(1)!);
-        if (parsed != null && parsed > max) max = parsed;
-      }
-    }
-    ref.read(dailyOrderNumberProvider.notifier).state = max + 1;
-  } catch (_) {
-    // Non-fatal — keep current counter value
-  }
-}
+// Top-level convenience wrapper — delegates to CartNotifier.syncOrderNumber so
+// all counter logic lives in one place. Call this on login / app resume.
+Future<void> syncLatestOrderNumber(WidgetRef ref, int companyId) =>
+    ref.read(cartProvider.notifier).syncOrderNumber(companyId);
 
 final cartTotalProvider = Provider<double>((ref) {
   final cartState = ref.watch(cartProvider);
