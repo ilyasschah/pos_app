@@ -113,15 +113,16 @@ class CartNotifier extends Notifier<CartState> {
     return fromProvider > 0 ? fromProvider : 1;
   }
 
-  // Returns the ALL-CAPS order prefix for a given serviceType index.
-  // 0 = Dine-In / In-Service  → ORDER
-  // 1 = Takeaway / Walk-In    → TAKEAWAY
-  // 2 = Delivery / House Call → DELIVERY
-  // The counter (#NNN) stays global across all types for the day.
+  // Returns the ALL-CAPS order number prefix for a given serviceType id.
+  // Looks up the matching CustomServiceType from settings; falls back to
+  // 'ORDER' so the label is always safe even on a fresh install.
   String _getPrefix(int serviceType) {
-    if (serviceType == 1) return 'TAKEAWAY';
-    if (serviceType == 2) return 'DELIVERY';
-    return 'ORDER';
+    final types = ref.read(appSettingsProvider.notifier).customServiceTypes;
+    return types
+            .where((t) => t.id == serviceType)
+            .map((t) => t.prefix)
+            .firstOrNull ??
+        'ORDER';
   }
 
   // Per-company high-water mark for the daily sequence number.

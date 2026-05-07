@@ -13,10 +13,24 @@ class IndustryPacks {
       case 'Salon':
         return ['In-Salon', 'House Call', 'Event / Wedding'];
       case 'Hotel':
-        return ['Overnight Stay', 'Day Use', 'Event Hall'];
+        return ['Room Service', 'Bar', 'Poolside'];
       case 'Restaurant':
       default:
         return ['Dine-In', 'Takeaway', 'Delivery'];
+    }
+  }
+
+  /// ALL-CAPS prefixes used in order numbers (index == CartState.serviceType).
+  /// serviceType 0 is always the "default" order type for the pack.
+  static List<String> getPrefixes(String pack) {
+    switch (pack) {
+      case 'Salon':
+        return ['ORDER', 'HOUSE CALL', 'EVENT'];
+      case 'Hotel':
+        return ['ORDER', 'BAR', 'POOLSIDE'];
+      case 'Restaurant':
+      default:
+        return ['ORDER', 'TAKEAWAY', 'DELIVERY'];
     }
   }
 

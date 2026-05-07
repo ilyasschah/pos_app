@@ -5,7 +5,7 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/menu/menu_screen.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
-import 'package:pos_app/utils/status_helper.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
 
 // Riverpod Provider to fetch the orders automatically
 final activeOrdersListProvider =
@@ -62,6 +62,19 @@ class _ActiveOrdersScreenState extends ConsumerState<ActiveOrdersScreen> {
   Widget build(BuildContext context) {
     final ordersAsync = ref.watch(activeOrdersListProvider);
 
+    final customStatuses =
+        ref.watch(appSettingsProvider.notifier).customServiceStatuses;
+
+    Color statusColor(int s) => customStatuses
+        .where((x) => x.id == s)
+        .map((x) => x.color)
+        .firstOrNull ?? Colors.blueGrey;
+
+    String statusLabel(int s) => customStatuses
+        .where((x) => x.id == s)
+        .map((x) => x.name)
+        .firstOrNull ?? 'Status #$s';
+
     return Scaffold(
       backgroundColor: const Color(0xFF2C3E50),
       appBar: AppBar(
@@ -107,7 +120,7 @@ class _ActiveOrdersScreenState extends ConsumerState<ActiveOrdersScreen> {
                       margin: const EdgeInsets.only(bottom: 12),
                       shape: RoundedRectangleBorder(
                         side: BorderSide(
-                          color: ServiceStatusHelper.getColor(status),
+                          color: statusColor(status),
                           width: 2,
                         ),
                         borderRadius: BorderRadius.circular(8),
@@ -116,9 +129,9 @@ class _ActiveOrdersScreenState extends ConsumerState<ActiveOrdersScreen> {
                         contentPadding: const EdgeInsets.symmetric(
                             horizontal: 20, vertical: 10),
                         leading: CircleAvatar(
-                          backgroundColor: ServiceStatusHelper.getColor(status),
-                          child: Icon(
-                            ServiceStatusHelper.getIcon(status),
+                          backgroundColor: statusColor(status),
+                          child: const Icon(
+                            Icons.label_outline,
                             color: Colors.white,
                           ),
                         ),
@@ -128,9 +141,9 @@ class _ActiveOrdersScreenState extends ConsumerState<ActiveOrdersScreen> {
                                 fontWeight: FontWeight.bold,
                                 fontSize: 18)),
                         subtitle: Text(
-                          "Status: ${ServiceStatusHelper.getLabel(status)}",
+                          "Status: ${statusLabel(status)}",
                           style: TextStyle(
-                            color: ServiceStatusHelper.getColor(status),
+                            color: statusColor(status),
                             fontWeight: FontWeight.bold,
                           ),
                         ),

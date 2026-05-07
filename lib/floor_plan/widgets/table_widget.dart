@@ -6,6 +6,7 @@ import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/utils/status_helper.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
 
 class TableWidget extends ConsumerStatefulWidget {
   final FloorPlanTable table;
@@ -101,9 +102,12 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                   );
                 }
               } else {
+                final types = ref
+                    .read(appSettingsProvider.notifier)
+                    .customServiceTypes;
                 final serviceType = await showDialog<int>(
                   context: context,
-                  builder: (context) => Dialog(
+                  builder: (dialogCtx) => Dialog(
                     backgroundColor: const Color(0xFF2C3E50),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
@@ -133,12 +137,20 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                             ),
                           ),
                           const SizedBox(height: 40),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                            children: [
-                              // Dine-in Button
-                              InkWell(
-                                onTap: () => Navigator.pop(context, 0),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            alignment: WrapAlignment.center,
+                            children: types.asMap().entries.map((e) {
+                              final idx = e.key;
+                              final t = e.value;
+                              final color = _kServiceTypePalette[
+                                  idx % _kServiceTypePalette.length];
+                              final icon = _kServiceTypeIcons[
+                                  idx.clamp(0, _kServiceTypeIcons.length - 1)];
+                              return InkWell(
+                                onTap: () =>
+                                    Navigator.pop(dialogCtx, t.id),
                                 borderRadius: BorderRadius.circular(12),
                                 hoverColor: Colors.white.withAlpha(25),
                                 splashColor: Colors.white.withAlpha(50),
@@ -146,16 +158,23 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                                   padding: const EdgeInsets.all(24.0),
                                   child: Column(
                                     mainAxisSize: MainAxisSize.min,
-                                    children: const [
-                                      Icon(
-                                        Icons.restaurant,
-                                        size: 80,
-                                        color: Colors.white,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(16),
+                                        decoration: BoxDecoration(
+                                          color: color.withValues(alpha: 0.25),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: Icon(
+                                          icon,
+                                          size: 64,
+                                          color: color,
+                                        ),
                                       ),
-                                      SizedBox(height: 16),
+                                      const SizedBox(height: 16),
                                       Text(
-                                        "Dine-in",
-                                        style: TextStyle(
+                                        t.name,
+                                        style: const TextStyle(
                                           fontSize: 22,
                                           color: Colors.white,
                                         ),
@@ -163,36 +182,8 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                                     ],
                                   ),
                                 ),
-                              ),
-                              // Takeaway Button
-                              InkWell(
-                                onTap: () => Navigator.pop(context, 1),
-                                borderRadius: BorderRadius.circular(12),
-                                hoverColor: Colors.white.withAlpha(25),
-                                splashColor: Colors.white.withAlpha(50),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(24.0),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: const [
-                                      Icon(
-                                        Icons.shopping_bag_outlined,
-                                        size: 80,
-                                        color: Colors.white,
-                                      ),
-                                      SizedBox(height: 16),
-                                      Text(
-                                        "Takeaway",
-                                        style: TextStyle(
-                                          fontSize: 22,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
+                              );
+                            }).toList(),
                           ),
                         ],
                       ),
@@ -321,3 +312,21 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
     );
   }
 }
+
+const _kServiceTypePalette = [
+  Color(0xFF4F89F0), // Blue   – Dine-In
+  Color(0xFFFF7043), // Orange – Takeaway
+  Color(0xFF66BB6A), // Green  – Delivery
+  Color(0xFFAB47BC), // Purple
+  Color(0xFF26C6DA), // Cyan
+  Color(0xFFFFCA28), // Amber
+];
+
+const _kServiceTypeIcons = [
+  Icons.restaurant,
+  Icons.shopping_bag_outlined,
+  Icons.delivery_dining,
+  Icons.room_service,
+  Icons.local_cafe,
+  Icons.local_bar,
+];

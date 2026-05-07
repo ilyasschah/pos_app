@@ -7,7 +7,6 @@ import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
-import 'package:pos_app/utils/status_helper.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/menu/discount_dialog.dart';
 import 'package:pos_app/product/product_group_model.dart';
@@ -19,7 +18,6 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/tax/tax_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
-import 'package:pos_app/app_settings/industry_packs.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/promotions/promotions_list_screen.dart';
@@ -75,12 +73,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     final serviceStatusEnabled =
         settings[SettingKeys.featureServiceStatusEnabled]?.toLowerCase() ==
         'true';
-    final serviceTypePack =
-        settings[SettingKeys.appServiceTypePack] ?? 'Restaurant';
-    final serviceStatusPack =
-        settings[SettingKeys.appServiceStatusPack] ?? 'Restaurant';
-    final orderTypes = IndustryPacks.getOrderTypes(serviceTypePack);
-    final svcStatuses = IndustryPacks.getServiceStatuses(serviceStatusPack);
+    final customServiceTypes =
+        ref.read(appSettingsProvider.notifier).customServiceTypes;
+    final customServiceStatuses =
+        ref.read(appSettingsProvider.notifier).customServiceStatuses;
 
     // ✨ Task 2: Auto-select Walk-In Customer if none selected
     ref.listen(allCustomersProvider, (previous, next) {
@@ -210,7 +206,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                               content: SizedBox(
                                 width: 500,
                                 child: Row(
-                                  children: orderTypes
+                                  children: customServiceTypes
                                       .asMap()
                                       .entries
                                       .expand(
@@ -220,7 +216,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                                           Expanded(
                                             child: ElevatedButton(
                                               onPressed: () =>
-                                                  Navigator.pop(ctx, e.key),
+                                                  Navigator.pop(ctx, e.value.id),
                                               style: ElevatedButton.styleFrom(
                                                 backgroundColor:
                                                     _kOrderTypePalette[e.key %
@@ -238,7 +234,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                                                     ),
                                               ),
                                               child: Text(
-                                                e.value,
+                                                e.value.name,
                                                 textAlign: TextAlign.center,
                                                 style: const TextStyle(
                                                   color: Colors.white,
@@ -359,16 +355,19 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                           }
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                              _kOrderTypePalette[cartState.serviceType %
-                                  _kOrderTypePalette.length],
+                          backgroundColor: _kOrderTypePalette[
+                              customServiceTypes.indexWhere(
+                                      (t) => t.id == cartState.serviceType)
+                                  .clamp(0, _kOrderTypePalette.length - 1)],
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                           visualDensity: VisualDensity.compact,
                         ),
                         child: Text(
-                          cartState.serviceType < orderTypes.length
-                              ? orderTypes[cartState.serviceType]
-                              : 'Order Type',
+                          customServiceTypes
+                                  .where((t) => t.id == cartState.serviceType)
+                                  .map((t) => t.name)
+                                  .firstOrNull ??
+                              'Order Type',
                           style: const TextStyle(fontSize: 12),
                         ),
                       ),
@@ -378,28 +377,22 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                     Padding(
                       padding: const EdgeInsets.only(right: 6),
                       child: ElevatedButton.icon(
-                        icon: Icon(
-                          ServiceStatusHelper.getIcon(cartState.serviceStatus),
-                          size: 15,
-                        ),
+                        icon: const Icon(Icons.label_outline, size: 15),
                         label: Text(
-                          svcStatuses
+                          customServiceStatuses
                                   .where(
-                                    (s) => s['id'] == cartState.serviceStatus,
+                                    (s) => s.id == cartState.serviceStatus,
                                   )
-                                  .map((s) => s['label'] as String)
+                                  .map((s) => s.name)
                                   .firstOrNull ??
-                              ServiceStatusHelper.getLabel(
-                                cartState.serviceStatus,
-                              ),
+                              'Status #${cartState.serviceStatus}',
                           style: const TextStyle(fontSize: 12),
                         ),
                         onPressed: () {
-                          final enabled = svcStatuses;
                           showDialog<int>(
                             context: context,
                             builder: (ctx) {
-                              if (enabled.isEmpty) {
+                              if (customServiceStatuses.isEmpty) {
                                 return AlertDialog(
                                   title: const Text('Service Status'),
                                   content: const Text(
@@ -424,49 +417,52 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                                 content: SizedBox(
                                   width: 500,
                                   child: Row(
-                                    children: enabled.asMap().entries.expand((
-                                      e,
-                                    ) {
-                                      final s = e.value;
-                                      final id = s['id'] as int? ?? 0;
-                                      final label =
-                                          s['label'] as String? ?? 'Status';
-                                      final color = _colorFromName(
-                                        s['color'] as String? ?? '',
-                                      );
-                                      return [
-                                        if (e.key > 0)
-                                          const SizedBox(width: 12),
-                                        Expanded(
-                                          child: ElevatedButton(
-                                            onPressed: () =>
-                                                Navigator.pop(ctx, id),
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: color,
-                                              minimumSize: const Size(0, 100),
-                                              shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(12),
-                                              ),
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: 16,
-                                                    horizontal: 8,
+                                    children: customServiceStatuses
+                                        .asMap()
+                                        .entries
+                                        .expand((e) {
+                                          final s = e.value;
+                                          return [
+                                            if (e.key > 0)
+                                              const SizedBox(width: 12),
+                                            Expanded(
+                                              child: ElevatedButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(ctx, s.id),
+                                                style:
+                                                    ElevatedButton.styleFrom(
+                                                      backgroundColor: s.color,
+                                                      minimumSize:
+                                                          const Size(0, 100),
+                                                      shape:
+                                                          RoundedRectangleBorder(
+                                                            borderRadius:
+                                                                BorderRadius
+                                                                    .circular(
+                                                                      12,
+                                                                    ),
+                                                          ),
+                                                      padding:
+                                                          const EdgeInsets
+                                                              .symmetric(
+                                                            vertical: 16,
+                                                            horizontal: 8,
+                                                          ),
+                                                    ),
+                                                child: Text(
+                                                  s.name,
+                                                  textAlign: TextAlign.center,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 13,
+                                                    fontWeight: FontWeight.bold,
                                                   ),
-                                            ),
-                                            child: Text(
-                                              label,
-                                              textAlign: TextAlign.center,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.bold,
+                                                ),
                                               ),
                                             ),
-                                          ),
-                                        ),
-                                      ];
-                                    }).toList(),
+                                          ];
+                                        })
+                                        .toList(),
                                   ),
                                 ),
                               );
@@ -479,20 +475,13 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                           });
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor:
-                              svcStatuses
+                          backgroundColor: customServiceStatuses
                                   .where(
-                                    (s) => s['id'] == cartState.serviceStatus,
+                                    (s) => s.id == cartState.serviceStatus,
                                   )
-                                  .map(
-                                    (s) => _colorFromName(
-                                      s['color'] as String? ?? '',
-                                    ),
-                                  )
+                                  .map((s) => s.color)
                                   .firstOrNull ??
-                              ServiceStatusHelper.getColor(
-                                cartState.serviceStatus,
-                              ),
+                              Colors.blueGrey,
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                           visualDensity: VisualDensity.compact,
                         ),
@@ -663,13 +652,59 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
           if (floorPlanEnabled) ...[
             if (bookingEnabled) const SizedBox(width: 4),
             TextButton.icon(
-              onPressed: () {
-                ref.read(cartProvider.notifier).clearCart();
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
-                  (route) => false,
-                );
+              onPressed: () async {
+                final cart = ref.read(cartProvider);
+                final companyId = ref.read(selectedCompanyProvider)?.id;
+
+                if (cart.items.isEmpty) {
+                  // Empty cart — delete the placeholder order from the server so
+                  // the table is freed immediately (deletePosOrder frees the table
+                  // atomically in the backend).
+                  if (cart.activePosOrderId != null && companyId != null) {
+                    try {
+                      await ApiClient().deletePosOrder(
+                        companyId,
+                        cart.activePosOrderId!,
+                        cart.activeWarehouseId ??
+                            ref.read(selectedWarehouseProvider)?.id ??
+                            1,
+                      );
+                    } catch (_) {
+                      // best-effort: proceed even if the server call fails
+                    }
+                  }
+                  ref.read(cartProvider.notifier).clearCart();
+                } else {
+                  // Items exist — persist them so the table stays occupied.
+                  if (companyId != null) {
+                    final user = ref.read(currentUserProvider);
+                    try {
+                      await ref.read(cartProvider.notifier).saveAndSuspend(
+                        apiClient: ApiClient(),
+                        companyId: companyId,
+                        userId: user?.id ?? 0,
+                      );
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Could not save order: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                      return;
+                    }
+                  }
+                }
+
+                if (context.mounted) {
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
+                    (route) => false,
+                  );
+                }
               },
               icon: const Icon(Icons.grid_view, color: Colors.white),
               label: Text(
@@ -732,33 +767,6 @@ const _kOrderTypePalette = [
   Colors.brown,
 ];
 
-// Maps a colour-name string (from the service-status JSON) to a Flutter Color.
-Color _colorFromName(String name) {
-  switch (name.toLowerCase()) {
-    case 'blue':
-      return Colors.blue;
-    case 'orange':
-      return Colors.orange;
-    case 'teal':
-      return Colors.teal;
-    case 'green':
-      return Colors.green;
-    case 'purple':
-      return Colors.purple;
-    case 'red':
-      return Colors.red;
-    case 'indigo':
-      return Colors.indigo;
-    case 'amber':
-      return Colors.amber;
-    case 'pink':
-      return Colors.pink;
-    case 'grey':
-      return Colors.grey;
-    default:
-      return Colors.blueGrey;
-  }
-}
 
 class BrowserSection extends ConsumerStatefulWidget {
   const BrowserSection({super.key});
@@ -1622,12 +1630,13 @@ class _CartSectionState extends ConsumerState<CartSection> {
         contextLabel = stored;
       } else {
         // Cart is freshly cleared — show the upcoming order number using the
-        // correct prefix for the current serviceType.
-        final prefix = cartState.serviceType == 1
-            ? 'TAKEAWAY'
-            : cartState.serviceType == 2
-                ? 'DELIVERY'
-                : 'ORDER';
+        // prefix from the active custom service type.
+        final types = ref.read(appSettingsProvider.notifier).customServiceTypes;
+        final prefix = types
+                .where((t) => t.id == cartState.serviceType)
+                .map((t) => t.prefix)
+                .firstOrNull ??
+            'ORDER';
         contextLabel =
             '$prefix #${dailyOrderNumber.toString().padLeft(3, '0')}';
       }

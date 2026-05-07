@@ -109,6 +109,15 @@ class SettingKeys {
   static const appServiceTypePack          = 'App_ServiceType_Pack';
   static const featureServiceStatusEnabled = 'Feature_ServiceStatus_Enabled';
   static const appServiceStatusPack        = 'App_ServiceStatus_Pack';
+
+  // Custom service types (JSON array of {id, name, prefix})
+  static const customServiceTypes = 'Pos.CustomServiceTypes';
+
+  // Custom service statuses (JSON array of {id, name, colorValue})
+  static const customServiceStatuses = 'Pos.CustomServiceStatuses';
+
+  // Booking behaviour (JSON object — see BookingSettingsModel)
+  static const bookingSettings = 'Pos.BookingSettings';
 }
 
 const Map<String, String> kSettingDefaults = {
@@ -166,4 +175,14 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.appServiceTypePack:          'Restaurant',
   SettingKeys.featureServiceStatusEnabled: 'true',
   SettingKeys.appServiceStatusPack:        'Restaurant',
+  SettingKeys.customServiceTypes:
+      '[{"id":0,"name":"Dine-In","prefix":"ORDER"},'
+      '{"id":1,"name":"Takeaway","prefix":"TAKEAWAY"},'
+      '{"id":2,"name":"Delivery","prefix":"DELIVERY"}]',
+  SettingKeys.customServiceStatuses:
+      '[{"id":1,"name":"Seated","colorValue":${0xFF2196F3}},'
+      '{"id":2,"name":"In Kitchen","colorValue":${0xFFFF9800}},'
+      '{"id":3,"name":"Ready to Pay","colorValue":${0xFF4CAF50}}]',
+  SettingKeys.bookingSettings:
+      '{"resourceMode":"table","defaultDurationMinutes":90,"timeSnappingMinutes":15}',
 };

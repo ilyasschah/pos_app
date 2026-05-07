@@ -3,6 +3,9 @@ import 'package:dio/dio.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/service_type_model.dart';
+import 'package:pos_app/app_settings/service_status_model.dart';
+import 'package:pos_app/app_settings/booking_settings_model.dart';
 
 final rawAppPropertiesProvider = FutureProvider.autoDispose<List<AppProperty>>((
   ref,
@@ -61,6 +64,18 @@ class AppSettingsNotifier extends Notifier<Map<String, String>> {
       get(SettingKeys.appServiceStatusPack).isNotEmpty
           ? get(SettingKeys.appServiceStatusPack)
           : 'Restaurant';
+
+  List<CustomServiceType> get customServiceTypes =>
+      CustomServiceType.listFromJson(get(SettingKeys.customServiceTypes));
+
+  List<CustomServiceStatus> get customServiceStatuses =>
+      CustomServiceStatus.listFromJson(get(SettingKeys.customServiceStatuses));
+
+  BookingSettingsModel get bookingSettings =>
+      BookingSettingsModel.fromJsonStr(get(SettingKeys.bookingSettings));
+
+  Future<void> setBookingSettings(BookingSettingsModel value) =>
+      set(SettingKeys.bookingSettings, value.toJsonStr());
 
   Future<void> set(String key, String value) async {
     state = {...state, key: value};

@@ -10,6 +10,7 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table.dart';
 import 'package:pos_app/menu/menu_screen.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/widgets/shared_drawer.dart';
 
 // ── Layout constants ──────────────────────────────────────────────────────────
@@ -88,6 +89,17 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
     final selectedDate = ref.watch(selectedBookingDateProvider);
     final bookingsAsync = ref.watch(allBookingsProvider);
     final usersAsync = ref.watch(allUsersProvider);
+    final roomsAsync = ref.watch(allRoomsProvider);
+    final settings = ref.watch(appSettingsProvider.notifier);
+    final bs = settings.bookingSettings;
+    final resourceMode = bs.resourceMode;
+    final timeSnapping = bs.timeSnappingMinutes;
+    final defaultDuration = bs.defaultDurationMinutes;
+
+    final isLoading =
+        bookingsAsync.isLoading || usersAsync.isLoading || roomsAsync.isLoading;
+    final hasError =
+        bookingsAsync.hasError || usersAsync.hasError || roomsAsync.hasError;
 
     return Scaffold(
       drawer: const SharedDrawer(),
@@ -128,63 +140,86 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
           const SizedBox(width: 8),
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: usersAsync.when(
-              data: (users) => ElevatedButton.icon(
-                icon: const Icon(Icons.add),
-                label: const Text('Add Booking'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  foregroundColor: Colors.white,
-                ),
-                onPressed: () => _showAddDialog(
-                  context,
-                  users: users.where((u) => u.isEnabled).toList(),
-                  prefilledDate: selectedDate,
-                ),
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('Add Booking'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
               ),
-              loading: () => const SizedBox.shrink(),
-              error: (_, __) => const SizedBox.shrink(),
+              onPressed: isLoading
+                  ? null
+                  : () => _showAddDialog(
+                        context,
+                        users: usersAsync.value
+                                ?.where((u) => u.isEnabled)
+                                .toList() ??
+                            [],
+                        tables: roomsAsync.value ?? [],
+                        resourceMode: resourceMode,
+                        defaultDurationMinutes: defaultDuration,
+                        prefilledDate: selectedDate,
+                      ),
             ),
           ),
         ],
       ),
-      body: bookingsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, _) => Center(child: Text('Error loading bookings: $err')),
-        data: (allBookings) {
-          final dayBookings = allBookings
-              .where((b) => isSameDay(b.startTime, selectedDate))
-              .toList();
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : hasError
+              ? Center(
+                  child: Text(
+                    'Error loading data: '
+                    '${bookingsAsync.error ?? usersAsync.error ?? roomsAsync.error}',
+                  ),
+                )
+              : Builder(
+                  builder: (context) {
+                    final allBookings = bookingsAsync.value!;
+                    final staff =
+                        usersAsync.value!.where((u) => u.isEnabled).toList();
+                    final tables = roomsAsync.value!;
+                    final dayBookings = allBookings
+                        .where((b) => isSameDay(b.startTime, selectedDate))
+                        .toList();
 
-          return usersAsync.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (err, _) => Center(child: Text('Error loading staff: $err')),
-            data: (allUsers) {
-              final staff = allUsers.where((u) => u.isEnabled).toList();
-              return _CalendarView(
-                bookings: dayBookings,
-                staff: staff,
-                selectedDate: selectedDate,
-                onEmptySlotTap: (staffMember, time) => _showAddDialog(
-                  context,
-                  users: staff,
-                  prefilledDate: selectedDate,
-                  prefilledStaff: staffMember,
-                  prefilledTime: time,
+                    return _CalendarView(
+                      bookings: dayBookings,
+                      staff: staff,
+                      tables: tables,
+                      resourceMode: resourceMode,
+                      timeSnappingMinutes: timeSnapping,
+                      selectedDate: selectedDate,
+                      onEmptySlotTap: (staffMember, table, time) =>
+                          _showAddDialog(
+                            context,
+                            users: staff,
+                            tables: tables,
+                            resourceMode: resourceMode,
+                            defaultDurationMinutes: defaultDuration,
+                            prefilledDate: selectedDate,
+                            prefilledStaff: staffMember,
+                            prefilledTime: time,
+                          ),
+                      onBookingTap: (booking) => _showDetailDialog(
+                        context,
+                        booking,
+                        staff,
+                        tables,
+                        resourceMode,
+                      ),
+                    );
+                  },
                 ),
-                onBookingTap: (booking) =>
-                    _showDetailDialog(context, booking, staff),
-              );
-            },
-          );
-        },
-      ),
     );
   }
 
   void _showAddDialog(
     BuildContext context, {
     required List<User> users,
+    required List<FloorPlanTable> tables,
+    required String resourceMode,
+    required int defaultDurationMinutes,
     required DateTime prefilledDate,
     User? prefilledStaff,
     TimeOfDay? prefilledTime,
@@ -193,9 +228,12 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
       context: context,
       builder: (_) => _AddBookingDialog(
         users: users,
+        tables: tables,
+        resourceMode: resourceMode,
         date: prefilledDate,
         prefilledStaff: prefilledStaff,
         prefilledTime: prefilledTime,
+        defaultDurationMinutes: defaultDurationMinutes,
         onSaved: () => ref.invalidate(allBookingsProvider),
       ),
     );
@@ -205,12 +243,16 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
     BuildContext context,
     Booking booking,
     List<User> staff,
+    List<FloorPlanTable> tables,
+    String resourceMode,
   ) {
     showDialog(
       context: context,
       builder: (_) => _BookingDetailDialog(
         booking: booking,
         staff: staff,
+        tables: tables,
+        resourceMode: resourceMode,
         onUpdated: () => ref.invalidate(allBookingsProvider),
       ),
     );
@@ -223,13 +265,19 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
 class _CalendarView extends StatelessWidget {
   final List<Booking> bookings;
   final List<User> staff;
+  final List<FloorPlanTable> tables;
+  final String resourceMode;
+  final int timeSnappingMinutes;
   final DateTime selectedDate;
-  final void Function(User?, TimeOfDay) onEmptySlotTap;
+  final void Function(User?, FloorPlanTable?, TimeOfDay) onEmptySlotTap;
   final void Function(Booking) onBookingTap;
 
   const _CalendarView({
     required this.bookings,
     required this.staff,
+    required this.tables,
+    required this.resourceMode,
+    required this.timeSnappingMinutes,
     required this.selectedDate,
     required this.onEmptySlotTap,
     required this.onBookingTap,
@@ -249,19 +297,26 @@ class _CalendarView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final totalCols = staff.isEmpty ? 1 : staff.length;
-    final gridWidth = totalCols * _staffColWidth;
+    final isStaffMode = resourceMode == 'staff';
+    // Staff mode: one column per staff member.
+    // Table/room mode: single timeline — user picks a table inside the dialog.
+    final List<String> colLabels = isStaffMode
+        ? (staff.isEmpty
+            ? ['Unassigned']
+            : staff.map((u) => u.displayName).toList())
+        : const ['Bookings'];
+    final totalCols = colLabels.length;
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Fill screen width if staff fit
-        final effectiveColWidth = staff.isEmpty
-            ? constraints.maxWidth
-            : (constraints.maxWidth - _timeColWidth) / totalCols <
-                  _staffColWidth
-            ? _staffColWidth
-            : (constraints.maxWidth - _timeColWidth) / totalCols;
-        final effectiveGridWidth = totalCols * effectiveColWidth;
+        final availableWidth = constraints.maxWidth - _timeColWidth;
+        final effectiveColWidth = isStaffMode
+            ? (availableWidth / totalCols < _staffColWidth
+                ? _staffColWidth
+                : availableWidth / totalCols)
+            : availableWidth;
+        final effectiveGridWidth =
+            isStaffMode ? totalCols * effectiveColWidth : availableWidth;
 
         return SingleChildScrollView(
           scrollDirection: Axis.vertical,
@@ -273,7 +328,6 @@ class _CalendarView extends StatelessWidget {
                 width: _timeColWidth,
                 child: Column(
                   children: [
-                    // spacer for staff header row
                     SizedBox(height: _headerRowHeight),
                     for (int i = 0; i < _totalSlots; i++)
                       SizedBox(
@@ -286,9 +340,8 @@ class _CalendarView extends StatelessWidget {
                               _slotLabel(i),
                               style: TextStyle(
                                 fontSize: 11,
-                                color: theme.colorScheme.onSurface.withValues(
-                                  alpha: 0.5,
-                                ),
+                                color: theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.5),
                               ),
                             ),
                           ),
@@ -298,7 +351,7 @@ class _CalendarView extends StatelessWidget {
                 ),
               ),
 
-              // ── Staff columns ─────────────────────────────────────────────
+              // ── Resource columns ──────────────────────────────────────────
               Expanded(
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
@@ -306,30 +359,21 @@ class _CalendarView extends StatelessWidget {
                     width: effectiveGridWidth,
                     child: Column(
                       children: [
-                        // Staff header row
+                        // Header row
                         SizedBox(
                           height: _headerRowHeight,
                           child: Row(
-                            children: staff.isEmpty
-                                ? [
-                                    Expanded(
-                                      child: _StaffHeader(
-                                        name: 'Unassigned',
-                                        theme: theme,
-                                      ),
+                            children: colLabels
+                                .map(
+                                  (label) => SizedBox(
+                                    width: effectiveColWidth,
+                                    child: _StaffHeader(
+                                      name: label,
+                                      theme: theme,
                                     ),
-                                  ]
-                                : staff
-                                      .map(
-                                        (u) => SizedBox(
-                                          width: effectiveColWidth,
-                                          child: _StaffHeader(
-                                            name: u.displayName,
-                                            theme: theme,
-                                          ),
-                                        ),
-                                      )
-                                      .toList(),
+                                  ),
+                                )
+                                .toList(),
                           ),
                         ),
 
@@ -352,55 +396,62 @@ class _CalendarView extends StatelessWidget {
                                   ),
                                 ),
 
-                              // Vertical column dividers
-                              for (int i = 1; i < totalCols; i++)
-                                Positioned(
-                                  left: i * effectiveColWidth,
-                                  top: 0,
-                                  bottom: 0,
-                                  child: Container(
-                                    width: 1,
-                                    color: theme.dividerColor.withValues(
-                                      alpha: 0.4,
+                              // Vertical dividers — staff mode only
+                              if (isStaffMode)
+                                for (int i = 1; i < totalCols; i++)
+                                  Positioned(
+                                    left: i * effectiveColWidth,
+                                    top: 0,
+                                    bottom: 0,
+                                    child: Container(
+                                      width: 1,
+                                      color: theme.dividerColor
+                                          .withValues(alpha: 0.4),
                                     ),
                                   ),
-                                ),
 
                               // Empty-slot tap layer
                               Positioned.fill(
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.translucent,
                                   onTapDown: (details) {
-                                    final colIndex =
-                                        (details.localPosition.dx /
-                                                effectiveColWidth)
-                                            .floor()
-                                            .clamp(0, totalCols - 1);
-                                    final slotIndex =
-                                        (details.localPosition.dy / _slotHeight)
-                                            .floor()
-                                            .clamp(0, _totalSlots - 1);
-                                    final totalMinutes =
-                                        _dayStart * 60 + slotIndex * 30;
+                                    final rawMins =
+                                        details.localPosition.dy /
+                                        _slotHeight *
+                                        30;
+                                    final snapped =
+                                        (rawMins / timeSnappingMinutes)
+                                                .round() *
+                                            timeSnappingMinutes;
+                                    final totalMins =
+                                        (_dayStart * 60 + snapped)
+                                            .clamp(0, _dayEnd * 60 - 1);
                                     final time = TimeOfDay(
-                                      hour: totalMinutes ~/ 60,
-                                      minute: totalMinutes % 60,
+                                      hour: totalMins ~/ 60,
+                                      minute: totalMins % 60,
                                     );
-                                    final staffMember =
-                                        staff.isNotEmpty &&
-                                            colIndex < staff.length
-                                        ? staff[colIndex]
-                                        : null;
-                                    onEmptySlotTap(staffMember, time);
+                                    // Staff mode: derive staff from tapped column.
+                                    // Table mode: table is chosen inside the dialog.
+                                    User? staffMember;
+                                    if (isStaffMode && staff.isNotEmpty) {
+                                      final col =
+                                          (details.localPosition.dx /
+                                                  effectiveColWidth)
+                                              .floor()
+                                              .clamp(0, totalCols - 1);
+                                      staffMember =
+                                          col < staff.length ? staff[col] : null;
+                                    }
+                                    onEmptySlotTap(staffMember, null, time);
                                   },
                                 ),
                               ),
 
                               // Booking chips
                               ..._buildBookingChips(
-                                staff,
+                                isStaffMode,
                                 effectiveColWidth,
-                                gridWidth,
+                                effectiveGridWidth,
                               ),
                             ],
                           ),
@@ -418,39 +469,89 @@ class _CalendarView extends StatelessWidget {
   }
 
   List<Widget> _buildBookingChips(
-    List<User> staff,
+    bool isStaffMode,
     double colWidth,
     double totalWidth,
   ) {
-    final chips = <Widget>[];
+    if (isStaffMode) {
+      return _buildStaffChips(colWidth);
+    } else {
+      return _buildTableModeChips(totalWidth);
+    }
+  }
 
-    for (final booking in bookings) {
-      final top = _bookingTop(booking);
-      final height = _bookingHeight(
-        booking,
-      ).clamp(_slotHeight * 0.5, double.infinity);
+  String _tableLabel(Booking b) {
+    if (b.tableIds.isEmpty) return '';
+    return b.tableIds.map((id) {
+      final t = tables.where((x) => x.id == id).firstOrNull;
+      return t?.name ?? 'T$id';
+    }).join(', ');
+  }
 
-      // Find column index by userId
-      int colIndex = 0;
+  List<Widget> _buildStaffChips(double colWidth) {
+    return bookings.map((booking) {
+      int col = 0;
       if (booking.userId != null && staff.isNotEmpty) {
         final idx = staff.indexWhere((u) => u.id == booking.userId);
-        colIndex = idx >= 0 ? idx : 0;
+        col = idx >= 0 ? idx : 0;
       }
-
-      chips.add(
-        Positioned(
-          top: top,
-          left: colIndex * colWidth + 2,
-          width: colWidth - 4,
-          height: height,
-          child: GestureDetector(
-            onTap: () => onBookingTap(booking),
-            child: _BookingChip(booking: booking),
-          ),
+      return Positioned(
+        top: _bookingTop(booking),
+        left: col * colWidth + 2,
+        width: colWidth - 4,
+        height: _bookingHeight(booking).clamp(_slotHeight * 0.5, double.infinity),
+        child: GestureDetector(
+          onTap: () => onBookingTap(booking),
+          child: _BookingChip(booking: booking, tableLabel: _tableLabel(booking)),
         ),
       );
+    }).toList();
+  }
+
+  // Overlapping bookings are placed side-by-side using lane assignment so
+  // concurrent bookings (different tables booked at the same time) don't
+  // visually collide.
+  List<Widget> _buildTableModeChips(double totalWidth) {
+    if (bookings.isEmpty) return [];
+
+    final sorted = [...bookings]
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+
+    final laneOf = <Booking, int>{};
+    for (final b in sorted) {
+      final occupied = sorted
+          .where((o) =>
+              laneOf.containsKey(o) &&
+              o.startTime.isBefore(b.endTime) &&
+              o.endTime.isAfter(b.startTime))
+          .map((o) => laneOf[o]!)
+          .toSet();
+      int lane = 0;
+      while (occupied.contains(lane)) lane++;
+      laneOf[b] = lane;
     }
-    return chips;
+
+    return sorted.map((booking) {
+      final myLane = laneOf[booking]!;
+      final maxLane = laneOf.entries
+          .where((e) =>
+              e.key.startTime.isBefore(booking.endTime) &&
+              e.key.endTime.isAfter(booking.startTime))
+          .map((e) => e.value)
+          .fold(0, (m, v) => v > m ? v : m);
+      final chipWidth = totalWidth / (maxLane + 1);
+
+      return Positioned(
+        top: _bookingTop(booking),
+        left: myLane * chipWidth + 2,
+        width: chipWidth - 4,
+        height: _bookingHeight(booking).clamp(_slotHeight * 0.5, double.infinity),
+        child: GestureDetector(
+          onTap: () => onBookingTap(booking),
+          child: _BookingChip(booking: booking, tableLabel: _tableLabel(booking)),
+        ),
+      );
+    }).toList();
   }
 
   String _slotLabel(int index) {
@@ -503,8 +604,9 @@ class _StaffHeader extends StatelessWidget {
 // ────────────────────────────────────────────────────────────────────────────
 class _BookingChip extends StatelessWidget {
   final Booking booking;
+  final String tableLabel;
 
-  const _BookingChip({required this.booking});
+  const _BookingChip({required this.booking, this.tableLabel = ''});
 
   @override
   Widget build(BuildContext context) {
@@ -547,22 +649,26 @@ class _BookingChip extends StatelessWidget {
           if (booking.guestCount > 1)
             Row(
               children: [
-                Icon(
-                  Icons.people,
-                  size: 10,
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.5),
-                ),
+                Icon(Icons.people, size: 10,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
                 const SizedBox(width: 2),
-                Text(
-                  '${booking.guestCount}',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
+                Text('${booking.guestCount}',
+                    style: TextStyle(fontSize: 10,
+                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
+              ],
+            ),
+          if (tableLabel.isNotEmpty)
+            Row(
+              children: [
+                Icon(Icons.table_restaurant, size: 10,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
+                const SizedBox(width: 2),
+                Expanded(
+                  child: Text(tableLabel,
+                      style: TextStyle(fontSize: 10,
+                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
                 ),
               ],
             ),
@@ -577,16 +683,22 @@ class _BookingChip extends StatelessWidget {
 // ────────────────────────────────────────────────────────────────────────────
 class _AddBookingDialog extends ConsumerStatefulWidget {
   final List<User> users;
+  final List<FloorPlanTable> tables;
+  final String resourceMode;
   final DateTime date;
   final User? prefilledStaff;
   final TimeOfDay? prefilledTime;
+  final int defaultDurationMinutes;
   final VoidCallback onSaved;
 
   const _AddBookingDialog({
     required this.users,
+    required this.tables,
+    required this.resourceMode,
     required this.date,
     this.prefilledStaff,
     this.prefilledTime,
+    required this.defaultDurationMinutes,
     required this.onSaved,
   });
 
@@ -603,19 +715,20 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
   late TimeOfDay _startTime;
   late TimeOfDay _endTime;
   User? _selectedStaff;
-  FloorPlanTable? _selectedRoom;
+  final Set<int> _selectedTableIds = {};
   bool _saving = false;
 
   @override
   void initState() {
     super.initState();
     _startTime = widget.prefilledTime ?? const TimeOfDay(hour: 9, minute: 0);
+    final endTotal =
+        _startTime.hour * 60 + _startTime.minute + widget.defaultDurationMinutes;
     _endTime = TimeOfDay(
-      hour: (_startTime.hour + 1).clamp(0, 23),
-      minute: _startTime.minute,
+      hour: (endTotal ~/ 60).clamp(0, 23),
+      minute: endTotal % 60,
     );
-    _selectedStaff =
-        widget.prefilledStaff ??
+    _selectedStaff = widget.prefilledStaff ??
         (widget.users.isNotEmpty ? widget.users.first : null);
   }
 
@@ -628,15 +741,24 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
   }
 
   DateTime _toDateTime(TimeOfDay t) => DateTime(
-    widget.date.year,
-    widget.date.month,
-    widget.date.day,
-    t.hour,
-    t.minute,
-  );
+        widget.date.year,
+        widget.date.month,
+        widget.date.day,
+        t.hour,
+        t.minute,
+      );
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    if (widget.resourceMode != 'staff' && _selectedTableIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select at least one table.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     setState(() => _saving = true);
 
     final companyId = ref.read(selectedCompanyProvider)?.id;
@@ -649,7 +771,7 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
         'startTime': _toDateTime(_startTime).toIso8601String(),
         'endTime': _toDateTime(_endTime).toIso8601String(),
         'userId': _selectedStaff?.id,
-        'floorPlanTableId': _selectedRoom?.id,
+        'tableIds': _selectedTableIds.toList(),
         'note': _noteController.text.trim().isEmpty
             ? null
             : _noteController.text.trim(),
@@ -658,7 +780,6 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
       widget.onSaved();
       if (!mounted) return;
 
-      // Post-save confirmation
       final action = await showDialog<_PostSaveAction>(
         context: context,
         barrierDismissible: false,
@@ -690,16 +811,14 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
       if (action == _PostSaveAction.open) {
         final user = ref.read(currentUserProvider);
         if (user != null) {
-          await ref
-              .read(cartProvider.notifier)
-              .startBookingOrder(
+          await ref.read(cartProvider.notifier).startBookingOrder(
                 ApiClient(),
                 companyId,
                 user.id,
                 created.id,
                 created.reservationName,
                 staffUserId: created.userId,
-                floorPlanTableId: created.floorPlanTableId,
+                floorPlanTableId: created.tableIds.firstOrNull,
               );
           if (!mounted) return;
           Navigator.pushAndRemoveUntil(
@@ -722,126 +841,129 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
     }
   }
 
+  void _onStartTimeChanged(TimeOfDay t) {
+    setState(() {
+      _startTime = t;
+      final endTotal = t.hour * 60 + t.minute + widget.defaultDurationMinutes;
+      _endTime = TimeOfDay(
+        hour: (endTotal ~/ 60).clamp(0, 23),
+        minute: endTotal % 60,
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isTableMode = widget.resourceMode != 'staff';
+    final existingBookings = ref.watch(allBookingsProvider).value ?? [];
+
     return AlertDialog(
       title: const Text('New Booking'),
       content: SizedBox(
-        width: 420,
+        width: 440,
         child: Form(
           key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Guest Name *',
-                  prefixIcon: Icon(Icons.person),
-                ),
-                validator: (v) =>
-                    v == null || v.trim().isEmpty ? 'Name is required' : null,
-                textCapitalization: TextCapitalization.words,
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _TimePicker(
-                      label: 'Start Time',
-                      time: _startTime,
-                      onChanged: (t) => setState(() {
-                        _startTime = t;
-                        final endH = (t.hour + 1).clamp(0, 23);
-                        _endTime = TimeOfDay(hour: endH, minute: t.minute);
-                      }),
-                    ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: _nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Guest Name *',
+                    prefixIcon: Icon(Icons.person),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _TimePicker(
-                      label: 'End Time',
-                      time: _endTime,
-                      onChanged: (t) => setState(() => _endTime = t),
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty ? 'Name is required' : null,
+                  textCapitalization: TextCapitalization.words,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _TimePicker(
+                        label: 'Start Time',
+                        time: _startTime,
+                        onChanged: _onStartTimeChanged,
+                      ),
                     ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _TimePicker(
+                        label: 'End Time',
+                        time: _endTime,
+                        onChanged: (t) => setState(() => _endTime = t),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _guestController,
+                        decoration: const InputDecoration(
+                          labelText: 'Guests',
+                          prefixIcon: Icon(Icons.people),
+                        ),
+                        keyboardType: TextInputType.number,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: DropdownButtonFormField<User?>(
+                        initialValue: _selectedStaff,
+                        decoration: const InputDecoration(
+                          labelText: 'Staff',
+                          prefixIcon: Icon(Icons.badge),
+                        ),
+                        items: [
+                          const DropdownMenuItem<User?>(
+                            value: null,
+                            child: Text('Unassigned'),
+                          ),
+                          ...widget.users.map(
+                            (u) => DropdownMenuItem<User?>(
+                              value: u,
+                              child: Text(u.displayName),
+                            ),
+                          ),
+                        ],
+                        onChanged: (u) => setState(() => _selectedStaff = u),
+                      ),
+                    ),
+                  ],
+                ),
+                // Table availability picker — shown in table/room mode
+                if (isTableMode) ...[
+                  const SizedBox(height: 16),
+                  _TableAvailabilityPicker(
+                    tables: widget.tables,
+                    selectedIds: _selectedTableIds,
+                    existingBookings: existingBookings,
+                    startTime: _toDateTime(_startTime),
+                    endTime: _toDateTime(_endTime),
+                    onToggled: (t) => setState(() {
+                      if (_selectedTableIds.contains(t.id)) {
+                        _selectedTableIds.remove(t.id);
+                      } else {
+                        _selectedTableIds.add(t.id);
+                      }
+                    }),
                   ),
                 ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _guestController,
-                      decoration: const InputDecoration(
-                        labelText: 'Guests',
-                        prefixIcon: Icon(Icons.people),
-                      ),
-                      keyboardType: TextInputType.number,
-                    ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _noteController,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes (optional)',
+                    prefixIcon: Icon(Icons.notes),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: DropdownButtonFormField<User?>(
-                      initialValue: _selectedStaff,
-                      decoration: const InputDecoration(
-                        labelText: 'Staff',
-                        prefixIcon: Icon(Icons.badge),
-                      ),
-                      items: [
-                        const DropdownMenuItem<User?>(
-                          value: null,
-                          child: Text('Unassigned'),
-                        ),
-                        ...widget.users.map(
-                          (u) => DropdownMenuItem<User?>(
-                            value: u,
-                            child: Text(u.displayName),
-                          ),
-                        ),
-                      ],
-                      onChanged: (u) => setState(() => _selectedStaff = u),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              ref
-                  .watch(allRoomsProvider)
-                  .when(
-                    loading: () => const LinearProgressIndicator(),
-                    error: (_, __) => const SizedBox.shrink(),
-                    data: (rooms) => DropdownButtonFormField<FloorPlanTable?>(
-                      initialValue: _selectedRoom,
-                      decoration: const InputDecoration(
-                        labelText: 'Room / Resource (optional)',
-                        prefixIcon: Icon(Icons.meeting_room),
-                      ),
-                      items: [
-                        const DropdownMenuItem<FloorPlanTable?>(
-                          value: null,
-                          child: Text('No room assigned'),
-                        ),
-                        ...rooms.map(
-                          (t) => DropdownMenuItem<FloorPlanTable?>(
-                            value: t,
-                            child: Text(t.name),
-                          ),
-                        ),
-                      ],
-                      onChanged: (t) => setState(() => _selectedRoom = t),
-                    ),
-                  ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _noteController,
-                decoration: const InputDecoration(
-                  labelText: 'Notes (optional)',
-                  prefixIcon: Icon(Icons.notes),
+                  maxLines: 2,
                 ),
-                maxLines: 2,
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -873,16 +995,180 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Table Availability Picker
+// ────────────────────────────────────────────────────────────────────────────
+class _TableAvailabilityPicker extends StatelessWidget {
+  final List<FloorPlanTable> tables;
+  final Set<int> selectedIds;
+  final List<Booking> existingBookings;
+  final DateTime startTime;
+  final DateTime endTime;
+  final ValueChanged<FloorPlanTable> onToggled;
+
+  const _TableAvailabilityPicker({
+    required this.tables,
+    required this.selectedIds,
+    required this.existingBookings,
+    required this.startTime,
+    required this.endTime,
+    required this.onToggled,
+  });
+
+  bool _available(FloorPlanTable t) => !existingBookings.any(
+        (b) =>
+            b.tableIds.contains(t.id) &&
+            b.startTime.isBefore(endTime) &&
+            b.endTime.isAfter(startTime),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final available = tables.where(_available).toList();
+    final unavailable = tables.where((t) => !_available(t)).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.table_restaurant,
+                size: 16, color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
+            const SizedBox(width: 6),
+            Text('Select Tables *', style: theme.textTheme.labelLarge),
+            const Spacer(),
+            if (selectedIds.isNotEmpty)
+              Text(
+                '${selectedIds.length} selected',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.green.shade400,
+                  fontWeight: FontWeight.w600,
+                ),
+              )
+            else
+              Text(
+                '${available.length} available',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.green.shade400,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (tables.isEmpty)
+          Text(
+            'No tables configured.',
+            style: TextStyle(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ...available.map((t) => _TableChip(
+                    table: t,
+                    available: true,
+                    selected: selectedIds.contains(t.id),
+                    onTap: () => onToggled(t),
+                  )),
+              ...unavailable.map((t) => _TableChip(
+                    table: t,
+                    available: false,
+                    selected: false,
+                    onTap: null,
+                  )),
+            ],
+          ),
+      ],
+    );
+  }
+}
+
+class _TableChip extends StatelessWidget {
+  final FloorPlanTable table;
+  final bool available;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  const _TableChip({
+    required this.table,
+    required this.available,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final Color bg, border, fg;
+    if (!available) {
+      bg = theme.colorScheme.onSurface.withValues(alpha: 0.06);
+      border = theme.colorScheme.onSurface.withValues(alpha: 0.15);
+      fg = theme.colorScheme.onSurface.withValues(alpha: 0.35);
+    } else if (selected) {
+      bg = Colors.green.withValues(alpha: 0.15);
+      border = Colors.green;
+      fg = Colors.green;
+    } else {
+      bg = theme.colorScheme.surface;
+      border = theme.colorScheme.outline;
+      fg = theme.colorScheme.onSurface;
+    }
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: border, width: selected ? 2 : 1),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              available ? Icons.check_circle_outline : Icons.block_outlined,
+              size: 14,
+              color: fg,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              table.name,
+              style: TextStyle(
+                fontSize: 13,
+                color: fg,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                decoration: available ? null : TextDecoration.lineThrough,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Booking Detail / Status Update Dialog
 // ────────────────────────────────────────────────────────────────────────────
 class _BookingDetailDialog extends ConsumerStatefulWidget {
   final Booking booking;
   final List<User> staff;
+  final List<FloorPlanTable> tables;
+  final String resourceMode;
   final VoidCallback onUpdated;
 
   const _BookingDetailDialog({
     required this.booking,
     required this.staff,
+    required this.tables,
+    required this.resourceMode,
     required this.onUpdated,
   });
 
@@ -943,7 +1229,7 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
             widget.booking.id,
             widget.booking.reservationName,
             staffUserId: widget.booking.userId,
-            floorPlanTableId: widget.booking.floorPlanTableId,
+            floorPlanTableId: widget.booking.tableIds.firstOrNull,
           );
 
       widget.onUpdated();
@@ -1087,10 +1373,13 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
             _DetailRow(icon: Icons.badge, text: _staffName(b.userId)),
             if (b.note != null && b.note!.isNotEmpty)
               _DetailRow(icon: Icons.notes, text: b.note!),
-            if (b.floorPlanTableId != null)
+            if (b.tableIds.isNotEmpty)
               _DetailRow(
-                icon: Icons.meeting_room,
-                text: 'Room #${b.floorPlanTableId}',
+                icon: Icons.table_restaurant,
+                text: b.tableIds.map((id) {
+                  final t = widget.tables.where((x) => x.id == id).firstOrNull;
+                  return t?.name ?? 'Table #$id';
+                }).join(', '),
               ),
             if (b.status == 4) ...[
               const SizedBox(height: 16),

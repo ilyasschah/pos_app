@@ -7,6 +7,9 @@ import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:pos_app/app_settings/service_type_model.dart';
+import 'package:pos_app/app_settings/service_status_model.dart';
+import 'package:pos_app/app_settings/booking_settings_model.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/auth/login_screen.dart';
 import 'package:pos_app/cart/cart_provider.dart';
@@ -420,6 +423,673 @@ class _SettingDropdown extends ConsumerWidget {
   }
 }
 
+// ── Custom service-type editor ────────────────────────────────────────────────
+
+class _CustomServiceTypesEditor extends ConsumerStatefulWidget {
+  const _CustomServiceTypesEditor();
+
+  @override
+  ConsumerState<_CustomServiceTypesEditor> createState() =>
+      _CustomServiceTypesEditorState();
+}
+
+class _CustomServiceTypesEditorState
+    extends ConsumerState<_CustomServiceTypesEditor> {
+  static const _palette = [
+    Color(0xFF3F51B5),
+    Color(0xFFFF5722),
+    Color(0xFF4CAF50),
+    Color(0xFF9C27B0),
+    Color(0xFF009688),
+    Color(0xFF795548),
+  ];
+
+  List<CustomServiceType> get _types =>
+      ref.read(appSettingsProvider.notifier).customServiceTypes;
+
+  Future<void> _save(List<CustomServiceType> updated) async {
+    await ref.read(appSettingsProvider.notifier).set(
+          SettingKeys.customServiceTypes,
+          CustomServiceType.listToJson(updated),
+        );
+    ref.read(cartProvider.notifier).clearCart();
+  }
+
+  Future<void> _showTypeDialog({CustomServiceType? existing}) async {
+    final nameCtrl = TextEditingController(text: existing?.name ?? '');
+    final prefixCtrl = TextEditingController(text: existing?.prefix ?? '');
+    final result = await showDialog<List<String>>(
+      context: context,
+      builder: (_) => _TypeFormDialog(
+        nameCtrl: nameCtrl,
+        prefixCtrl: prefixCtrl,
+        isEdit: existing != null,
+      ),
+    );
+    if (result == null || !mounted) return;
+    final name = result[0];
+    final prefix = result[1];
+    final updated = List<CustomServiceType>.from(_types);
+    if (existing == null) {
+      final nextId = updated.isEmpty
+          ? 0
+          : updated.map((t) => t.id).reduce((a, b) => a > b ? a : b) + 1;
+      updated.add(CustomServiceType(id: nextId, name: name, prefix: prefix));
+    } else {
+      final i = updated.indexWhere((t) => t.id == existing.id);
+      if (i >= 0) updated[i] = existing.copyWith(name: name, prefix: prefix);
+    }
+    await _save(updated);
+  }
+
+  Future<void> _delete(CustomServiceType target) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Service Type'),
+        content: Text('Remove "${target.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _save(_types.where((t) => t.id != target.id).toList());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Watch so the list rebuilds when the setting is persisted.
+    ref.watch(appSettingsProvider);
+    final types = _types;
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('Service Types', style: theme.textTheme.labelLarge),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () => _showTypeDialog(),
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Add'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ...types.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final t = entry.value;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 6),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: ListTile(
+                dense: true,
+                leading: CircleAvatar(
+                  backgroundColor: _palette[idx % _palette.length],
+                  radius: 14,
+                  child: Text(
+                    '${t.id}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                title: Text(t.name),
+                subtitle: Text(
+                  'Prefix: ${t.prefix}',
+                  style: theme.textTheme.bodySmall,
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      onPressed: () => _showTypeDialog(existing: t),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 18),
+                      color: theme.colorScheme.error,
+                      onPressed: () => _delete(t),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
+class _TypeFormDialog extends StatefulWidget {
+  final TextEditingController nameCtrl;
+  final TextEditingController prefixCtrl;
+  final bool isEdit;
+
+  const _TypeFormDialog({
+    required this.nameCtrl,
+    required this.prefixCtrl,
+    required this.isEdit,
+  });
+
+  @override
+  State<_TypeFormDialog> createState() => _TypeFormDialogState();
+}
+
+class _TypeFormDialogState extends State<_TypeFormDialog> {
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.isEdit ? 'Edit Service Type' : 'Add Service Type'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: widget.nameCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Name',
+              hintText: 'e.g. Uber Eats',
+            ),
+            textCapitalization: TextCapitalization.words,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: widget.prefixCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Order Number Prefix',
+              hintText: 'e.g. UBER',
+            ),
+            onChanged: (v) {
+              final upper = v.toUpperCase();
+              if (v != upper) {
+                widget.prefixCtrl.value = widget.prefixCtrl.value.copyWith(
+                  text: upper,
+                  selection:
+                      TextSelection.collapsed(offset: upper.length),
+                );
+              }
+            },
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final name = widget.nameCtrl.text.trim();
+            final prefix =
+                widget.prefixCtrl.text.trim().toUpperCase();
+            if (name.isNotEmpty && prefix.isNotEmpty) {
+              Navigator.pop(context, [name, prefix]);
+            }
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Custom service-status editor ──────────────────────────────────────────────
+
+class _CustomServiceStatusesEditor extends ConsumerStatefulWidget {
+  const _CustomServiceStatusesEditor();
+
+  @override
+  ConsumerState<_CustomServiceStatusesEditor> createState() =>
+      _CustomServiceStatusesEditorState();
+}
+
+class _CustomServiceStatusesEditorState
+    extends ConsumerState<_CustomServiceStatusesEditor> {
+  List<CustomServiceStatus> get _statuses =>
+      ref.read(appSettingsProvider.notifier).customServiceStatuses;
+
+  Future<void> _save(List<CustomServiceStatus> updated) async {
+    await ref.read(appSettingsProvider.notifier).set(
+          SettingKeys.customServiceStatuses,
+          CustomServiceStatus.listToJson(updated),
+        );
+    ref.read(cartProvider.notifier).clearCart();
+  }
+
+  Future<void> _showStatusDialog({CustomServiceStatus? existing}) async {
+    final nameCtrl = TextEditingController(text: existing?.name ?? '');
+    int pickedColor = existing?.colorValue ?? 0xFF2196F3;
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _StatusFormDialog(
+        nameCtrl: nameCtrl,
+        initialColor: pickedColor,
+        isEdit: existing != null,
+      ),
+    );
+    if (result == null || !mounted) return;
+    final name = result['name'] as String;
+    final colorValue = result['colorValue'] as int;
+    final updated = List<CustomServiceStatus>.from(_statuses);
+    if (existing == null) {
+      final nextId = updated.isEmpty
+          ? 1
+          : updated.map((s) => s.id).reduce((a, b) => a > b ? a : b) + 1;
+      updated.add(CustomServiceStatus(id: nextId, name: name, colorValue: colorValue));
+    } else {
+      final i = updated.indexWhere((s) => s.id == existing.id);
+      if (i >= 0) updated[i] = existing.copyWith(name: name, colorValue: colorValue);
+    }
+    await _save(updated);
+  }
+
+  Future<void> _delete(CustomServiceStatus target) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Service Status'),
+        content: Text('Remove "${target.name}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await _save(_statuses.where((s) => s.id != target.id).toList());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.watch(appSettingsProvider);
+    final statuses = _statuses;
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('Service Statuses', style: theme.textTheme.labelLarge),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () => _showStatusDialog(),
+                icon: const Icon(Icons.add, size: 16),
+                label: const Text('Add'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ...statuses.map((s) => Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: ListTile(
+                  dense: true,
+                  leading: CircleAvatar(
+                    backgroundColor: s.color,
+                    radius: 14,
+                    child: Text(
+                      '${s.id}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  title: Text(s.name),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        onPressed: () => _showStatusDialog(existing: s),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        color: theme.colorScheme.error,
+                        onPressed: () => _delete(s),
+                      ),
+                    ],
+                  ),
+                ),
+              )),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusFormDialog extends StatefulWidget {
+  final TextEditingController nameCtrl;
+  final int initialColor;
+  final bool isEdit;
+
+  const _StatusFormDialog({
+    required this.nameCtrl,
+    required this.initialColor,
+    required this.isEdit,
+  });
+
+  @override
+  State<_StatusFormDialog> createState() => _StatusFormDialogState();
+}
+
+class _StatusFormDialogState extends State<_StatusFormDialog> {
+  static const _presets = [
+    Color(0xFF2196F3), // Blue
+    Color(0xFFFF9800), // Orange
+    Color(0xFF4CAF50), // Green
+    Color(0xFFF44336), // Red
+    Color(0xFF9C27B0), // Purple
+    Color(0xFF009688), // Teal
+    Color(0xFFFFC107), // Amber
+    Color(0xFFE91E63), // Pink
+    Color(0xFF3F51B5), // Indigo
+    Color(0xFFFF5722), // Deep Orange
+    Color(0xFF795548), // Brown
+    Color(0xFF9E9E9E), // Grey
+  ];
+
+  late int _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = widget.initialColor;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.isEdit ? 'Edit Service Status' : 'Add Service Status'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: widget.nameCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Name',
+              hintText: 'e.g. Waiting',
+            ),
+            textCapitalization: TextCapitalization.words,
+          ),
+          const SizedBox(height: 16),
+          const Text('Color', style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _presets.map((c) {
+              final isSelected = c.toARGB32() == _selected;
+              return GestureDetector(
+                onTap: () => setState(() => _selected = c.toARGB32()),
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: c,
+                    shape: BoxShape.circle,
+                    border: isSelected
+                        ? Border.all(
+                            color: Theme.of(context).colorScheme.onSurface,
+                            width: 3,
+                          )
+                        : null,
+                  ),
+                  child: isSelected
+                      ? const Icon(Icons.check, color: Colors.white, size: 18)
+                      : null,
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            final name = widget.nameCtrl.text.trim();
+            if (name.isNotEmpty) {
+              Navigator.pop(context, {'name': name, 'colorValue': _selected});
+            }
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Booking settings card ─────────────────────────────────────────────────────
+
+class _BookingSettingsCard extends ConsumerStatefulWidget {
+  const _BookingSettingsCard();
+
+  @override
+  ConsumerState<_BookingSettingsCard> createState() =>
+      _BookingSettingsCardState();
+}
+
+class _BookingSettingsCardState extends ConsumerState<_BookingSettingsCard> {
+  static const _snappingOptions = [5, 10, 15, 30, 60];
+  static const _durationOptions = [15, 30, 45, 60, 90, 120, 180, 240];
+
+  BookingSettingsModel get _current =>
+      ref.read(appSettingsProvider.notifier).bookingSettings;
+
+  Future<void> _save(BookingSettingsModel updated) =>
+      ref.read(appSettingsProvider.notifier).setBookingSettings(updated);
+
+  @override
+  Widget build(BuildContext context) {
+    ref.watch(appSettingsProvider);
+    final s = _current;
+    final theme = Theme.of(context);
+
+    return _SettingsCard(
+      title: 'BOOKING',
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Resource Mode ──────────────────────────────────────────────
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Resource Mode',
+                            style: theme.textTheme.bodyMedium
+                                ?.copyWith(fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 2),
+                        Text(
+                          'What a booking slot is assigned to',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  DropdownButton<String>(
+                    value: s.resourceMode,
+                    underline: const SizedBox.shrink(),
+                    borderRadius: BorderRadius.circular(8),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'table',
+                          child: Row(children: [
+                            Icon(Icons.table_restaurant, size: 16),
+                            SizedBox(width: 6),
+                            Text('Table'),
+                          ])),
+                      DropdownMenuItem(
+                          value: 'room',
+                          child: Row(children: [
+                            Icon(Icons.meeting_room, size: 16),
+                            SizedBox(width: 6),
+                            Text('Room'),
+                          ])),
+                      DropdownMenuItem(
+                          value: 'staff',
+                          child: Row(children: [
+                            Icon(Icons.person, size: 16),
+                            SizedBox(width: 6),
+                            Text('Staff'),
+                          ])),
+                    ],
+                    onChanged: (v) {
+                      if (v != null) _save(s.copyWith(resourceMode: v));
+                    },
+                  ),
+                ],
+              ),
+              const Divider(height: 28),
+
+              // ── Default Duration ───────────────────────────────────────────
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Default Duration',
+                            style: theme.textTheme.bodyMedium
+                                ?.copyWith(fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Pre-filled slot length when adding a booking',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  DropdownButton<int>(
+                    value: _durationOptions.contains(s.defaultDurationMinutes)
+                        ? s.defaultDurationMinutes
+                        : _durationOptions.last,
+                    underline: const SizedBox.shrink(),
+                    borderRadius: BorderRadius.circular(8),
+                    items: _durationOptions
+                        .map((m) => DropdownMenuItem(
+                              value: m,
+                              child: Text(_formatDuration(m)),
+                            ))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null)
+                        _save(s.copyWith(defaultDurationMinutes: v));
+                    },
+                  ),
+                ],
+              ),
+              const Divider(height: 28),
+
+              // ── Time Snapping ──────────────────────────────────────────────
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Time Snapping',
+                            style: theme.textTheme.bodyMedium
+                                ?.copyWith(fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Grid interval when picking start/end times',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  DropdownButton<int>(
+                    value: _snappingOptions.contains(s.timeSnappingMinutes)
+                        ? s.timeSnappingMinutes
+                        : 15,
+                    underline: const SizedBox.shrink(),
+                    borderRadius: BorderRadius.circular(8),
+                    items: _snappingOptions
+                        .map((m) => DropdownMenuItem(
+                              value: m,
+                              child: Text('$m min'),
+                            ))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) _save(s.copyWith(timeSnappingMinutes: v));
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _formatDuration(int minutes) {
+    if (minutes < 60) return '$minutes min';
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return m == 0 ? '${h}h' : '${h}h ${m}m';
+  }
+}
+
 class _WorkflowCard extends ConsumerWidget {
   const _WorkflowCard();
 
@@ -441,11 +1111,7 @@ class _WorkflowCard extends ConsumerWidget {
           opacity: typeEnabled ? 1.0 : 0.4,
           child: IgnorePointer(
             ignoring: !typeEnabled,
-            child: const _SettingDropdown(
-              settingKey: SettingKeys.appServiceTypePack,
-              label: 'Service Type Pack',
-              options: ['Restaurant', 'Salon', 'Hotel'],
-            ),
+            child: const _CustomServiceTypesEditor(),
           ),
         ),
         const _SettingSwitch(
@@ -457,11 +1123,7 @@ class _WorkflowCard extends ConsumerWidget {
           opacity: statusEnabled ? 1.0 : 0.4,
           child: IgnorePointer(
             ignoring: !statusEnabled,
-            child: const _SettingDropdown(
-              settingKey: SettingKeys.appServiceStatusPack,
-              label: 'Service Status Pack',
-              options: ['Restaurant', 'Salon', 'Hotel'],
-            ),
+            child: const _CustomServiceStatusesEditor(),
           ),
         ),
       ],
@@ -618,6 +1280,7 @@ class _GeneralTab extends ConsumerWidget {
             ),
           ],
         ),
+        const _BookingSettingsCard(),
         const _WorkflowCard(),
         _SettingsCard(
           title: 'TAX',
