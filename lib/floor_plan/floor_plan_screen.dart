@@ -10,6 +10,7 @@ import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'widgets/table_widget.dart';
 import 'widgets/side_panel.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
+import 'package:pos_app/bookings/bookings_screen.dart';
 import 'package:pos_app/widgets/shared_drawer.dart';
 
 class FloorPlanScreen extends ConsumerStatefulWidget {
@@ -113,6 +114,15 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
           },
         ),
         actions: [
+          if ((settings[SettingKeys.featureBookingEnabled] ?? 'true') == 'true')
+            IconButton(
+              icon: const Icon(Icons.calendar_month, color: Colors.white),
+              tooltip: 'Bookings',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const BookingsScreen()),
+              ),
+            ),
           // ✨ Task 2: Manual Refresh Button
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),

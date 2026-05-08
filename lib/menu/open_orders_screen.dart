@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/bookings/bookings_provider.dart';
+import 'package:pos_app/menu/menu_screen.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
@@ -165,9 +166,11 @@ class _OpenOrderCardState extends ConsumerState<_OpenOrderCard> {
           );
       if (!mounted) return;
       if (ok) {
-        // OpenOrdersScreen was pushed on top of MenuScreen from the Drawer,
-        // so popping returns directly to MenuScreen with the loaded cart.
-        Navigator.pop(context);
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const MenuScreen()),
+          (route) => false,
+        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

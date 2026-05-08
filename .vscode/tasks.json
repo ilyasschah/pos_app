@@ -49,6 +49,51 @@
       "label": "flutter: dart run build_runner build",
       "detail": ""
     },
-    
+    {
+      "label": "📱 Run Android (Debug)",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "run",
+        "-d",
+        "android"
+      ],
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "📦 Build Android APK (Release)",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "build",
+        "apk"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "💻 Run Windows (Debug)",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "run",
+        "-d",
+        "windows"
+      ],
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "🚀 Build Windows .exe (Release)",
+      "type": "shell",
+      "command": "flutter",
+      "args": [
+        "build",
+        "windows"
+      ],
+      "group": "build",
+      "problemMatcher": []
+    }
   ]
 }

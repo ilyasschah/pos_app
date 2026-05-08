@@ -179,7 +179,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
     final prefix = docTypeName
         .toUpperCase()
         .replaceAll(' ', '_')
-        .substring(0, docTypeName.length.clamp(0, 6));
+        .substring(0, docTypeName.length.clamp(0, 6).toInt());
     final yy = now.year.toString().substring(2);
     final mm = now.month.toString().padLeft(2, '0');
     final dd = now.day.toString().padLeft(2, '0');
@@ -381,96 +381,101 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
       title = "Document — ${_numberCtrl.text}";
     }
 
-    final List<Widget> dialogTabs = [const Tab(text: "General Header")];
+    final List<Widget> dialogTabs = [const Tab(text: "Document Details")];
 
     final List<Widget> dialogTabViews = [
       SingleChildScrollView(
         padding: const EdgeInsets.all(24),
-        child: _HeaderForm(
-          isEditing: _headerSaved,
-          selectedDocTypeName: _selectedDocTypeName,
-          selectedCustomerId: _selectedCustomerId,
-          selectedUserId: _selectedUserId,
-          selectedWarehouseId: _selectedWarehouseId,
-          date: _date,
-          dueDate: _dueDate,
-          stockDate: _stockDate,
-          numberCtrl: _numberCtrl,
-          internalNoteCtrl: _internalNoteCtrl,
-          noteCtrl: _noteCtrl,
-          refDocCtrl: _refDocCtrl,
-          discount: _discount,
-          discountType: _discountType,
-          discountApplyRule: _discountApplyRule,
-          errorMessage: _errorMessage,
-          isLoading: _isLoading,
-          onSelectDocType: () async {
-            final result = await showDialog<DocumentType>(
-              context: context,
-              builder: (_) => const _SelectDocumentTypeDialog(),
-            );
-            if (result != null) {
-              setState(() {
-                _selectedDocTypeId = result.id;
-                _selectedDocTypeName = "${result.code} - ${result.name}";
-                _selectedWarehouseId = result.warehouseId;
-                if (_numberCtrl.text.isEmpty) {
-                  _numberCtrl.text = _generateOrderNumber(result.name);
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _HeaderForm(
+              isEditing: _headerSaved,
+              selectedDocTypeName: _selectedDocTypeName,
+              selectedCustomerId: _selectedCustomerId,
+              selectedUserId: _selectedUserId,
+              selectedWarehouseId: _selectedWarehouseId,
+              date: _date,
+              dueDate: _dueDate,
+              stockDate: _stockDate,
+              numberCtrl: _numberCtrl,
+              internalNoteCtrl: _internalNoteCtrl,
+              noteCtrl: _noteCtrl,
+              refDocCtrl: _refDocCtrl,
+              discount: _discount,
+              discountType: _discountType,
+              discountApplyRule: _discountApplyRule,
+              errorMessage: _errorMessage,
+              isLoading: _isLoading,
+              onSelectDocType: () async {
+                final result = await showDialog<DocumentType>(
+                  context: context,
+                  builder: (_) => const _SelectDocumentTypeDialog(),
+                );
+                if (result != null) {
+                  setState(() {
+                    _selectedDocTypeId = result.id;
+                    _selectedDocTypeName = "${result.code} - ${result.name}";
+                    _selectedWarehouseId = result.warehouseId;
+                    if (_numberCtrl.text.isEmpty) {
+                      _numberCtrl.text = _generateOrderNumber(result.name);
+                    }
+                  });
                 }
-              });
-            }
-          },
-          onCustomerChanged: (v) => setState(() => _selectedCustomerId = v),
-          onUserChanged: (v) => setState(() => _selectedUserId = v),
-          onWarehouseChanged: (v) => setState(() => _selectedWarehouseId = v),
-          onDatePick: () async {
-            final picked = await showDatePicker(
-              context: context,
-              initialDate: _date,
-              firstDate: DateTime(2020),
-              lastDate: DateTime(2030),
-            );
-            if (picked != null) setState(() => _date = picked);
-          },
-          onDueDatePick: () async {
-            final picked = await showDatePicker(
-              context: context,
-              initialDate: _dueDate,
-              firstDate: DateTime(2020),
-              lastDate: DateTime(2030),
-            );
-            if (picked != null) setState(() => _dueDate = picked);
-          },
-          onStockDatePick: () async {
-            final picked = await showDatePicker(
-              context: context,
-              initialDate: _stockDate,
-              firstDate: DateTime(2020),
-              lastDate: DateTime(2030),
-            );
-            if (picked != null) setState(() => _stockDate = picked);
-          },
-          onDiscountChanged: (v) => setState(() => _discount = v),
-          onDiscountTypeChanged: (v) => setState(() => _discountType = v),
-          onDiscountApplyRuleChanged: (v) =>
-              setState(() => _discountApplyRule = v),
-          onSave: _saveOrUpdateHeader,
+              },
+              onCustomerChanged: (v) => setState(() => _selectedCustomerId = v),
+              onUserChanged: (v) => setState(() => _selectedUserId = v),
+              onWarehouseChanged: (v) =>
+                  setState(() => _selectedWarehouseId = v),
+              onDatePick: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _date,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime(2030),
+                );
+                if (picked != null) setState(() => _date = picked);
+              },
+              onDueDatePick: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _dueDate,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime(2030),
+                );
+                if (picked != null) setState(() => _dueDate = picked);
+              },
+              onStockDatePick: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _stockDate,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime(2030),
+                );
+                if (picked != null) setState(() => _stockDate = picked);
+              },
+              onDiscountChanged: (v) => setState(() => _discount = v),
+              onDiscountTypeChanged: (v) => setState(() => _discountType = v),
+              onDiscountApplyRuleChanged: (v) =>
+                  setState(() => _discountApplyRule = v),
+              onSave: _saveOrUpdateHeader,
+            ),
+            if (_headerSaved && _savedDocumentId != null) ...[
+              const SizedBox(height: 24),
+              Divider(thickness: 2, color: theme.dividerColor),
+              const SizedBox(height: 24),
+              _ItemsView(
+                documentId: _savedDocumentId!,
+                companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
+                onItemsChanged: _syncDocumentTotal,
+              ),
+            ],
+          ],
         ),
       ),
     ];
 
     if (_headerSaved && _savedDocumentId != null && _savedDocument != null) {
-      dialogTabs.add(const Tab(text: "Document Items"));
-      dialogTabViews.add(
-        Padding(
-          padding: const EdgeInsets.all(24),
-          child: _ItemsView(
-            documentId: _savedDocumentId!,
-            companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
-            onItemsChanged: _syncDocumentTotal,
-          ),
-        ),
-      );
       dialogTabs.add(const Tab(text: "Payments"));
       dialogTabViews.add(
         Padding(
@@ -671,7 +676,6 @@ class _HeaderForm extends ConsumerWidget {
   final VoidCallback onSave;
 
   const _HeaderForm({
-    // super.key,
     required this.isEditing,
     required this.selectedDocTypeName,
     required this.selectedCustomerId,
@@ -705,6 +709,36 @@ class _HeaderForm extends ConsumerWidget {
   String _fmt(DateTime dt) =>
       "${dt.day.toString().padLeft(2, '0')}-${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][dt.month - 1]}-${dt.year}";
 
+  Widget _buildCard(String title, IconData icon, List<Widget> children) {
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 24),
+                const SizedBox(width: 12),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
@@ -718,255 +752,265 @@ class _HeaderForm extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Text(
-              "Document Type *",
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(width: 16),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.list_alt),
-              label: Text(selectedDocTypeName ?? "Select document type..."),
-              onPressed: onSelectDocType,
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: TextFormField(
-                controller: numberCtrl,
-                decoration: const InputDecoration(
-                  labelText: "Number",
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 2,
-              child: _datePicker("Date", date, onDatePick, _fmt),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 2,
-              child: _datePicker("Due Date", dueDate, onDueDatePick, _fmt),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 2,
-              child: _datePicker(
-                "Stock Date",
-                stockDate,
-                onStockDatePick,
-                _fmt,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            // Customer / Supplier
-            Expanded(
-              flex: 3,
-              child: asyncCustomers.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (e, _) => Text("Error: $e"),
-                data: (customers) {
-                  final filtered = isSupplier
-                      ? customers.where((c) => c.isSupplier).toList()
-                      : customers.where((c) => c.isCustomer).toList();
-                  final isValid =
-                      selectedCustomerId == null ||
-                      filtered.any((c) => c.id == selectedCustomerId);
-                  return DropdownButtonFormField<int>(
-                    initialValue: isValid ? selectedCustomerId : null,
-                    decoration: InputDecoration(
-                      labelText: isSupplier ? "Supplier *" : "Customer *",
-                      border: const OutlineInputBorder(),
-                    ),
-                    items: filtered
-                        .map(
-                          (c) => DropdownMenuItem(
-                            value: c.id,
-                            child: Text(c.name),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: onCustomerChanged,
-                  );
-                },
-              ),
-            ),
-            const SizedBox(width: 12),
-            // User
-            Expanded(
-              flex: 3,
-              child: asyncUsers.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (e, _) => Text("Error: $e"),
-                data: (users) {
-                  final isValidUser =
-                      selectedUserId == null ||
-                      users.any((u) => u.id == selectedUserId);
-                  return DropdownButtonFormField<int>(
-                    initialValue: isValidUser ? selectedUserId : null,
-                    decoration: const InputDecoration(
-                      labelText: "User *",
-                      border: OutlineInputBorder(),
-                    ),
-                    items: users
-                        .map(
-                          (u) => DropdownMenuItem(
-                            value: u.id,
-                            child: Text(u.displayName),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: onUserChanged,
-                  );
-                },
-              ),
-            ),
-            const SizedBox(width: 12),
-            // Warehouse
-            Expanded(
-              flex: 3,
-              child: asyncWarehouses.when(
-                loading: () => const LinearProgressIndicator(),
-                error: (e, _) => Text("Error: $e"),
-                data: (warehouses) {
-                  final isValidWH =
-                      selectedWarehouseId == null ||
-                      warehouses.any((w) => w.id == selectedWarehouseId);
-                  return DropdownButtonFormField<int>(
-                    initialValue: isValidWH ? selectedWarehouseId : null,
-                    decoration: const InputDecoration(
-                      labelText: "Warehouse *",
-                      border: OutlineInputBorder(),
-                    ),
-                    items: warehouses
-                        .map(
-                          (w) => DropdownMenuItem(
-                            value: w.id,
-                            child: Text(w.name),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: onWarehouseChanged,
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              flex: 3,
-              child: TextFormField(
-                controller: refDocCtrl,
-                decoration: const InputDecoration(
-                  labelText: "Reference Document",
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 2,
-              child: TextFormField(
-                initialValue: discount.toString(),
-                decoration: const InputDecoration(
-                  labelText: "Document Discount",
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                onChanged: (v) => onDiscountChanged(double.tryParse(v) ?? 0),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 2,
-              child: DropdownButtonFormField<int>(
-                initialValue: discountType,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 0, child: Text("%")),
-                  DropdownMenuItem(value: 1, child: Text("Fixed")),
-                ],
-                onChanged: (v) => onDiscountTypeChanged(v ?? 0),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 3,
-              child: Row(
-                children: [
-                  Checkbox(
-                    value: discountApplyRule,
-                    onChanged: (v) => onDiscountApplyRuleChanged(v ?? true),
+        // ── CARD 1: Document Info ──
+        _buildCard('Document Info', Icons.description_outlined, [
+          Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.list_alt),
+                  label: Text(
+                    selectedDocTypeName ?? "Select document type...",
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const Text("Apply after tax"),
-                ],
+                  onPressed: onSelectDocType,
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                flex: 1,
+                child: TextFormField(
+                  controller: numberCtrl,
+                  decoration: InputDecoration(
+                    labelText: "Number",
+                    prefixIcon: const Icon(Icons.tag),
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(child: _datePicker("Date", date, onDatePick, _fmt)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _datePicker("Due Date", dueDate, onDueDatePick, _fmt),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _datePicker(
+                  "Stock Date",
+                  stockDate,
+                  onStockDatePick,
+                  _fmt,
+                ),
+              ),
+            ],
+          ),
+        ]),
         const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: TextFormField(
-                controller: internalNoteCtrl,
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: "Internal Note",
-                  border: OutlineInputBorder(),
+
+        // ── CARD 2: Parties & Logistics ──
+        _buildCard('Parties & Logistics', Icons.local_shipping_outlined, [
+          // Customer / Supplier
+          asyncCustomers.when(
+            loading: () => const LinearProgressIndicator(),
+            error: (e, _) => Text("Error: $e"),
+            data: (customers) {
+              final filtered = isSupplier
+                  ? customers.where((c) => c.isSupplier).toList()
+                  : customers.where((c) => c.isCustomer).toList();
+              final isValid =
+                  selectedCustomerId == null ||
+                  filtered.any((c) => c.id == selectedCustomerId);
+              return DropdownButtonFormField<int>(
+                initialValue: isValid ? selectedCustomerId : null,
+                decoration: InputDecoration(
+                  labelText: isSupplier ? "Supplier *" : "Customer *",
+                  prefixIcon: const Icon(Icons.business),
+                  border: const OutlineInputBorder(),
+                ),
+                items: filtered
+                    .map(
+                      (c) => DropdownMenuItem(value: c.id, child: Text(c.name)),
+                    )
+                    .toList(),
+                onChanged: onCustomerChanged,
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              // User
+              Expanded(
+                child: asyncUsers.when(
+                  loading: () => const LinearProgressIndicator(),
+                  error: (e, _) => Text("Error: $e"),
+                  data: (users) {
+                    final isValidUser =
+                        selectedUserId == null ||
+                        users.any((u) => u.id == selectedUserId);
+                    return DropdownButtonFormField<int>(
+                      initialValue: isValidUser ? selectedUserId : null,
+                      decoration: const InputDecoration(
+                        labelText: "User *",
+                        prefixIcon: Icon(Icons.person),
+                        border: OutlineInputBorder(),
+                      ),
+                      items: users
+                          .map(
+                            (u) => DropdownMenuItem(
+                              value: u.id,
+                              child: Text(u.displayName),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: onUserChanged,
+                    );
+                  },
                 ),
               ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: TextFormField(
-                controller: noteCtrl,
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: "Note",
-                  border: OutlineInputBorder(),
+              const SizedBox(width: 12),
+              // Warehouse
+              Expanded(
+                child: asyncWarehouses.when(
+                  loading: () => const LinearProgressIndicator(),
+                  error: (e, _) => Text("Error: $e"),
+                  data: (warehouses) {
+                    final isValidWH =
+                        selectedWarehouseId == null ||
+                        warehouses.any((w) => w.id == selectedWarehouseId);
+                    return DropdownButtonFormField<int>(
+                      initialValue: isValidWH ? selectedWarehouseId : null,
+                      decoration: const InputDecoration(
+                        labelText: "Warehouse *",
+                        prefixIcon: Icon(Icons.warehouse_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                      items: warehouses
+                          .map(
+                            (w) => DropdownMenuItem(
+                              value: w.id,
+                              child: Text(w.name),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: onWarehouseChanged,
+                    );
+                  },
                 ),
               ),
+            ],
+          ),
+        ]),
+        const SizedBox(height: 16),
+
+        // ── CARD 3: Financials & Notes ──
+        _buildCard('Financials & Notes', Icons.request_quote_outlined, [
+          TextFormField(
+            controller: refDocCtrl,
+            decoration: InputDecoration(
+              labelText: "Reference Document",
+              prefixIcon: const Icon(Icons.link),
+              border: const OutlineInputBorder(),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: TextFormField(
+                  initialValue: discount.toString(),
+                  decoration: InputDecoration(
+                    labelText: "Discount",
+                    prefixIcon: const Icon(Icons.percent),
+                    border: const OutlineInputBorder(),
+                  ),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  onChanged: (v) => onDiscountChanged(double.tryParse(v) ?? 0),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: DropdownButtonFormField<int>(
+                  initialValue: discountType,
+                  decoration: const InputDecoration(
+                    labelText: "Type",
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 0, child: Text("%")),
+                    DropdownMenuItem(value: 1, child: Text("Fixed")),
+                  ],
+                  onChanged: (v) => onDiscountTypeChanged(v ?? 0),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Row(
+                  children: [
+                    Checkbox(
+                      value: discountApplyRule,
+                      onChanged: (v) => onDiscountApplyRuleChanged(v ?? true),
+                    ),
+                    const Expanded(
+                      child: Text(
+                        "Apply after tax",
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: internalNoteCtrl,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: "Internal Note",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextFormField(
+                  controller: noteCtrl,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    labelText: "Note",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ]),
+        const SizedBox(height: 16),
+
         if (errorMessage != null) ...[
-          const SizedBox(height: 12),
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.errorContainer,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Theme.of(context).colorScheme.error),
+              color: theme.colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: theme.colorScheme.error),
             ),
             child: Text(
               errorMessage!,
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onErrorContainer,
-              ),
+              style: TextStyle(color: theme.colorScheme.onErrorContainer),
             ),
           ),
+          const SizedBox(height: 16),
         ],
-        const SizedBox(height: 24),
+
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
@@ -979,8 +1023,8 @@ class _HeaderForm extends ConsumerWidget {
                   isEditing ? "Save Header Changes" : "Create & Add Items",
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                  backgroundColor: theme.colorScheme.primary,
+                  foregroundColor: theme.colorScheme.onPrimary,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 24,
                     vertical: 14,
@@ -1015,13 +1059,13 @@ class _HeaderForm extends ConsumerWidget {
 }
 
 // --- ITEMS VIEW ---
+// --- ITEMS VIEW ---
 class _ItemsView extends ConsumerWidget {
   final int documentId;
   final int companyId;
   final ValueChanged<double> onItemsChanged;
 
   const _ItemsView({
-    // super.key,
     required this.documentId,
     required this.companyId,
     required this.onItemsChanged,
@@ -1044,215 +1088,435 @@ class _ItemsView extends ConsumerWidget {
 
     final asyncItems = ref.watch(documentItemsByDocIdProvider(documentId));
 
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              "Document Items",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.add, size: 16),
-              label: const Text("Add Product"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.secondary,
-                foregroundColor: Theme.of(context).colorScheme.onSecondary,
-              ),
-              onPressed: () async {
-                await showDialog(
-                  context: context,
-                  builder: (_) => _AddItemDialog(
-                    documentId: documentId,
-                    companyId: companyId,
+            // ── Section Header ──
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.inventory_2_outlined, size: 24),
+                    const SizedBox(width: 12),
+                    const Text(
+                      "Document Items",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.add, size: 16),
+                  label: const Text("Add Product"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: theme.colorScheme.secondary,
+                    foregroundColor: theme.colorScheme.onSecondary,
                   ),
+                  onPressed: () async {
+                    await showDialog(
+                      context: context,
+                      builder: (_) => _AddItemDialog(
+                        documentId: documentId,
+                        companyId: companyId,
+                      ),
+                    );
+                    ref.invalidate(documentItemsByDocIdProvider(documentId));
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Divider(thickness: 1, color: theme.dividerColor),
+            const SizedBox(height: 16),
+
+            // ── Content ──
+            asyncItems.when(
+              loading: () => const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32),
+                  child: CircularProgressIndicator(),
+                ),
+              ),
+              error: (e, _) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 32),
+                  child: Text(
+                    "Error: $e",
+                    style: TextStyle(color: theme.colorScheme.error),
+                  ),
+                ),
+              ),
+              data: (items) {
+                if (items.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 48),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.shopping_cart_outlined,
+                            size: 64,
+                            color: theme.disabledColor,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            "No items added yet.",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: theme.disabledColor,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            "Click 'Add Product' to get started.",
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: theme.disabledColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                final total = items.fold<double>(0, (s, i) => s + i.total);
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // --- RESPONSIVE FLEX GRID HEADER ---
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest
+                            .withValues(alpha: 0.5),
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(8),
+                          topRight: Radius.circular(8),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              "Product",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: theme.textTheme.bodyMedium?.color,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 1,
+                            child: Text(
+                              "Qty",
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: theme.textTheme.bodyMedium?.color,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 1,
+                            child: Text(
+                              "Price",
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: theme.textTheme.bodyMedium?.color,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 1,
+                            child: Text(
+                              "Item Disc.",
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: theme.textTheme.bodyMedium?.color,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 1,
+                            child: Text(
+                              "Subtotal",
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: theme.textTheme.bodyMedium?.color,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 1,
+                            child: Text(
+                              "Total",
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: theme.textTheme.bodyMedium?.color,
+                              ),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 80,
+                            child: Text(
+                              "Actions",
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: theme.textTheme.bodyMedium?.color,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // --- RESPONSIVE FLEX GRID ITEMS ---
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(
+                          color: theme.dividerColor.withValues(alpha: 0.3),
+                        ),
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(8),
+                          bottomRight: Radius.circular(8),
+                        ),
+                      ),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: items.length,
+                        separatorBuilder: (_, __) => Divider(
+                          height: 1,
+                          color: theme.dividerColor.withValues(alpha: 0.3),
+                        ),
+                        itemBuilder: (context, index) {
+                          final item = items[index];
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 3,
+                                  child: Text(
+                                    item.productName ?? '-',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 1,
+                                  child: Text(
+                                    item.quantity.toStringAsFixed(
+                                      item.quantity % 1 == 0 ? 0 : 2,
+                                    ),
+                                    textAlign: TextAlign.right,
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 1,
+                                  child: Text(
+                                    item.price.toStringAsFixed(2),
+                                    textAlign: TextAlign.right,
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 1,
+                                  child: Text(
+                                    "${item.discount.toStringAsFixed(0)}${item.discountType == 0 ? '%' : ''}",
+                                    textAlign: TextAlign.right,
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 1,
+                                  child: Text(
+                                    item.priceBeforeTaxAfterDiscount
+                                        .toStringAsFixed(2),
+                                    textAlign: TextAlign.right,
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 1,
+                                  child: Text(
+                                    item.total.toStringAsFixed(2),
+                                    textAlign: TextAlign.right,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: isDark
+                                          ? Colors.greenAccent
+                                          : Colors.green,
+                                    ),
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 80,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Tooltip(
+                                        message: "Edit Item",
+                                        child: InkWell(
+                                          onTap: () async {
+                                            await showDialog(
+                                              context: context,
+                                              builder: (_) => _EditItemDialog(
+                                                item: item,
+                                                companyId: companyId,
+                                              ),
+                                            );
+                                            ref.invalidate(
+                                              documentItemsByDocIdProvider(
+                                                documentId,
+                                              ),
+                                            );
+                                          },
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(4.0),
+                                            child: Icon(
+                                              Icons.edit,
+                                              color: theme.colorScheme.primary,
+                                              size: 18,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Tooltip(
+                                        message: "Delete Item",
+                                        child: InkWell(
+                                          onTap: () async {
+                                            final confirm = await showDialog<bool>(
+                                              context: context,
+                                              builder: (ctx) => AlertDialog(
+                                                title: const Text(
+                                                  "Delete Item",
+                                                ),
+                                                content: Text(
+                                                  "Delete '${item.productName}'?",
+                                                ),
+                                                actions: [
+                                                  TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.of(
+                                                          ctx,
+                                                        ).pop(false),
+                                                    child: const Text("Cancel"),
+                                                  ),
+                                                  ElevatedButton(
+                                                    style:
+                                                        ElevatedButton.styleFrom(
+                                                          backgroundColor: theme
+                                                              .colorScheme
+                                                              .error,
+                                                        ),
+                                                    onPressed: () =>
+                                                        Navigator.of(
+                                                          ctx,
+                                                        ).pop(true),
+                                                    child: Text(
+                                                      "Delete",
+                                                      style: TextStyle(
+                                                        color: theme
+                                                            .colorScheme
+                                                            .onError,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                            if (confirm == true) {
+                                              final dio = createDio();
+                                              await dio.delete(
+                                                '/DocumentItems/Delete',
+                                                queryParameters: {
+                                                  'id': item.id,
+                                                  'companyId': companyId,
+                                                },
+                                              );
+                                              ref.invalidate(
+                                                documentItemsByDocIdProvider(
+                                                  documentId,
+                                                ),
+                                              );
+                                            }
+                                          },
+                                          child: Padding(
+                                            padding: const EdgeInsets.all(4.0),
+                                            child: Icon(
+                                              Icons.delete,
+                                              color: theme.colorScheme.error,
+                                              size: 18,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+                    Divider(
+                      thickness: 1,
+                      color: theme.dividerColor.withValues(alpha: 0.3),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text(
+                          "Items Base Total:",
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: theme.textTheme.bodyMedium?.color,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          "${total.toStringAsFixed(2)} $sym",
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.greenAccent : Colors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 );
-                ref.invalidate(documentItemsByDocIdProvider(documentId));
               },
             ),
           ],
         ),
-        const SizedBox(height: 16),
-        asyncItems.when(
-          loading: () => const CircularProgressIndicator(),
-          error: (e, _) => Text(
-            "Error: $e",
-            style: TextStyle(color: theme.colorScheme.error),
-          ),
-          data: (items) {
-            if (items.isEmpty) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Text(
-                  "No items added yet.",
-                  style: TextStyle(color: theme.disabledColor),
-                ),
-              );
-            }
-
-            final total = items.fold<double>(0, (s, i) => s + i.total);
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: DataTable(
-                    headingRowColor: WidgetStateProperty.all(
-                      Theme.of(context).colorScheme.surfaceContainerHighest
-                          .withValues(alpha: 0.3),
-                    ),
-                    columns: const [
-                      DataColumn(label: Text("Product")),
-                      DataColumn(label: Text("Qty"), numeric: true),
-                      DataColumn(label: Text("Price"), numeric: true),
-                      DataColumn(label: Text("Item Disc."), numeric: true),
-                      DataColumn(label: Text("Subtotal"), numeric: true),
-                      DataColumn(label: Text("Total"), numeric: true),
-                      DataColumn(label: Text("Actions")),
-                    ],
-                    rows: items
-                        .map(
-                          (item) => DataRow(
-                            cells: [
-                              DataCell(Text(item.productName ?? '-')),
-                              DataCell(
-                                Text(
-                                  item.quantity.toStringAsFixed(
-                                    item.quantity % 1 == 0 ? 0 : 2,
-                                  ),
-                                ),
-                              ),
-                              DataCell(Text(item.price.toStringAsFixed(2))),
-                              DataCell(
-                                Text(
-                                  "${item.discount.toStringAsFixed(0)}${item.discountType == 0 ? '%' : ''}",
-                                ),
-                              ),
-                              DataCell(
-                                Text(
-                                  item.priceBeforeTaxAfterDiscount
-                                      .toStringAsFixed(2),
-                                ),
-                              ),
-                              DataCell(
-                                Text(
-                                  item.total.toStringAsFixed(2),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              DataCell(
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: Icon(
-                                        Icons.edit,
-                                        color: theme.colorScheme.primary,
-                                        size: 18,
-                                      ),
-                                      onPressed: () async {
-                                        await showDialog(
-                                          context: context,
-                                          builder: (_) => _EditItemDialog(
-                                            item: item,
-                                            companyId: companyId,
-                                          ),
-                                        );
-                                        ref.invalidate(
-                                          documentItemsByDocIdProvider(
-                                            documentId,
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                    IconButton(
-                                      icon: Icon(
-                                        Icons.delete,
-                                        color: theme.colorScheme.error,
-                                        size: 18,
-                                      ),
-                                      onPressed: () async {
-                                        final confirm = await showDialog<bool>(
-                                          context: context,
-                                          builder: (ctx) => AlertDialog(
-                                            title: const Text("Delete Item"),
-                                            content: Text(
-                                              "Delete '${item.productName}'?",
-                                            ),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () => Navigator.of(
-                                                  ctx,
-                                                ).pop(false),
-                                                child: const Text("Cancel"),
-                                              ),
-                                              ElevatedButton(
-                                                style: ElevatedButton.styleFrom(
-                                                  backgroundColor:
-                                                      theme.colorScheme.error,
-                                                ),
-                                                onPressed: () =>
-                                                    Navigator.of(ctx).pop(true),
-                                                child: Text(
-                                                  "Delete",
-                                                  style: TextStyle(
-                                                    color: theme
-                                                        .colorScheme
-                                                        .onError,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                        if (confirm == true) {
-                                          final dio = createDio();
-                                          await dio.delete(
-                                            '/DocumentItems/Delete',
-                                            queryParameters: {
-                                              'id': item.id,
-                                              'companyId': companyId,
-                                            },
-                                          );
-                                          ref.invalidate(
-                                            documentItemsByDocIdProvider(
-                                              documentId,
-                                            ),
-                                          );
-                                        }
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                        .toList(),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  color: isDark
-                      ? theme.colorScheme.surfaceContainerHighest
-                      : Colors.grey[100],
-                  alignment: Alignment.centerRight,
-                  child: Text(
-                    "Items Base Total: ${total.toStringAsFixed(2)} $sym",
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ],
+      ),
     );
   }
 }

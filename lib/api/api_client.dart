@@ -130,6 +130,7 @@ class ApiClient {
     String orderLabel,
     int warehouseId, {
     int? bookingId,
+    int? customerId,
   }) async {
     try {
       final response = await _dio.post(
@@ -141,7 +142,7 @@ class ApiClient {
           "discount": 0.0,
           "discountType": 0,
           "total": 0.0,
-          "customerId": null,
+          "customerId": customerId,
           "serviceType": serviceType,
           "serviceStatus": 1,
           "floorPlanTableId": floorPlanTableId,
@@ -222,6 +223,18 @@ class ApiClient {
       return null;
     } catch (e) {
       throw Exception('Failed to fetch active order: $e');
+    }
+  }
+
+  Future<bool> occupyFloorPlanTable(int companyId, int tableId) async {
+    try {
+      final response = await _dio.patch(
+        '/FloorPlanTables/OccupyTable',
+        queryParameters: {'companyId': companyId, 'tableId': tableId},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      throw Exception('Failed to occupy table: $e');
     }
   }
 
@@ -430,6 +443,22 @@ class ApiClient {
       return response.data as Map<String, dynamic>;
     } catch (e) {
       throw Exception('Failed to create booking: $e');
+    }
+  }
+
+  Future<bool> updateBooking(
+    int companyId,
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      final response = await _dio.patch(
+        '/Bookings/Update',
+        queryParameters: {'companyId': companyId},
+        data: data,
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      throw Exception('Failed to update booking: $e');
     }
   }
 

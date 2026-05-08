@@ -6,9 +6,13 @@ import 'package:pos_app/bookings/booking_model.dart';
 import 'package:pos_app/floor_plan/floor_plan_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table.dart';
 
-final selectedBookingDateProvider = StateProvider<DateTime>((ref) => DateTime.now());
+final selectedBookingDateProvider = StateProvider<DateTime>(
+  (ref) => DateTime.now(),
+);
 
-final allBookingsProvider = FutureProvider.autoDispose<List<Booking>>((ref) async {
+final allBookingsProvider = FutureProvider.autoDispose<List<Booking>>((
+  ref,
+) async {
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return [];
   final dio = createDio();
@@ -24,11 +28,13 @@ bool isSameDay(DateTime a, DateTime b) =>
 
 /// All floor-plan tables across every floor plan for the company.
 /// Used by the booking dialog's Room/Resource dropdown.
-final allRoomsProvider = FutureProvider.autoDispose<List<FloorPlanTable>>((ref) async {
+final allRoomsProvider = FutureProvider.autoDispose<List<FloorPlanTable>>((
+  ref,
+) async {
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return [];
 
-  final plans = await ref.watch(allFloorPlansProvider.future);
+  final plans = await ref.read(allFloorPlansProvider.future);
   if (plans.isEmpty) return [];
 
   final dio = createDio();

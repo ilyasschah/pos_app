@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/cart/payment_type_model.dart';
@@ -20,4 +21,23 @@ final allPaymentTypesProvider = FutureProvider<List<PaymentType>>((ref) async {
     rethrowApiError(e, st);
     return [];
   }
+});
+final paymentTypeVisibleColumnsProvider = StateProvider<Map<String, bool>>((
+  ref,
+) {
+  return {
+    'Name': true,
+    'Code': true,
+    'Position': true,
+    'Enabled': true,
+    'Quick Pay': true,
+    'Actions': true,
+    'Customer Req.': false,
+    'Change': false,
+    'Mark Paid': false,
+    'Cash Drawer': false,
+    'Fiscal': false,
+    'Slip': false,
+    'Shortcut': false,
+  };
 });

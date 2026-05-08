@@ -11,6 +11,9 @@ import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/menu/menu_screen.dart';
+import 'package:pos_app/printer/printer_selection_model.dart';
+import 'package:pos_app/printer/printer_selection_settings_model.dart';
+import 'package:pos_app/printer/receipt_printer_service.dart';
 
 class CheckoutDialog extends ConsumerStatefulWidget {
   const CheckoutDialog({Key? key}) : super(key: key);
@@ -50,6 +53,15 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
     // Capture before checkout clears the cart
     final wasBookingOrder = ref.read(cartProvider).bookingId != null;
     final wasTableOrder   = ref.read(cartProvider).floorPlanTableId != null;
+    final cartItems       = ref.read(cartProvider).items;
+    final orderNumber     = ref.read(cartProvider).orderNumber;
+    final subtotal        = cartNotifier.subtotal;
+    final taxTotal        = cartNotifier.taxTotal;
+    final sym             = ref.read(currencySymbolProvider);
+    final totalDiscount   = cartNotifier.discountTotal +
+        cartNotifier.manualCartDiscountAmount +
+        cartNotifier.customerDiscountAmount +
+        cartNotifier.promotionalDiscountTotal;
 
     try {
       final success = await cartNotifier.checkoutOrder(
@@ -62,6 +74,53 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
       );
 
       if (success && mounted) {
+        final paymentTypes = ref.read(allPaymentTypesProvider).asData?.value ?? [];
+        final paymentTypeName = paymentTypes
+            .where((pt) => pt.id == selectedPaymentTypeId)
+            .map((pt) => pt.name)
+            .firstOrNull;
+
+        PrinterSelectionSettingsModel? receiptSettings;
+        try {
+          final dio = createDio();
+          final selRes = await dio.get(
+            '/PosPrinterSelections/GetAll',
+            queryParameters: {'companyId': company.id},
+          );
+          final selections = (selRes.data as List)
+              .map((j) => PrinterSelectionModel.fromJson(j))
+              .toList();
+          final match = selections
+              .where((s) => s.key == 'receipt_printer' && s.isEnabled)
+              .firstOrNull;
+          if (match != null) {
+            final setRes = await dio.get(
+              '/PosPrinterSelectionSettings/GetBySelectionId/${match.id}',
+              queryParameters: {'companyId': company.id},
+            );
+            final list = setRes.data as List?;
+            if (list != null && list.isNotEmpty) {
+              receiptSettings =
+                  PrinterSelectionSettingsModel.fromJson(list.first);
+            }
+          }
+        } catch (_) {}
+
+        await ReceiptPrinterService().printCartReceipt(
+          company:        company,
+          cashier:        user,
+          orderNumber:    orderNumber ?? 'WALK-IN',
+          printTime:      DateTime.now(),
+          items:          cartItems,
+          subtotal:       subtotal,
+          totalDiscount:  totalDiscount,
+          totalTax:       taxTotal,
+          grandTotal:     grandTotal,
+          currencySymbol: sym,
+          paymentTypeName: paymentTypeName,
+          amountPaid:     grandTotal,
+          settings:       receiptSettings,
+        );
         await syncLatestOrderNumber(ref, company.id);
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(

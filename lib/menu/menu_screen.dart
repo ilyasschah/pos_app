@@ -29,6 +29,7 @@ import 'package:pos_app/product/product_comment_model.dart';
 import 'package:pos_app/product/product_comment_provider.dart';
 import 'package:pos_app/menu/open_orders_screen.dart';
 import 'package:pos_app/widgets/shared_drawer.dart';
+import 'package:pos_app/printer/receipt_printer_service.dart';
 
 final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
 final searchQueryProvider = StateProvider<String>((ref) => "");
@@ -73,10 +74,12 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     final serviceStatusEnabled =
         settings[SettingKeys.featureServiceStatusEnabled]?.toLowerCase() ==
         'true';
-    final customServiceTypes =
-        ref.read(appSettingsProvider.notifier).customServiceTypes;
-    final customServiceStatuses =
-        ref.read(appSettingsProvider.notifier).customServiceStatuses;
+    final customServiceTypes = ref
+        .read(appSettingsProvider.notifier)
+        .customServiceTypes;
+    final customServiceStatuses = ref
+        .read(appSettingsProvider.notifier)
+        .customServiceStatuses;
 
     // ✨ Task 2: Auto-select Walk-In Customer if none selected
     ref.listen(allCustomersProvider, (previous, next) {
@@ -215,8 +218,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                                             const SizedBox(width: 12),
                                           Expanded(
                                             child: ElevatedButton(
-                                              onPressed: () =>
-                                                  Navigator.pop(ctx, e.value.id),
+                                              onPressed: () => Navigator.pop(
+                                                ctx,
+                                                e.value.id,
+                                              ),
                                               style: ElevatedButton.styleFrom(
                                                 backgroundColor:
                                                     _kOrderTypePalette[e.key %
@@ -252,8 +257,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                             ),
                           );
                           if (val == null) return;
-                          final companyId =
-                              ref.read(selectedCompanyProvider)?.id;
+                          final companyId = ref
+                              .read(selectedCompanyProvider)
+                              ?.id;
                           if (val != 0) {
                             if (companyId != null) {
                               await ref
@@ -293,20 +299,22 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                           } else {
                             // Switching back to Dine-In / In-Service (type 0)
                             final cart = ref.read(cartProvider);
-                            final floorPlanOn = ref.read(
-                                    appSettingsProvider)[
-                                  SettingKeys.featureFloorPlanEnabled]
-                                ?.toLowerCase() ==
+                            final floorPlanOn =
+                                ref
+                                    .read(
+                                      appSettingsProvider,
+                                    )[SettingKeys.featureFloorPlanEnabled]
+                                    ?.toLowerCase() ==
                                 'true';
 
                             if (cart.floorPlanTableId == null && floorPlanOn) {
                               // No table assigned yet — demand one
                               final selectedSpace =
                                   await showDialog<FloorPlanTable>(
-                                context: context,
-                                builder: (_) =>
-                                    const _SelectAvailableSpaceDialog(),
-                              );
+                                    context: context,
+                                    builder: (_) =>
+                                        const _SelectAvailableSpaceDialog(),
+                                  );
                               if (selectedSpace == null) return; // cancelled
                               if (!context.mounted) return;
 
@@ -336,7 +344,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
 
                               if (!context.mounted) return;
 
-                              ref.read(cartProvider.notifier).setOrderContext(
+                              ref
+                                  .read(cartProvider.notifier)
+                                  .setOrderContext(
                                     cart.activePosOrderId!,
                                     cart.activeWarehouseId ?? 1,
                                     tableId: selectedSpace.id,
@@ -350,14 +360,18 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                               // setServiceType updates both serviceType and the
                               // orderNumber prefix atomically (e.g. TAKEAWAY #005
                               // → ORDER #005) while keeping the counter number.
-                              ref.read(cartProvider.notifier).setServiceType(val);
+                              ref
+                                  .read(cartProvider.notifier)
+                                  .setServiceType(val);
                             }
                           }
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: _kOrderTypePalette[
-                              customServiceTypes.indexWhere(
-                                      (t) => t.id == cartState.serviceType)
+                          backgroundColor:
+                              _kOrderTypePalette[customServiceTypes
+                                  .indexWhere(
+                                    (t) => t.id == cartState.serviceType,
+                                  )
                                   .clamp(0, _kOrderTypePalette.length - 1)],
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                           visualDensity: VisualDensity.compact,
@@ -380,9 +394,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                         icon: const Icon(Icons.label_outline, size: 15),
                         label: Text(
                           customServiceStatuses
-                                  .where(
-                                    (s) => s.id == cartState.serviceStatus,
-                                  )
+                                  .where((s) => s.id == cartState.serviceStatus)
                                   .map((s) => s.name)
                                   .firstOrNull ??
                               'Status #${cartState.serviceStatus}',
@@ -429,26 +441,24 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                                               child: ElevatedButton(
                                                 onPressed: () =>
                                                     Navigator.pop(ctx, s.id),
-                                                style:
-                                                    ElevatedButton.styleFrom(
-                                                      backgroundColor: s.color,
-                                                      minimumSize:
-                                                          const Size(0, 100),
-                                                      shape:
-                                                          RoundedRectangleBorder(
-                                                            borderRadius:
-                                                                BorderRadius
-                                                                    .circular(
-                                                                      12,
-                                                                    ),
-                                                          ),
-                                                      padding:
-                                                          const EdgeInsets
-                                                              .symmetric(
-                                                            vertical: 16,
-                                                            horizontal: 8,
-                                                          ),
-                                                    ),
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: s.color,
+                                                  minimumSize: const Size(
+                                                    0,
+                                                    100,
+                                                  ),
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          12,
+                                                        ),
+                                                  ),
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        vertical: 16,
+                                                        horizontal: 8,
+                                                      ),
+                                                ),
                                                 child: Text(
                                                   s.name,
                                                   textAlign: TextAlign.center,
@@ -475,10 +485,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                           });
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: customServiceStatuses
-                                  .where(
-                                    (s) => s.id == cartState.serviceStatus,
-                                  )
+                          backgroundColor:
+                              customServiceStatuses
+                                  .where((s) => s.id == cartState.serviceStatus)
                                   .map((s) => s.color)
                                   .firstOrNull ??
                               Colors.blueGrey,
@@ -528,6 +537,61 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                             builder: (_) =>
                                 _TransferDialog(cartState: cartState),
                           ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.open_in_new, color: Colors.white),
+                    tooltip: "Open Orders",
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const OpenOrdersScreen(),
+                        ),
+                      );
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.print, color: Colors.white),
+                    tooltip: "Print Cart Receipt",
+                    onPressed: cartState.items.isEmpty
+                        ? null
+                        : () async {
+                            final company = ref.read(selectedCompanyProvider);
+                            final cashier = ref.read(currentUserProvider);
+
+                            // Prevent printing if we don't have the company or user data
+                            if (company == null || cashier == null) return;
+
+                            final cartNotifier = ref.read(
+                              cartProvider.notifier,
+                            );
+                            final cartItems = ref.read(cartProvider).items;
+                            final subtotal = cartNotifier.subtotal;
+                            final taxTotal = cartNotifier.taxTotal;
+                            final grandTotal = cartNotifier.grandTotal;
+                            final sym = ref.read(currencySymbolProvider);
+
+                            // Calculate total discounts
+                            final totalDiscount =
+                                cartNotifier.discountTotal +
+                                cartNotifier.manualCartDiscountAmount +
+                                cartNotifier.customerDiscountAmount +
+                                cartNotifier.promotionalDiscountTotal;
+
+                            final printer = ReceiptPrinterService();
+                            await printer.printCartReceipt(
+                              company: company,
+                              cashier: cashier,
+                              printTime: DateTime.now(),
+                              orderNumber: cartState.orderNumber ?? "WALK-IN",
+                              items: cartItems,
+                              subtotal: subtotal,
+                              totalDiscount: totalDiscount,
+                              totalTax: taxTotal,
+                              grandTotal: grandTotal,
+                              currencySymbol: sym,
+                            );
+                          },
                   ),
                 ],
               ),
@@ -679,11 +743,13 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                   if (companyId != null) {
                     final user = ref.read(currentUserProvider);
                     try {
-                      await ref.read(cartProvider.notifier).saveAndSuspend(
-                        apiClient: ApiClient(),
-                        companyId: companyId,
-                        userId: user?.id ?? 0,
-                      );
+                      await ref
+                          .read(cartProvider.notifier)
+                          .saveAndSuspend(
+                            apiClient: ApiClient(),
+                            companyId: companyId,
+                            userId: user?.id ?? 0,
+                          );
                     } catch (e) {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -766,7 +832,6 @@ const _kOrderTypePalette = [
   Colors.teal,
   Colors.brown,
 ];
-
 
 class BrowserSection extends ConsumerStatefulWidget {
   const BrowserSection({super.key});
@@ -1418,9 +1483,11 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final wasTableOrder = ref.read(cartProvider).floorPlanTableId != null;
     final savedSettings = ref.read(appSettingsProvider);
     final bookingEnabled =
-        savedSettings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
+        savedSettings[SettingKeys.featureBookingEnabled]?.toLowerCase() ==
+        'true';
     final floorPlanEnabled =
-        savedSettings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+        savedSettings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() ==
+        'true';
 
     try {
       final result = await ref
@@ -1632,7 +1699,8 @@ class _CartSectionState extends ConsumerState<CartSection> {
         // Cart is freshly cleared — show the upcoming order number using the
         // prefix from the active custom service type.
         final types = ref.read(appSettingsProvider.notifier).customServiceTypes;
-        final prefix = types
+        final prefix =
+            types
                 .where((t) => t.id == cartState.serviceType)
                 .map((t) => t.prefix)
                 .firstOrNull ??
@@ -2170,8 +2238,14 @@ class _CartSectionState extends ConsumerState<CartSection> {
                             ),
                           );
                           final settings = ref.read(appSettingsProvider);
-                          final bookingEnabled = settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
-                          final floorPlanEnabled = settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+                          final bookingEnabled =
+                              settings[SettingKeys.featureBookingEnabled]
+                                  ?.toLowerCase() ==
+                              'true';
+                          final floorPlanEnabled =
+                              settings[SettingKeys.featureFloorPlanEnabled]
+                                  ?.toLowerCase() ==
+                              'true';
                           Widget? voidNext;
                           if (wasBookingOrder && bookingEnabled) {
                             voidNext = const BookingsScreen();
@@ -2575,7 +2649,8 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
       if (activePosOrderId != null && companyId != null) {
         final updateRequest = {
           "id": activePosOrderId,
-          "userId": _selectedStaff?.id ?? ref.read(currentUserProvider)?.id ?? 0,
+          "userId":
+              _selectedStaff?.id ?? ref.read(currentUserProvider)?.id ?? 0,
           "number": widget.cartState.orderNumber ?? "ORD-TEMP",
           "discount": widget.cartState.manualCartDiscount,
           "discountType": widget.cartState.manualCartDiscountType,
@@ -2584,7 +2659,10 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
           "serviceType": widget.cartState.serviceType,
           "serviceStatus": widget.cartState.serviceStatus,
           "floorPlanTableId": _selectedRoom?.id,
-          "warehouseId": widget.cartState.activeWarehouseId ?? ref.read(selectedWarehouseProvider)?.id ?? 1,
+          "warehouseId":
+              widget.cartState.activeWarehouseId ??
+              ref.read(selectedWarehouseProvider)?.id ??
+              1,
         };
         await ApiClient().updatePosOrder(companyId, updateRequest);
 
@@ -2602,7 +2680,9 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
         // Refresh local CartState so the Menu UI shows the new space/order name
         if (newTable != null) {
           final newOrderNumber = 'ORD- ${newTable.name}';
-          ref.read(cartProvider.notifier).setOrderContext(
+          ref
+              .read(cartProvider.notifier)
+              .setOrderContext(
                 activePosOrderId,
                 widget.cartState.activeWarehouseId ?? 1,
                 tableId: newTable.id,
@@ -2622,9 +2702,9 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Order Transferred')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Order Transferred')));
       }
 
       // Exit-point cleanup — same pattern as checkoutOrder / voidOrder /
@@ -2795,7 +2875,9 @@ class _SelectAvailableSpaceDialog extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final roomsAsync = ref.watch(allRoomsProvider);
-    final spaceLabel = ref.watch(appSettingsProvider)[SettingKeys.tablesButtonLabel] ?? 'Table';
+    final spaceLabel =
+        ref.watch(appSettingsProvider)[SettingKeys.tablesButtonLabel] ??
+        'Table';
 
     return AlertDialog(
       title: Text('Select Available $spaceLabel'),
@@ -2809,8 +2891,10 @@ class _SelectAvailableSpaceDialog extends ConsumerWidget {
           ),
           error: (e, _) => Padding(
             padding: const EdgeInsets.all(20),
-            child: Text('Error loading spaces: $e',
-                style: TextStyle(color: theme.colorScheme.error)),
+            child: Text(
+              'Error loading spaces: $e',
+              style: TextStyle(color: theme.colorScheme.error),
+            ),
           ),
           data: (rooms) {
             final free = rooms.where((t) => t.status == 0).toList();
@@ -2820,14 +2904,19 @@ class _SelectAvailableSpaceDialog extends ConsumerWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.event_busy,
-                        size: 48,
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
+                    Icon(
+                      Icons.event_busy,
+                      size: 48,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                    ),
                     const SizedBox(height: 12),
                     Text(
                       'No free ${spaceLabel.toLowerCase()}s available',
                       style: TextStyle(
-                          color: theme.colorScheme.onSurface.withValues(alpha: 0.6)),
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.6,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -2843,15 +2932,20 @@ class _SelectAvailableSpaceDialog extends ConsumerWidget {
                   final t = free[i];
                   return ListTile(
                     leading: CircleAvatar(
-                      backgroundColor:
-                          theme.colorScheme.primary.withValues(alpha: 0.15),
-                      child: Icon(Icons.table_restaurant,
-                          size: 18, color: theme.colorScheme.primary),
+                      backgroundColor: theme.colorScheme.primary.withValues(
+                        alpha: 0.15,
+                      ),
+                      child: Icon(
+                        Icons.table_restaurant,
+                        size: 18,
+                        color: theme.colorScheme.primary,
+                      ),
                     ),
-                    title: Text(t.name,
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
-                    trailing:
-                        const Icon(Icons.arrow_forward_ios, size: 14),
+                    title: Text(
+                      t.name,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 14),
                     onTap: () => Navigator.pop(ctx, t),
                   );
                 },

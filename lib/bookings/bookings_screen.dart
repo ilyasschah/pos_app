@@ -7,21 +7,26 @@ import 'package:pos_app/bookings/booking_model.dart';
 import 'package:pos_app/bookings/bookings_provider.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/floor_plan/floor_plan_screen.dart';
 import 'package:pos_app/floor_plan/floor_plan_table.dart';
 import 'package:pos_app/menu/menu_screen.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/widgets/shared_drawer.dart';
+import 'package:pos_app/document/document_editor_screen.dart';
+import 'package:pos_app/document/document_model.dart';
+import 'package:pos_app/customer/customer_model.dart';
+import 'package:pos_app/customer/customer_provider.dart';
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 const double _slotHeight = 64.0;
 const double _timeColWidth = 72.0;
 const double _staffColWidth = 180.0;
 const double _headerRowHeight = 48.0;
-const int _dayStart = 8; // 08:00
-const int _dayEnd = 22; // 22:00
-const int _totalSlots = (_dayEnd - _dayStart) * 2; // 28 half-hour slots
-const double _totalHeight = _totalSlots * _slotHeight; // 1792px
+const int _dayStart = 8;  // 08:00
+const int _dayEnd = 24;   // midnight
+const int _totalSlots = (_dayEnd - _dayStart) * 2; // 32 half-hour slots
+const double _totalHeight = _totalSlots * _slotHeight; // 2048px
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 // 1=Scheduled, 2=Arrived/Waiting, 3=In Service, 4=Completed & Paid, 5=No Show
@@ -84,6 +89,82 @@ class BookingsScreen extends ConsumerStatefulWidget {
 }
 
 class _BookingsScreenState extends ConsumerState<BookingsScreen> {
+  bool _alertsShown = false;
+  final _calendarScrollController = ScrollController();
+  bool _calendarScrolled = false;
+
+  @override
+  void dispose() {
+    _calendarScrollController.dispose();
+    super.dispose();
+  }
+
+  void _maybeShowAlerts(List<Booking> bookings) {
+    if (_alertsShown) return;
+    final now = DateTime.now();
+    final today = bookings.where((b) => isSameDay(b.startTime, now)).toList();
+
+    final arriving = today.where(
+      (b) =>
+          b.status == 1 &&
+          b.startTime.difference(now).inMinutes >= 0 &&
+          b.startTime.difference(now).inMinutes <= 15,
+    );
+
+    final overstaying = today.where(
+      (b) => b.status == 3 && now.isAfter(b.endTime),
+    );
+
+    if (arriving.isEmpty && overstaying.isEmpty) return;
+    _alertsShown = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.notifications_active, color: Colors.orange),
+              SizedBox(width: 8),
+              Text('Booking Alerts'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ...arriving.map(
+                (b) => _AlertRow(
+                  icon: Icons.schedule,
+                  color: Colors.orange,
+                  message:
+                      '${b.reservationName} is arriving soon '
+                      '(${_fmtDateTime(b.startTime)}).',
+                ),
+              ),
+              ...overstaying.map(
+                (b) => _AlertRow(
+                  icon: Icons.timer_off,
+                  color: Colors.red,
+                  message:
+                      '${b.reservationName}\'s time is up '
+                      '(ended ${_fmtDateTime(b.endTime)}).',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Got it'),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final selectedDate = ref.watch(selectedBookingDateProvider);
@@ -106,6 +187,15 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
       appBar: AppBar(
         title: const Text('Bookings'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.table_restaurant),
+            tooltip: 'Floor Plan',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
+            ),
+          ),
+          const SizedBox(width: 4),
           IconButton(
             icon: const Icon(Icons.chevron_left),
             tooltip: 'Previous day',
@@ -150,16 +240,17 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
               onPressed: isLoading
                   ? null
                   : () => _showAddDialog(
-                        context,
-                        users: usersAsync.value
-                                ?.where((u) => u.isEnabled)
-                                .toList() ??
-                            [],
-                        tables: roomsAsync.value ?? [],
-                        resourceMode: resourceMode,
-                        defaultDurationMinutes: defaultDuration,
-                        prefilledDate: selectedDate,
-                      ),
+                      context,
+                      users:
+                          usersAsync.value
+                              ?.where((u) => u.isEnabled)
+                              .toList() ??
+                          [],
+                      tables: roomsAsync.value ?? [],
+                      resourceMode: resourceMode,
+                      defaultDurationMinutes: defaultDuration,
+                      prefilledDate: selectedDate,
+                    ),
             ),
           ),
         ],
@@ -167,50 +258,69 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : hasError
-              ? Center(
-                  child: Text(
-                    'Error loading data: '
-                    '${bookingsAsync.error ?? usersAsync.error ?? roomsAsync.error}',
-                  ),
-                )
-              : Builder(
-                  builder: (context) {
-                    final allBookings = bookingsAsync.value!;
-                    final staff =
-                        usersAsync.value!.where((u) => u.isEnabled).toList();
-                    final tables = roomsAsync.value!;
-                    final dayBookings = allBookings
-                        .where((b) => isSameDay(b.startTime, selectedDate))
-                        .toList();
+          ? Center(
+              child: Text(
+                'Error loading data: '
+                '${bookingsAsync.error ?? usersAsync.error ?? roomsAsync.error}',
+              ),
+            )
+          : Builder(
+              builder: (context) {
+                final allBookings = bookingsAsync.value!;
+                _maybeShowAlerts(allBookings);
+                final staff = usersAsync.value!
+                    .where((u) => u.isEnabled)
+                    .toList();
+                final tables = roomsAsync.value!;
+                final dayBookings = allBookings
+                    .where((b) => isSameDay(b.startTime, selectedDate))
+                    .toList();
 
-                    return _CalendarView(
-                      bookings: dayBookings,
-                      staff: staff,
-                      tables: tables,
-                      resourceMode: resourceMode,
-                      timeSnappingMinutes: timeSnapping,
-                      selectedDate: selectedDate,
-                      onEmptySlotTap: (staffMember, table, time) =>
-                          _showAddDialog(
-                            context,
-                            users: staff,
-                            tables: tables,
-                            resourceMode: resourceMode,
-                            defaultDurationMinutes: defaultDuration,
-                            prefilledDate: selectedDate,
-                            prefilledStaff: staffMember,
-                            prefilledTime: time,
-                          ),
-                      onBookingTap: (booking) => _showDetailDialog(
-                        context,
-                        booking,
-                        staff,
-                        tables,
-                        resourceMode,
-                      ),
-                    );
-                  },
-                ),
+                if (!_calendarScrolled) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted || !_calendarScrollController.hasClients)
+                      return;
+                    final now = DateTime.now();
+                    final mins = (now.hour - _dayStart) * 60 + now.minute;
+                    if (mins > 0) {
+                      final offset =
+                          (mins / 30) * _slotHeight + _headerRowHeight;
+                      final max =
+                          _calendarScrollController.position.maxScrollExtent;
+                      _calendarScrollController.jumpTo(offset.clamp(0.0, max));
+                    }
+                    _calendarScrolled = true;
+                  });
+                }
+
+                return _CalendarView(
+                  bookings: dayBookings,
+                  staff: staff,
+                  tables: tables,
+                  resourceMode: resourceMode,
+                  timeSnappingMinutes: timeSnapping,
+                  selectedDate: selectedDate,
+                  scrollController: _calendarScrollController,
+                  onEmptySlotTap: (staffMember, table, time) => _showAddDialog(
+                    context,
+                    users: staff,
+                    tables: tables,
+                    resourceMode: resourceMode,
+                    defaultDurationMinutes: defaultDuration,
+                    prefilledDate: selectedDate,
+                    prefilledStaff: staffMember,
+                    prefilledTime: time,
+                  ),
+                  onBookingTap: (booking) => _showDetailDialog(
+                    context,
+                    booking,
+                    staff,
+                    tables,
+                    resourceMode,
+                  ),
+                );
+              },
+            ),
     );
   }
 
@@ -271,6 +381,7 @@ class _CalendarView extends StatelessWidget {
   final DateTime selectedDate;
   final void Function(User?, FloorPlanTable?, TimeOfDay) onEmptySlotTap;
   final void Function(Booking) onBookingTap;
+  final ScrollController? scrollController;
 
   const _CalendarView({
     required this.bookings,
@@ -281,6 +392,7 @@ class _CalendarView extends StatelessWidget {
     required this.selectedDate,
     required this.onEmptySlotTap,
     required this.onBookingTap,
+    this.scrollController,
   });
 
   double _bookingTop(Booking b) {
@@ -302,8 +414,8 @@ class _CalendarView extends StatelessWidget {
     // Table/room mode: single timeline — user picks a table inside the dialog.
     final List<String> colLabels = isStaffMode
         ? (staff.isEmpty
-            ? ['Unassigned']
-            : staff.map((u) => u.displayName).toList())
+              ? ['Unassigned']
+              : staff.map((u) => u.displayName).toList())
         : const ['Bookings'];
     final totalCols = colLabels.length;
 
@@ -312,14 +424,16 @@ class _CalendarView extends StatelessWidget {
         final availableWidth = constraints.maxWidth - _timeColWidth;
         final effectiveColWidth = isStaffMode
             ? (availableWidth / totalCols < _staffColWidth
-                ? _staffColWidth
-                : availableWidth / totalCols)
+                  ? _staffColWidth
+                  : availableWidth / totalCols)
             : availableWidth;
-        final effectiveGridWidth =
-            isStaffMode ? totalCols * effectiveColWidth : availableWidth;
+        final effectiveGridWidth = isStaffMode
+            ? totalCols * effectiveColWidth
+            : availableWidth;
 
         return SingleChildScrollView(
           scrollDirection: Axis.vertical,
+          controller: scrollController,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -340,8 +454,9 @@ class _CalendarView extends StatelessWidget {
                               _slotLabel(i),
                               style: TextStyle(
                                 fontSize: 11,
-                                color: theme.colorScheme.onSurface
-                                    .withValues(alpha: 0.5),
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.5,
+                                ),
                               ),
                             ),
                           ),
@@ -405,8 +520,9 @@ class _CalendarView extends StatelessWidget {
                                     bottom: 0,
                                     child: Container(
                                       width: 1,
-                                      color: theme.dividerColor
-                                          .withValues(alpha: 0.4),
+                                      color: theme.dividerColor.withValues(
+                                        alpha: 0.4,
+                                      ),
                                     ),
                                   ),
 
@@ -421,11 +537,10 @@ class _CalendarView extends StatelessWidget {
                                         30;
                                     final snapped =
                                         (rawMins / timeSnappingMinutes)
-                                                .round() *
-                                            timeSnappingMinutes;
-                                    final totalMins =
-                                        (_dayStart * 60 + snapped)
-                                            .clamp(0, _dayEnd * 60 - 1);
+                                            .round() *
+                                        timeSnappingMinutes;
+                                    final totalMins = (_dayStart * 60 + snapped)
+                                        .clamp(0, _dayEnd * 60 - 1);
                                     final time = TimeOfDay(
                                       hour: totalMins ~/ 60,
                                       minute: totalMins % 60,
@@ -439,8 +554,9 @@ class _CalendarView extends StatelessWidget {
                                                   effectiveColWidth)
                                               .floor()
                                               .clamp(0, totalCols - 1);
-                                      staffMember =
-                                          col < staff.length ? staff[col] : null;
+                                      staffMember = col < staff.length
+                                          ? staff[col]
+                                          : null;
                                     }
                                     onEmptySlotTap(staffMember, null, time);
                                   },
@@ -482,10 +598,12 @@ class _CalendarView extends StatelessWidget {
 
   String _tableLabel(Booking b) {
     if (b.tableIds.isEmpty) return '';
-    return b.tableIds.map((id) {
-      final t = tables.where((x) => x.id == id).firstOrNull;
-      return t?.name ?? 'T$id';
-    }).join(', ');
+    return b.tableIds
+        .map((id) {
+          final t = tables.where((x) => x.id == id).firstOrNull;
+          return t?.name ?? 'T$id';
+        })
+        .join(', ');
   }
 
   List<Widget> _buildStaffChips(double colWidth) {
@@ -499,10 +617,15 @@ class _CalendarView extends StatelessWidget {
         top: _bookingTop(booking),
         left: col * colWidth + 2,
         width: colWidth - 4,
-        height: _bookingHeight(booking).clamp(_slotHeight * 0.5, double.infinity),
+        height: _bookingHeight(
+          booking,
+        ).clamp(_slotHeight * 0.5, double.infinity),
         child: GestureDetector(
           onTap: () => onBookingTap(booking),
-          child: _BookingChip(booking: booking, tableLabel: _tableLabel(booking)),
+          child: _BookingChip(
+            booking: booking,
+            tableLabel: _tableLabel(booking),
+          ),
         ),
       );
     }).toList();
@@ -520,10 +643,12 @@ class _CalendarView extends StatelessWidget {
     final laneOf = <Booking, int>{};
     for (final b in sorted) {
       final occupied = sorted
-          .where((o) =>
-              laneOf.containsKey(o) &&
-              o.startTime.isBefore(b.endTime) &&
-              o.endTime.isAfter(b.startTime))
+          .where(
+            (o) =>
+                laneOf.containsKey(o) &&
+                o.startTime.isBefore(b.endTime) &&
+                o.endTime.isAfter(b.startTime),
+          )
           .map((o) => laneOf[o]!)
           .toSet();
       int lane = 0;
@@ -534,21 +659,30 @@ class _CalendarView extends StatelessWidget {
     return sorted.map((booking) {
       final myLane = laneOf[booking]!;
       final maxLane = laneOf.entries
-          .where((e) =>
-              e.key.startTime.isBefore(booking.endTime) &&
-              e.key.endTime.isAfter(booking.startTime))
+          .where(
+            (e) =>
+                e.key.startTime.isBefore(booking.endTime) &&
+                e.key.endTime.isAfter(booking.startTime),
+          )
           .map((e) => e.value)
           .fold(0, (m, v) => v > m ? v : m);
-      final chipWidth = totalWidth / (maxLane + 1);
+      // Proportional width, but capped at 160 px so chips look like cubes
+      // rather than full-width bars when only one booking is in a slot.
+      final chipWidth = (totalWidth / (maxLane + 1)).clamp(60.0, 160.0);
 
       return Positioned(
         top: _bookingTop(booking),
-        left: myLane * chipWidth + 2,
-        width: chipWidth - 4,
-        height: _bookingHeight(booking).clamp(_slotHeight * 0.5, double.infinity),
+        left: myLane * (chipWidth + 4) + 2,
+        width: chipWidth,
+        height: _bookingHeight(
+          booking,
+        ).clamp(_slotHeight * 0.5, double.infinity),
         child: GestureDetector(
           onTap: () => onBookingTap(booking),
-          child: _BookingChip(booking: booking, tableLabel: _tableLabel(booking)),
+          child: _BookingChip(
+            booking: booking,
+            tableLabel: _tableLabel(booking),
+          ),
         ),
       );
     }).toList();
@@ -611,68 +745,27 @@ class _BookingChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _statusColor(booking.status);
-    final timeStr =
-        '${_fmtDateTime(booking.startTime)} – ${_fmtDateTime(booking.endTime)}';
 
-    return Container(
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.6), width: 1.5),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            booking.reservationName,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withValues(alpha: 0.6), width: 1.5),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+        alignment: Alignment.centerLeft,
+        child: Text(
+          booking.reservationName,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
-          Text(
-            timeStr,
-            style: TextStyle(
-              fontSize: 10,
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.7),
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          if (booking.guestCount > 1)
-            Row(
-              children: [
-                Icon(Icons.people, size: 10,
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
-                const SizedBox(width: 2),
-                Text('${booking.guestCount}',
-                    style: TextStyle(fontSize: 10,
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
-              ],
-            ),
-          if (tableLabel.isNotEmpty)
-            Row(
-              children: [
-                Icon(Icons.table_restaurant, size: 10,
-                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)),
-                const SizedBox(width: 2),
-                Expanded(
-                  child: Text(tableLabel,
-                      style: TextStyle(fontSize: 10,
-                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
-                ),
-              ],
-            ),
-        ],
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
     );
   }
@@ -690,6 +783,7 @@ class _AddBookingDialog extends ConsumerStatefulWidget {
   final TimeOfDay? prefilledTime;
   final int defaultDurationMinutes;
   final VoidCallback onSaved;
+  final Booking? existingBooking;
 
   const _AddBookingDialog({
     required this.users,
@@ -700,6 +794,7 @@ class _AddBookingDialog extends ConsumerStatefulWidget {
     this.prefilledTime,
     required this.defaultDurationMinutes,
     required this.onSaved,
+    this.existingBooking,
   });
 
   @override
@@ -715,21 +810,65 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
   late TimeOfDay _startTime;
   late TimeOfDay _endTime;
   User? _selectedStaff;
+  int? _selectedCustomerId;
+  bool _customerDefaultSet = false;
   final Set<int> _selectedTableIds = {};
   bool _saving = false;
+
+  static Customer? _findDefaultCustomer(List<Customer> list) {
+    if (list.isEmpty) return null;
+    return list
+            .where(
+              (c) => c.code == 'C000' || c.name.toLowerCase().contains('walk'),
+            )
+            .firstOrNull ??
+        list.first;
+  }
+
+  /// Rounds the current wall-clock time UP to the next multiple of [snapMins].
+  static TimeOfDay _snapToNextSlot(int snapMins) {
+    final now = DateTime.now();
+    final total = now.hour * 60 + now.minute;
+    final snapped = ((total / snapMins).ceil()) * snapMins;
+    return TimeOfDay(hour: (snapped ~/ 60).clamp(0, 23), minute: snapped % 60);
+  }
 
   @override
   void initState() {
     super.initState();
-    _startTime = widget.prefilledTime ?? const TimeOfDay(hour: 9, minute: 0);
-    final endTotal =
-        _startTime.hour * 60 + _startTime.minute + widget.defaultDurationMinutes;
-    _endTime = TimeOfDay(
-      hour: (endTotal ~/ 60).clamp(0, 23),
-      minute: endTotal % 60,
-    );
-    _selectedStaff = widget.prefilledStaff ??
-        (widget.users.isNotEmpty ? widget.users.first : null);
+    final b = widget.existingBooking;
+    if (b != null) {
+      // Edit mode — pre-fill everything from the existing booking
+      _nameController.text = b.reservationName;
+      _guestController.text = b.guestCount.toString();
+      _noteController.text = b.note ?? '';
+      _startTime = TimeOfDay.fromDateTime(b.startTime);
+      _endTime = TimeOfDay.fromDateTime(b.endTime);
+      _selectedStaff = widget.users.where((u) => u.id == b.userId).firstOrNull;
+      _selectedTableIds.addAll(b.tableIds);
+      _selectedCustomerId = b.customerId;
+    } else {
+      // New booking mode
+      _startTime = widget.prefilledTime ?? _snapToNextSlot(15);
+      final endTotal =
+          _startTime.hour * 60 +
+          _startTime.minute +
+          widget.defaultDurationMinutes;
+      _endTime = TimeOfDay(
+        hour: (endTotal ~/ 60).clamp(0, 23),
+        minute: endTotal % 60,
+      );
+      _selectedStaff =
+          widget.prefilledStaff ??
+          (widget.users.isNotEmpty ? widget.users.first : null);
+      // Eager default: set Walk-in customer if the provider is already cached.
+      final earlyCustomers = ref.read(allCustomersProvider).value ?? [];
+      final def = _findDefaultCustomer(earlyCustomers);
+      if (def != null) {
+        _selectedCustomerId = def.id;
+        _customerDefaultSet = true;
+      }
+    }
   }
 
   @override
@@ -741,12 +880,12 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
   }
 
   DateTime _toDateTime(TimeOfDay t) => DateTime(
-        widget.date.year,
-        widget.date.month,
-        widget.date.day,
-        t.hour,
-        t.minute,
-      );
+    widget.date.year,
+    widget.date.month,
+    widget.date.day,
+    t.hour,
+    t.minute,
+  );
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
@@ -759,76 +898,107 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
       );
       return;
     }
+    final allowPast = ref
+        .read(appSettingsProvider.notifier)
+        .bookingSettings
+        .allowPastBookings;
+    if (!allowPast && _toDateTime(_startTime).isBefore(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot create a booking in the past.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     setState(() => _saving = true);
 
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
 
     try {
-      final createdMap = await ApiClient().createBooking(companyId, {
+      final payload = {
         'reservationName': _nameController.text.trim(),
         'guestCount': int.tryParse(_guestController.text) ?? 1,
         'startTime': _toDateTime(_startTime).toIso8601String(),
         'endTime': _toDateTime(_endTime).toIso8601String(),
         'userId': _selectedStaff?.id,
         'tableIds': _selectedTableIds.toList(),
+        'customerId': _selectedCustomerId,
         'note': _noteController.text.trim().isEmpty
             ? null
             : _noteController.text.trim(),
-      });
-      final created = Booking.fromJson(createdMap);
-      widget.onSaved();
-      if (!mounted) return;
+      };
 
-      final action = await showDialog<_PostSaveAction>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Booking Saved!'),
-          content: Text(
-            '${created.reservationName} has been scheduled for '
-            '${_fmtDateTime(created.startTime)}.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, _PostSaveAction.stay),
-              child: const Text('Stay on Calendar'),
-            ),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.play_arrow, color: Colors.white),
-              label: const Text(
-                'Open Order Now',
-                style: TextStyle(color: Colors.white),
-              ),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
-              onPressed: () => Navigator.pop(ctx, _PostSaveAction.open),
-            ),
-          ],
-        ),
-      );
-
-      if (!mounted) return;
-      if (action == _PostSaveAction.open) {
-        final user = ref.read(currentUserProvider);
-        if (user != null) {
-          await ref.read(cartProvider.notifier).startBookingOrder(
-                ApiClient(),
-                companyId,
-                user.id,
-                created.id,
-                created.reservationName,
-                staffUserId: created.userId,
-                floorPlanTableId: created.tableIds.firstOrNull,
-              );
-          if (!mounted) return;
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(builder: (_) => const MenuScreen()),
-            (route) => false,
-          );
-        }
-      } else {
+      if (widget.existingBooking != null) {
+        // Edit mode
+        await ApiClient().updateBooking(companyId, {
+          'bookingId': widget.existingBooking!.id,
+          ...payload,
+        });
+        widget.onSaved();
+        if (!mounted) return;
         Navigator.pop(context);
+      } else {
+        // Create mode
+        final createdMap = await ApiClient().createBooking(companyId, payload);
+        final created = Booking.fromJson(createdMap);
+        widget.onSaved();
+        if (!mounted) return;
+
+        final action = await showDialog<_PostSaveAction>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Booking Saved!'),
+            content: Text(
+              '${created.reservationName} has been scheduled for '
+              '${_fmtDateTime(created.startTime)}.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, _PostSaveAction.stay),
+                child: const Text('Stay on Calendar'),
+              ),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.play_arrow, color: Colors.white),
+                label: const Text(
+                  'Open Order Now',
+                  style: TextStyle(color: Colors.white),
+                ),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+                onPressed: () => Navigator.pop(ctx, _PostSaveAction.open),
+              ),
+            ],
+          ),
+        );
+
+        if (!mounted) return;
+        if (action == _PostSaveAction.open) {
+          final user = ref.read(currentUserProvider);
+          if (user != null) {
+            await ref
+                .read(cartProvider.notifier)
+                .startBookingOrder(
+                  ApiClient(),
+                  companyId,
+                  user.id,
+                  created.id,
+                  created.reservationName,
+                  staffUserId: created.userId,
+                  floorPlanTableId: created.tableIds.firstOrNull,
+                  customerId: created.customerId,
+                );
+            if (!mounted) return;
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (_) => const MenuScreen()),
+              (route) => false,
+            );
+          }
+        } else {
+          Navigator.pop(context);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -856,9 +1026,22 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
   Widget build(BuildContext context) {
     final isTableMode = widget.resourceMode != 'staff';
     final existingBookings = ref.watch(allBookingsProvider).value ?? [];
+    final customers = ref.watch(allCustomersProvider).value ?? [];
+
+    // Lazy default: fires once when the provider resolves after initState.
+    if (!_customerDefaultSet && customers.isNotEmpty) {
+      _customerDefaultSet = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _selectedCustomerId != null) return;
+        final def = _findDefaultCustomer(customers);
+        if (def != null) setState(() => _selectedCustomerId = def.id);
+      });
+    }
 
     return AlertDialog(
-      title: const Text('New Booking'),
+      title: Text(
+        widget.existingBooking != null ? 'Edit Booking' : 'New Booking',
+      ),
       content: SizedBox(
         width: 440,
         child: Form(
@@ -867,6 +1050,31 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                DropdownButtonFormField<int?>(
+                  key: ValueKey(_selectedCustomerId),
+                  initialValue: _selectedCustomerId,
+                  decoration: const InputDecoration(
+                    labelText: 'Customer',
+                    prefixIcon: Icon(Icons.account_circle),
+                  ),
+                  items: customers
+                      .where((c) => c.isEnabled && c.isCustomer)
+                      .map(
+                        (c) => DropdownMenuItem<int?>(
+                          value: c.id,
+                          child: Text(c.name),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (id) {
+                    setState(() => _selectedCustomerId = id);
+                    if (id != null) {
+                      final c = customers.where((c) => c.id == id).firstOrNull;
+                      if (c != null) _nameController.text = c.name;
+                    }
+                  },
+                ),
+                const SizedBox(height: 12),
                 TextFormField(
                   controller: _nameController,
                   decoration: const InputDecoration(
@@ -942,6 +1150,7 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
                     tables: widget.tables,
                     selectedIds: _selectedTableIds,
                     existingBookings: existingBookings,
+                    excludeBookingId: widget.existingBooking?.id,
                     startTime: _toDateTime(_startTime),
                     endTime: _toDateTime(_endTime),
                     onToggled: (t) => setState(() {
@@ -1001,6 +1210,7 @@ class _TableAvailabilityPicker extends StatelessWidget {
   final List<FloorPlanTable> tables;
   final Set<int> selectedIds;
   final List<Booking> existingBookings;
+  final int? excludeBookingId;
   final DateTime startTime;
   final DateTime endTime;
   final ValueChanged<FloorPlanTable> onToggled;
@@ -1009,31 +1219,37 @@ class _TableAvailabilityPicker extends StatelessWidget {
     required this.tables,
     required this.selectedIds,
     required this.existingBookings,
+    this.excludeBookingId,
     required this.startTime,
     required this.endTime,
     required this.onToggled,
   });
 
   bool _available(FloorPlanTable t) => !existingBookings.any(
-        (b) =>
-            b.tableIds.contains(t.id) &&
-            b.startTime.isBefore(endTime) &&
-            b.endTime.isAfter(startTime),
-      );
+    (b) =>
+        b.status != 4 &&
+        b.status != 5 &&
+        b.id != excludeBookingId &&
+        b.tableIds.contains(t.id) &&
+        b.startTime.isBefore(endTime) &&
+        b.endTime.isAfter(startTime),
+  );
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final available = tables.where(_available).toList();
-    final unavailable = tables.where((t) => !_available(t)).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(Icons.table_restaurant,
-                size: 16, color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
+            Icon(
+              Icons.table_restaurant,
+              size: 16,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
             const SizedBox(width: 6),
             Text('Select Tables *', style: theme.textTheme.labelLarge),
             const Spacer(),
@@ -1058,30 +1274,28 @@ class _TableAvailabilityPicker extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 8),
-        if (tables.isEmpty)
+        if (available.isEmpty)
           Text(
-            'No tables configured.',
+            tables.isEmpty
+                ? 'No tables configured.'
+                : 'No tables available for this time slot.',
             style: TextStyle(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+            ),
           )
         else
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: [
-              ...available.map((t) => _TableChip(
+            children: available
+                .map(
+                  (t) => _TableChip(
                     table: t,
-                    available: true,
                     selected: selectedIds.contains(t.id),
                     onTap: () => onToggled(t),
-                  )),
-              ...unavailable.map((t) => _TableChip(
-                    table: t,
-                    available: false,
-                    selected: false,
-                    onTap: null,
-                  )),
-            ],
+                  ),
+                )
+                .toList(),
           ),
       ],
     );
@@ -1090,13 +1304,11 @@ class _TableAvailabilityPicker extends StatelessWidget {
 
 class _TableChip extends StatelessWidget {
   final FloorPlanTable table;
-  final bool available;
   final bool selected;
   final VoidCallback? onTap;
 
   const _TableChip({
     required this.table,
-    required this.available,
     required this.selected,
     required this.onTap,
   });
@@ -1105,11 +1317,7 @@ class _TableChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final Color bg, border, fg;
-    if (!available) {
-      bg = theme.colorScheme.onSurface.withValues(alpha: 0.06);
-      border = theme.colorScheme.onSurface.withValues(alpha: 0.15);
-      fg = theme.colorScheme.onSurface.withValues(alpha: 0.35);
-    } else if (selected) {
+    if (selected) {
       bg = Colors.green.withValues(alpha: 0.15);
       border = Colors.green;
       fg = Colors.green;
@@ -1133,7 +1341,7 @@ class _TableChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              available ? Icons.check_circle_outline : Icons.block_outlined,
+              selected ? Icons.check_circle : Icons.check_circle_outline,
               size: 14,
               color: fg,
             ),
@@ -1144,7 +1352,6 @@ class _TableChip extends StatelessWidget {
                 fontSize: 13,
                 color: fg,
                 fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                decoration: available ? null : TextDecoration.lineThrough,
               ),
             ),
           ],
@@ -1214,12 +1421,38 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
     final user = ref.read(currentUserProvider);
     if (companyId == null || user == null) return;
 
+    // When multiple tables are assigned, ask which one carries the order.
+    int? chosenTableId = widget.booking.tableIds.firstOrNull;
+    if (widget.booking.tableIds.length > 1) {
+      chosenTableId = await showDialog<int>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Which table should this order be placed on?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: widget.booking.tableIds.map((id) {
+              final t = widget.tables.where((x) => x.id == id).firstOrNull;
+              return ListTile(
+                leading: const Icon(Icons.table_restaurant),
+                title: Text(t?.name ?? 'Table #$id'),
+                onTap: () => Navigator.pop(ctx, id),
+              );
+            }).toList(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, null),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+      if (chosenTableId == null || !mounted) return;
+    }
+
     setState(() => _saving = true);
     try {
-      // Mark booking as In Service
-      await ApiClient().updateBookingStatus(companyId, widget.booking.id, 3);
-
-      // Create PosOrder linked to this booking and populate the cart
+      // Creates order + links posOrderId + marks booking In Service — all in one backend transaction
       await ref
           .read(cartProvider.notifier)
           .startBookingOrder(
@@ -1229,8 +1462,17 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
             widget.booking.id,
             widget.booking.reservationName,
             staffUserId: widget.booking.userId,
-            floorPlanTableId: widget.booking.tableIds.firstOrNull,
+            floorPlanTableId: chosenTableId,
+            customerId: widget.booking.customerId,
           );
+
+      // Mark every assigned table as occupied on the floor plan
+      final client = ApiClient();
+      for (final tableId in widget.booking.tableIds) {
+        try {
+          await client.occupyFloorPlanTable(companyId, tableId);
+        } catch (_) {}
+      }
 
       widget.onUpdated();
       if (!mounted) return;
@@ -1239,6 +1481,76 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
         MaterialPageRoute(builder: (_) => const MenuScreen()),
         (route) => false,
       );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _openOrder() async {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    final warehouseId = ref.read(selectedWarehouseProvider)?.id ?? 1;
+    if (companyId == null) return;
+
+    setState(() => _saving = true);
+    try {
+      final loaded = await ref
+          .read(cartProvider.notifier)
+          .loadOrderById(
+            ApiClient(),
+            companyId,
+            widget.booking.posOrderId!,
+            warehouseId,
+          );
+      if (!mounted) return;
+      if (!loaded) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Order not found. It may have been completed or voided.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        return;
+      }
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const MenuScreen()),
+        (route) => false,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _openDocument() async {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    if (companyId == null || widget.booking.documentId == null) return;
+    setState(() => _saving = true);
+    try {
+      final dio = createDio();
+      final response = await dio.get(
+        '/Document/GetById',
+        queryParameters: {
+          'id': widget.booking.documentId,
+          'companyId': companyId,
+        },
+      );
+      if (!mounted) return;
+      final doc = Document.fromJson(response.data as Map<String, dynamic>);
+      await showDocumentEditor(context, ref, existingDocument: doc);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1376,10 +1688,14 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
             if (b.tableIds.isNotEmpty)
               _DetailRow(
                 icon: Icons.table_restaurant,
-                text: b.tableIds.map((id) {
-                  final t = widget.tables.where((x) => x.id == id).firstOrNull;
-                  return t?.name ?? 'Table #$id';
-                }).join(', '),
+                text: b.tableIds
+                    .map((id) {
+                      final t = widget.tables
+                          .where((x) => x.id == id)
+                          .firstOrNull;
+                      return t?.name ?? 'Table #$id';
+                    })
+                    .join(', '),
               ),
             if (b.status == 4) ...[
               const SizedBox(height: 16),
@@ -1448,26 +1764,109 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
             onPressed: _saving ? null : _delete,
           ),
         const Spacer(),
+        if (b.status != 4)
+          TextButton.icon(
+            icon: const Icon(Icons.edit),
+            label: const Text('Edit'),
+            onPressed: _saving
+                ? null
+                : () {
+                    final bs = ref
+                        .read(appSettingsProvider.notifier)
+                        .bookingSettings;
+                    Navigator.pop(context);
+                    showDialog(
+                      context: context,
+                      builder: (_) => _AddBookingDialog(
+                        users: widget.staff,
+                        tables: widget.tables,
+                        resourceMode: widget.resourceMode,
+                        date: widget.booking.startTime,
+                        defaultDurationMinutes: bs.defaultDurationMinutes,
+                        existingBooking: widget.booking,
+                        onSaved: widget.onUpdated,
+                      ),
+                    );
+                  },
+          ),
         TextButton(
           onPressed: () => Navigator.pop(context),
           child: const Text('Close'),
         ),
         if (b.status != 4 && b.status != 5) ...[
           const SizedBox(width: 8),
+          if (b.posOrderId != null)
+            ElevatedButton.icon(
+              icon: const Icon(Icons.receipt_long, color: Colors.white),
+              label: const Text(
+                'Open Order',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo),
+              onPressed: _saving ? null : _openOrder,
+            )
+          else
+            ElevatedButton.icon(
+              icon: const Icon(Icons.play_arrow, color: Colors.white),
+              label: const Text(
+                'Start Service',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
+              onPressed: _saving ? null : _startService,
+            ),
+        ],
+        if (b.status == 4 && b.documentId != null) ...[
+          const SizedBox(width: 8),
           ElevatedButton.icon(
-            icon: const Icon(Icons.play_arrow, color: Colors.white),
+            icon: const Icon(Icons.receipt, color: Colors.white),
             label: const Text(
-              'Start Service',
+              'Open Document',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
               ),
             ),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.teal),
-            onPressed: _saving ? null : _startService,
+            onPressed: _saving ? null : _openDocument,
           ),
         ],
       ],
+    );
+  }
+}
+
+class _AlertRow extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String message;
+
+  const _AlertRow({
+    required this.icon,
+    required this.color,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(message, style: TextStyle(fontSize: 13, color: color)),
+          ),
+        ],
+      ),
     );
   }
 }

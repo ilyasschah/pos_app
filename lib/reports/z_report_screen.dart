@@ -8,6 +8,9 @@ import 'package:pos_app/cart/payment_provider.dart';
 import 'package:pos_app/reports/z_report_model.dart';
 import 'package:pos_app/reports/z_report_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
+import 'package:pos_app/printer/printer_selection_model.dart';
+import 'package:pos_app/printer/printer_selection_settings_model.dart';
+import 'package:pos_app/printer/receipt_printer_service.dart';
 
 class EndOfDayScreen extends ConsumerStatefulWidget {
   const EndOfDayScreen({super.key});
@@ -146,8 +149,38 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
             label: const Text("Print Receipt"),
             style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.indigo, foregroundColor: Colors.white),
-            onPressed: () {
+            onPressed: () async {
+              final company = ref.read(selectedCompanyProvider);
               Navigator.of(ctx).pop();
+              PrinterSelectionSettingsModel? settings;
+              if (company != null) {
+                try {
+                  final dio = createDio();
+                  final selRes = await dio.get(
+                    '/PosPrinterSelections/GetAll',
+                    queryParameters: {'companyId': company.id},
+                  );
+                  final selections = (selRes.data as List)
+                      .map((j) => PrinterSelectionModel.fromJson(j))
+                      .toList();
+                  final matches = selections
+                      .where((s) => s.key == 'receipt_printer');
+                  if (matches.isNotEmpty) {
+                    final sel = matches.first;
+                    final setRes = await dio.get(
+                      '/PosPrinterSelectionSettings/GetBySelectionId/${sel.id}',
+                      queryParameters: {'companyId': company.id},
+                    );
+                    final list = setRes.data as List?;
+                    if (list != null && list.isNotEmpty) {
+                      settings = PrinterSelectionSettingsModel.fromJson(
+                          list.first);
+                    }
+                  }
+                } catch (_) {}
+              }
+              await ReceiptPrinterService()
+                  .printZReport(report, sym, settings: settings);
             },
           )
         ],

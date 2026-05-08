@@ -9,6 +9,7 @@ import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/api/customer_discount_models.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
+import 'package:pos_app/bookings/bookings_provider.dart';
 import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 
@@ -435,7 +436,7 @@ class CartNotifier extends Notifier<CartState> {
     }
   }
 
-  Future<void> startBookingOrder(
+  Future<int> startBookingOrder(
     ApiClient apiClient,
     int companyId,
     int userId,
@@ -443,6 +444,7 @@ class CartNotifier extends Notifier<CartState> {
     String guestName, {
     int? staffUserId,
     int? floorPlanTableId,
+    int? customerId,
   }) async {
     state = state.copyWith(isLoading: true);
     try {
@@ -450,10 +452,11 @@ class CartNotifier extends Notifier<CartState> {
         companyId,
         userId,
         0,
-        null,
+        floorPlanTableId,
         guestName,
         effectiveWarehouseId,
         bookingId: bookingId,
+        customerId: customerId,
       );
       state = CartState(
         activePosOrderId: newOrderId,
@@ -465,11 +468,7 @@ class CartNotifier extends Notifier<CartState> {
         bookingId: bookingId,
         bookingStaffId: staffUserId,
       );
-      try {
-        await apiClient.linkBookingToPosOrder(companyId, bookingId, newOrderId);
-      } catch (e) {
-        print("Failed to link booking: $e");
-      }
+      return newOrderId;
     } catch (e) {
       state = state.copyWith(isLoading: false);
       rethrow;
@@ -939,15 +938,9 @@ class CartNotifier extends Notifier<CartState> {
       );
 
       if (success) {
-        // Auto-complete any linked booking
-        if (state.bookingId != null) {
-          try {
-            await apiClient.updateBookingStatus(companyId, state.bookingId!, 4);
-          } catch (_) {
-            // Non-fatal: payment succeeded, booking status update failure is acceptable
-          }
-        }
         clearCart();
+        ref.invalidate(allBookingsProvider);
+        ref.invalidate(tablesByFloorPlanProvider);
         // Brief buffer so the DB write is visible to the subsequent GetAll read.
         await Future.delayed(const Duration(milliseconds: 300));
         await syncOrderNumber(companyId);
@@ -978,6 +971,8 @@ class CartNotifier extends Notifier<CartState> {
       );
       if (success) {
         clearCart();
+        ref.invalidate(allBookingsProvider);
+        ref.invalidate(tablesByFloorPlanProvider);
         await Future.delayed(const Duration(milliseconds: 300));
         await syncOrderNumber(companyId);
       }
