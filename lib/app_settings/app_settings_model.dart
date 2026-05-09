@@ -118,6 +118,77 @@ class SettingKeys {
 
   // Booking behaviour (JSON object — see BookingSettingsModel)
   static const bookingSettings = 'Pos.BookingSettings';
+
+  // ── Printer Hardware ─────────────────────────────────────────────────────
+  static const printerType            = 'Print.PrinterType';
+  static const printMarginTop         = 'Print.Margin.Top';
+  static const printMarginBottom      = 'Print.Margin.Bottom';
+  static const printMarginLeft        = 'Print.Margin.Left';
+  static const printMarginRight       = 'Print.Margin.Right';
+  static const cashDrawerEnabled      = 'Print.CashDrawer.Enabled';
+  static const cashDrawerCommand      = 'Print.CashDrawer.Command';
+  static const printBarcode           = 'Print.Branding.PrintBarcode';
+  static const printLogoFullWidth     = 'Print.Branding.LogoFullWidth';
+
+  // ── Receipt Toggles ──────────────────────────────────────────────────────
+  static const receiptPrintTaxTotals          = 'Receipt.PrintTaxTotals';
+  static const receiptPrintTaxName            = 'Receipt.PrintTaxName';
+  static const receiptPrintItemsCount         = 'Receipt.PrintItemsCount';
+  static const receiptPrintTotalQuantity      = 'Receipt.PrintTotalQuantity';
+  static const receiptPrintMeasurementUnit    = 'Receipt.PrintMeasurementUnit';
+  static const receiptPrintOrderNumber        = 'Receipt.PrintOrderNumber';
+  static const receiptPrintOutstandingBalance = 'Receipt.PrintOutstandingBalance';
+  static const receiptDecimalPlaces           = 'Receipt.DecimalPlaces';
+
+  // ── Receipt Customer Details ─────────────────────────────────────────────
+  static const receiptCustomerName       = 'Receipt.Customer.PrintName';
+  static const receiptCustomerTaxNumber  = 'Receipt.Customer.PrintTaxNumber';
+  static const receiptCustomerPhone      = 'Receipt.Customer.PrintPhone';
+  static const receiptCustomerCode       = 'Receipt.Customer.PrintCode';
+  static const receiptCustomerAddress    = 'Receipt.Customer.PrintAddress';
+  static const receiptCustomerEmail      = 'Receipt.Customer.PrintEmail';
+  static const receiptAddressFormat      = 'Receipt.Customer.AddressFormat';
+
+  // ── Receipt Labels (Localize Text) ───────────────────────────────────────
+  static const labelCompanyTaxNumber = 'Receipt.Label.CompanyTaxNumber';
+  static const labelReceiptNumber    = 'Receipt.Label.ReceiptNumber';
+  static const labelOrderNumber      = 'Receipt.Label.OrderNumber';
+  static const labelUser             = 'Receipt.Label.User';
+  static const labelItemsCount       = 'Receipt.Label.ItemsCount';
+  static const labelDiscount         = 'Receipt.Label.Discount';
+  static const labelSubtotal         = 'Receipt.Label.Subtotal';
+  static const labelTaxRate          = 'Receipt.Label.TaxRate';
+  static const labelTotal            = 'Receipt.Label.Total';
+  static const labelPaidAmount       = 'Receipt.Label.PaidAmount';
+  static const labelAmountDue        = 'Receipt.Label.AmountDue';
+  static const labelChange           = 'Receipt.Label.Change';
+
+  // ── Invoice / Templates ──────────────────────────────────────────────────
+  static const invoiceTitle          = 'Invoice.Title';
+  static const invoicePrintA5        = 'Invoice.PrintA5';
+  static const invoiceColumnTax      = 'Invoice.Columns.Tax';
+  static const invoiceColumnDiscount = 'Invoice.Columns.Discount';
+  static const invoiceGlobalHeader   = 'Invoice.GlobalHeader';
+  static const invoiceGlobalFooter   = 'Invoice.GlobalFooter';
+
+  // ── Printer Role Settings ────────────────────────────────────────────────
+  // Keys are dynamically prefixed: 'Receipt.<suffix>' or 'Kitchen.<suffix>'
+  static String rolePrinterName(String role)       => '$role.PrinterName';
+  static String rolePaperSize(String role)         => '$role.PaperSize';
+  static String roleCopies(String role)            => '$role.Copies';
+  static String roleMarginTop(String role)         => '$role.MarginTop';
+  static String roleMarginBottom(String role)      => '$role.MarginBottom';
+  static String roleMarginLeft(String role)        => '$role.MarginLeft';
+  static String roleMarginRight(String role)       => '$role.MarginRight';
+  static String roleHeader(String role)            => '$role.Header';
+  static String roleFooter(String role)            => '$role.Footer';
+  static String rolePrintBarcode(String role)      => '$role.PrintBarcode';
+  static String roleLogoFullWidth(String role)     => '$role.LogoFullWidth';
+  static String roleRightToLeft(String role)       => '$role.RightToLeft';
+  static String roleFontFamily(String role)        => '$role.FontFamily';
+  static String roleFontSize(String role)          => '$role.FontSize';
+  static String roleCashDrawerEnabled(String role) => '$role.CashDrawer.Enabled';
+  static String roleCashDrawerCommand(String role) => '$role.CashDrawer.Command';
 }
 
 const Map<String, String> kSettingDefaults = {
@@ -185,4 +256,93 @@ const Map<String, String> kSettingDefaults = {
       '{"id":3,"name":"Ready to Pay","colorValue":${0xFF4CAF50}}]',
   SettingKeys.bookingSettings:
       '{"resourceMode":"table","defaultDurationMinutes":90,"timeSnappingMinutes":15}',
+
+  // Printer Hardware
+  SettingKeys.printerType:            'Windows Printer',
+  SettingKeys.printMarginTop:         '5',
+  SettingKeys.printMarginBottom:      '5',
+  SettingKeys.printMarginLeft:        '5',
+  SettingKeys.printMarginRight:       '5',
+  SettingKeys.cashDrawerEnabled:      'false',
+  SettingKeys.cashDrawerCommand:      r'\x1B\x70\x00\x19\xFA',
+  SettingKeys.printBarcode:           'false',
+  SettingKeys.printLogoFullWidth:     'false',
+
+  // Receipt Toggles
+  SettingKeys.receiptPrintTaxTotals:          'true',
+  SettingKeys.receiptPrintTaxName:            'true',
+  SettingKeys.receiptPrintItemsCount:         'true',
+  SettingKeys.receiptPrintTotalQuantity:      'true',
+  SettingKeys.receiptPrintMeasurementUnit:    'false',
+  SettingKeys.receiptPrintOrderNumber:        'true',
+  SettingKeys.receiptPrintOutstandingBalance: 'false',
+  SettingKeys.receiptDecimalPlaces:           '2',
+
+  // Receipt Customer Details
+  SettingKeys.receiptCustomerName:       'true',
+  SettingKeys.receiptCustomerTaxNumber:  'false',
+  SettingKeys.receiptCustomerPhone:      'false',
+  SettingKeys.receiptCustomerCode:       'false',
+  SettingKeys.receiptCustomerAddress:    'false',
+  SettingKeys.receiptCustomerEmail:      'false',
+  SettingKeys.receiptAddressFormat:
+      '%STREET_NAME% %BUILDING_NUMBER%\n%CITY%, %POSTAL_CODE%',
+
+  // Receipt Labels
+  SettingKeys.labelCompanyTaxNumber: 'Tax Number',
+  SettingKeys.labelReceiptNumber:    'Receipt No.',
+  SettingKeys.labelOrderNumber:      'Order No.',
+  SettingKeys.labelUser:             'Cashier',
+  SettingKeys.labelItemsCount:       'Items',
+  SettingKeys.labelDiscount:         'Discount',
+  SettingKeys.labelSubtotal:         'Subtotal',
+  SettingKeys.labelTaxRate:          'Tax',
+  SettingKeys.labelTotal:            'Total',
+  SettingKeys.labelPaidAmount:       'Paid',
+  SettingKeys.labelAmountDue:        'Amount Due',
+  SettingKeys.labelChange:           'Change',
+
+  // Invoice / Templates
+  SettingKeys.invoiceTitle:          'TAX INVOICE',
+  SettingKeys.invoicePrintA5:        'false',
+  SettingKeys.invoiceColumnTax:      'true',
+  SettingKeys.invoiceColumnDiscount: 'false',
+  SettingKeys.invoiceGlobalHeader:   '',
+  SettingKeys.invoiceGlobalFooter:   '',
+
+  // Printer Role — Receipt
+  'Receipt.PrinterName':       '',
+  'Receipt.PaperSize':         '80mm',
+  'Receipt.Copies':            '1',
+  'Receipt.MarginTop':         '0',
+  'Receipt.MarginBottom':      '0',
+  'Receipt.MarginLeft':        '0',
+  'Receipt.MarginRight':       '0',
+  'Receipt.Header':            '',
+  'Receipt.Footer':            '',
+  'Receipt.PrintBarcode':      'false',
+  'Receipt.LogoFullWidth':     'false',
+  'Receipt.RightToLeft':       'false',
+  'Receipt.FontFamily':        '(None)',
+  'Receipt.FontSize':          '100',
+  'Receipt.CashDrawer.Enabled': 'false',
+  'Receipt.CashDrawer.Command': r'\x1B\x70\x00\x19\xFA',
+
+  // Printer Role — Kitchen
+  'Kitchen.PrinterName':       '',
+  'Kitchen.PaperSize':         '80mm',
+  'Kitchen.Copies':            '1',
+  'Kitchen.MarginTop':         '0',
+  'Kitchen.MarginBottom':      '0',
+  'Kitchen.MarginLeft':        '0',
+  'Kitchen.MarginRight':       '0',
+  'Kitchen.Header':            '',
+  'Kitchen.Footer':            '',
+  'Kitchen.PrintBarcode':      'false',
+  'Kitchen.LogoFullWidth':     'false',
+  'Kitchen.RightToLeft':       'false',
+  'Kitchen.FontFamily':        '(None)',
+  'Kitchen.FontSize':          '100',
+  'Kitchen.CashDrawer.Enabled': 'false',
+  'Kitchen.CashDrawer.Command': r'\x1B\x70\x00\x19\xFA',
 };

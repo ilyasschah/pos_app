@@ -13,6 +13,7 @@ import 'package:pos_app/menu/open_orders_screen.dart';
 import 'package:pos_app/product/product_groups_screen.dart';
 import 'package:pos_app/product/products_screen.dart';
 import 'package:pos_app/promotions/promotions_list_screen.dart';
+import 'package:pos_app/dashboard/dashboard_screen.dart';
 import 'package:pos_app/reports/reports_screen.dart';
 import 'package:pos_app/reports/z_report_screen.dart';
 import 'package:pos_app/settings/settings_screen.dart';
@@ -55,6 +56,16 @@ class SharedDrawer extends ConsumerWidget {
               ],
             ),
           ),
+          ListTile(
+            leading: const Icon(Icons.dashboard_rounded),
+            title: const Text('Dashboard'),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const DashboardScreen()));
+            },
+          ),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.business),
             title: const Text('My Company'),

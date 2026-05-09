@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:pos_app/cart/checkout_models.dart';
 import 'package:pos_app/api/promotion_models.dart';
 import 'package:pos_app/api/customer_discount_models.dart';
+import 'package:pos_app/company/company_model.dart';
 
 Dio createDio() {
   final dio = Dio();
@@ -636,6 +637,31 @@ class ApiClient {
       return response.statusCode == 200;
     } catch (e) {
       throw Exception('Error: $e');
+    }
+  }
+
+  // --- Company ---
+  Future<Company> getCompanyById(int id) async {
+    try {
+      final response = await _dio.get(
+        '/Company/GetById',
+        queryParameters: {'id': id},
+      );
+      return Company.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      throw Exception('Failed to fetch company: ${e.message}');
+    }
+  }
+
+  Future<bool> updateCompanyLogo(int companyId, String base64Logo) async {
+    try {
+      final response = await _dio.put(
+        '/Company/UpdateLogo',
+        data: {'id': companyId, 'logo': base64Logo},
+      );
+      return response.statusCode == 200;
+    } on DioException catch (e) {
+      throw Exception('Failed to update logo: ${e.message}');
     }
   }
 

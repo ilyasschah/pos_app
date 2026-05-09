@@ -372,7 +372,6 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     String title = "New Document";
     if (_isEditing) {
@@ -546,7 +545,6 @@ class _SelectDocumentTypeDialogState
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final asyncCategories = ref.watch(documentCategoriesProvider);
     final asyncTypes = ref.watch(allDocumentTypesProvider);
 
@@ -1591,7 +1589,6 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
   Widget build(BuildContext context) {
     final asyncProducts = ref.watch(allProductsListProvider);
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return AlertDialog(
       title: const Text("Add Product"),

@@ -9,8 +9,6 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 
-// TODO (backend): ensure /PosOrder/GetAll returns all unpaid orders for the company.
-// getAllActiveOrders already filters serviceStatus > 0, which covers open/parked orders.
 final openOrdersProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return [];

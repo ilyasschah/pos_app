@@ -165,7 +165,9 @@ class PaymentTypesScreen extends ConsumerWidget {
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: theme.dividerColor.withOpacity(0.1)),
+                side: BorderSide(
+                  color: theme.dividerColor.withValues(alpha: 0.1),
+                ),
               ),
               clipBehavior: Clip.antiAlias,
               child: Column(
@@ -177,8 +179,9 @@ class PaymentTypesScreen extends ConsumerWidget {
                       horizontal: 16,
                       vertical: 14,
                     ),
-                    color: theme.colorScheme.surfaceContainerHighest
-                        .withOpacity(0.5),
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(
+                      alpha: 0.5,
+                    ),
                     child: Row(
                       children: [
                         if (visibleColumns['Name'] == true)
@@ -335,7 +338,7 @@ class PaymentTypesScreen extends ConsumerWidget {
                       itemCount: types.length,
                       separatorBuilder: (_, __) => Divider(
                         height: 1,
-                        color: theme.dividerColor.withOpacity(0.2),
+                        color: theme.dividerColor.withValues(alpha: 0.2),
                       ),
                       itemBuilder: (context, index) {
                         final t = types[index];

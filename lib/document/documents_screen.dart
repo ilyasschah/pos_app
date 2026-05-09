@@ -68,7 +68,6 @@ class DocumentsScreen extends ConsumerStatefulWidget {
 class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
     with SingleTickerProviderStateMixin {
   TabController? _tabController;
-  List<DocumentType> _docTypes = [];
   String _searchQuery = '';
   final _searchCtrl = TextEditingController();
   int? _filterPaidStatus; // null = all
@@ -259,7 +258,6 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen>
             _tabController!.length != types.length + 1) {
           _tabController?.dispose();
           _tabController = TabController(length: types.length + 1, vsync: this);
-          _docTypes = types;
         }
 
         return Scaffold(

@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
@@ -28,7 +30,6 @@ import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/product/product_comment_model.dart';
 import 'package:pos_app/product/product_comment_provider.dart';
 import 'package:pos_app/menu/open_orders_screen.dart';
-import 'package:pos_app/widgets/shared_drawer.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
 
 final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
@@ -80,8 +81,6 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     final customServiceStatuses = ref
         .read(appSettingsProvider.notifier)
         .customServiceStatuses;
-
-    // ✨ Task 2: Auto-select Walk-In Customer if none selected
     ref.listen(allCustomersProvider, (previous, next) {
       next.whenData((all) {
         final customers = all.where((c) => c.isCustomer).toList();
@@ -110,7 +109,6 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     });
 
     return Scaffold(
-      drawer: const SharedDrawer(),
       appBar: AppBar(
         title: const Text("POS System"),
         actions: [
@@ -578,6 +576,14 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                                 cartNotifier.customerDiscountAmount +
                                 cartNotifier.promotionalDiscountTotal;
 
+                            Uint8List? logoBytes;
+                            final logoBase64 = company.logo;
+                            if (logoBase64 != null && logoBase64.isNotEmpty) {
+                              try {
+                                logoBytes = base64Decode(logoBase64);
+                              } catch (_) {}
+                            }
+
                             final printer = ReceiptPrinterService();
                             await printer.printCartReceipt(
                               company: company,
@@ -590,6 +596,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                               totalTax: taxTotal,
                               grandTotal: grandTotal,
                               currencySymbol: sym,
+                              logoBytes: logoBytes,
+                              roleSettings: ref.read(appSettingsProvider),
+                              isGuestCheck: true,
                             );
                           },
                   ),

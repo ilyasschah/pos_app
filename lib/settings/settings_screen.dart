@@ -19,7 +19,7 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/printer/printer_selection_model.dart';
 import 'package:pos_app/printer/printer_selection_settings_model.dart';
-import 'package:pos_app/printer/printer_provider.dart';
+import 'package:pos_app/settings/printer_settings_screen.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ENTRY POINT
@@ -1647,193 +1647,219 @@ class _EmailTab extends ConsumerWidget {
 }
 
 // ── Print ─────────────────────────────────────────────────────────────────────
-class _PrintTab extends ConsumerWidget {
+class _PrintTab extends StatelessWidget {
   const _PrintTab();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final company = ref.watch(selectedCompanyProvider);
-    final selectionsAsync = ref.watch(allPrinterSelectionsProvider);
-    final cs = Theme.of(context).colorScheme;
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
-    return selectionsAsync.when(
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, _) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.error_outline, size: 48, color: cs.error),
-              const SizedBox(height: 12),
-              Text(
-                '$e',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: cs.error),
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
-                onPressed: () => ref.invalidate(allPrinterSelectionsProvider),
-              ),
-            ],
-          ),
-        ),
-      ),
-      data: (selections) => SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Company context banner — helps diagnose ID mismatches
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              width: double.infinity,
+              constraints: const BoxConstraints(maxWidth: 520),
               decoration: BoxDecoration(
-                color: cs.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(8),
+                color: theme.cardColor,
+                borderRadius: BorderRadius.circular(18),
+                border: isDark
+                    ? Border.all(
+                        color: theme.dividerColor.withValues(alpha: 0.2),
+                      )
+                    : null,
+                boxShadow: isDark
+                    ? null
+                    : [
+                        BoxShadow(
+                          color: theme.shadowColor.withValues(alpha: 0.08),
+                          blurRadius: 20,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
               ),
-              child: Row(
+              child: Column(
                 children: [
-                  Icon(
-                    Icons.business_outlined,
-                    size: 16,
-                    color: cs.onSurfaceVariant,
+                  // Icon header
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(32, 36, 32, 0),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 64,
+                          height: 64,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary
+                                .withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Icon(
+                            Icons.print_outlined,
+                            size: 32,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Printer & Receipt Settings',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: theme.colorScheme.onSurface,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Configure your printer hardware, customize receipt '
+                          'layout and branding, localize text labels, and '
+                          'set up invoice templates.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: theme.hintColor,
+                            height: 1.6,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 28),
+                      ],
+                    ),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    company != null
-                        ? 'Company: ${company.name} (ID ${company.id})'
-                        : 'No company selected',
-                    style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                  // Feature bullets
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: Column(
+                      children: [
+                        _FeatureBullet(
+                          icon: Icons.settings_input_component_outlined,
+                          label: 'Hardware & Layout',
+                          subtitle:
+                              'Printer type, paper size, margins, cash drawer',
+                          theme: theme,
+                        ),
+                        _FeatureBullet(
+                          icon: Icons.receipt_long_outlined,
+                          label: 'Customize Receipt',
+                          subtitle:
+                              'Logo, branding, toggles, customer details',
+                          theme: theme,
+                        ),
+                        _FeatureBullet(
+                          icon: Icons.translate_rounded,
+                          label: 'Localize Text',
+                          subtitle: 'Override label text on printed receipts',
+                          theme: theme,
+                        ),
+                        _FeatureBullet(
+                          icon: Icons.article_outlined,
+                          label: 'Print Templates',
+                          subtitle:
+                              'Invoice title, A5, columns, header & footer',
+                          theme: theme,
+                        ),
+                      ],
+                    ),
                   ),
-                  const Spacer(),
-                  Text(
-                    '${selections.length} slot${selections.length == 1 ? '' : 's'}',
-                    style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                  const SizedBox(height: 28),
+                  Divider(
+                    height: 1,
+                    color: theme.dividerColor.withValues(alpha: 0.15),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const PrinterSettingsScreen(),
+                          ),
+                        ),
+                        icon: const Icon(Icons.tune_rounded, size: 18),
+                        label: const Text(
+                          'Open Printer & Receipt Settings',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: theme.colorScheme.primary,
+                          foregroundColor: theme.colorScheme.onPrimary,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 12),
-            if (selections.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Column(
-                  children: [
-                    Icon(
-                      Icons.print_disabled_outlined,
-                      size: 48,
-                      color: cs.onSurfaceVariant,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'No printer slots found for Company ID ${company?.id}.\nUse "+ Add Printer Slot" to create one.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: cs.onSurfaceVariant),
-                    ),
-                  ],
-                ),
-              ),
-            ...selections.map(
-              (sel) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _PrinterSlotCard(
-                  selection: sel,
-                  onChanged: () => ref.invalidate(allPrinterSelectionsProvider),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.add),
-              label: const Text('Add Printer Slot'),
-              onPressed: () => _showAddSlotDialog(context, ref),
-            ),
           ],
         ),
       ),
     );
   }
+}
 
-  void _showAddSlotDialog(BuildContext context, WidgetRef ref) {
-    final keyCtrl = TextEditingController();
-    final nameCtrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add Printer Slot'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: keyCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Slot Key',
-                hintText: 'receipt_printer, kitchen_printer, laddition_printer',
-                border: OutlineInputBorder(),
-              ),
+class _FeatureBullet extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final ThemeData theme;
+  const _FeatureBullet({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Printer Name (optional)',
-                hintText: 'e.g. EPSON TM-T88VI',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: Icon(icon, size: 18, color: theme.colorScheme.primary),
           ),
-          ElevatedButton(
-            onPressed: () async {
-              if (keyCtrl.text.trim().isEmpty) return;
-              Navigator.pop(ctx);
-              await _addSlot(
-                context,
-                ref,
-                keyCtrl.text.trim(),
-                nameCtrl.text.trim().isEmpty ? null : nameCtrl.text.trim(),
-              );
-            },
-            child: const Text('Add'),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+                Text(
+                  subtitle,
+                  style: TextStyle(fontSize: 11, color: theme.hintColor),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
-  }
-
-  Future<void> _addSlot(
-    BuildContext context,
-    WidgetRef ref,
-    String key,
-    String? printerName,
-  ) async {
-    final company = ref.read(selectedCompanyProvider);
-    if (company == null) return;
-    try {
-      final dio = createDio();
-      await dio.post(
-        '/PosPrinterSelections/Add',
-        queryParameters: {'companyId': company.id},
-        data: {'key': key, 'printerName': printerName, 'isEnabled': false},
-      );
-      ref.invalidate(allPrinterSelectionsProvider);
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to add slot: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
   }
 }
 

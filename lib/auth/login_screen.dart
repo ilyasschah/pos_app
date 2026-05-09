@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/company/company_model.dart';
@@ -23,14 +24,29 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final selectedCo = ref.read(selectedCompanyProvider);
       final defaultCoId = ref.read(defaultCompanyIdProvider);
 
       if (selectedCo == null) {
         final fallbackId = defaultCoId ?? 2;
-        ref.read(selectedCompanyProvider.notifier).state = Company(
-            id: fallbackId, name: "Default Branch", countrySubentity: "DEF");
+        try {
+          final dio = createDio();
+          final res = await dio.get(
+            '/Company/GetById',
+            queryParameters: {'id': fallbackId},
+          );
+          if (mounted) {
+            final company = Company.fromJson(res.data as Map<String, dynamic>);
+            ref.read(selectedCompanyProvider.notifier).update(company);
+          }
+        } catch (_) {
+          if (mounted) {
+            ref.read(selectedCompanyProvider.notifier).update(
+              Company(id: fallbackId, name: 'Branch #$fallbackId'),
+            );
+          }
+        }
       }
     });
   }

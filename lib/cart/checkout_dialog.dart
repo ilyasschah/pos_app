@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/api/api_client.dart';
@@ -11,8 +13,6 @@ import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/menu/menu_screen.dart';
-import 'package:pos_app/printer/printer_selection_model.dart';
-import 'package:pos_app/printer/printer_selection_settings_model.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
 
 class CheckoutDialog extends ConsumerStatefulWidget {
@@ -80,31 +80,13 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
             .map((pt) => pt.name)
             .firstOrNull;
 
-        PrinterSelectionSettingsModel? receiptSettings;
-        try {
-          final dio = createDio();
-          final selRes = await dio.get(
-            '/PosPrinterSelections/GetAll',
-            queryParameters: {'companyId': company.id},
-          );
-          final selections = (selRes.data as List)
-              .map((j) => PrinterSelectionModel.fromJson(j))
-              .toList();
-          final match = selections
-              .where((s) => s.key == 'receipt_printer' && s.isEnabled)
-              .firstOrNull;
-          if (match != null) {
-            final setRes = await dio.get(
-              '/PosPrinterSelectionSettings/GetBySelectionId/${match.id}',
-              queryParameters: {'companyId': company.id},
-            );
-            final list = setRes.data as List?;
-            if (list != null && list.isNotEmpty) {
-              receiptSettings =
-                  PrinterSelectionSettingsModel.fromJson(list.first);
-            }
-          }
-        } catch (_) {}
+        Uint8List? logoBytes;
+        final logoBase64 = company.logo;
+        if (logoBase64 != null && logoBase64.isNotEmpty) {
+          try {
+            logoBytes = base64Decode(logoBase64);
+          } catch (_) {}
+        }
 
         await ReceiptPrinterService().printCartReceipt(
           company:        company,
@@ -119,7 +101,8 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
           currencySymbol: sym,
           paymentTypeName: paymentTypeName,
           amountPaid:     grandTotal,
-          settings:       receiptSettings,
+          logoBytes:      logoBytes,
+          roleSettings:   ref.read(appSettingsProvider),
         );
         await syncLatestOrderNumber(ref, company.id);
         Navigator.pop(context);

@@ -54,12 +54,6 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
     final isEditMode = ref.watch(floorPlanProvider).isEditMode;
     final isSelected = selectedTableId == widget.table.id && isEditMode;
 
-    // ✨ Universal Status Mapping
-    Color tableColor = ServiceStatusHelper.getColor(widget.table.status);
-    if (isEditMode) {
-      tableColor = isSelected ? Colors.green.shade400 : Colors.green.shade600;
-    }
-
     return Positioned(
       left: localX,
       top: localY,

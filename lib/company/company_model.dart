@@ -2,6 +2,7 @@ class Company {
   final int id;
   final String name;
   final int? countryId;
+  final String? countryName;
   final String? address;
   final String? postalCode;
   final String? city;
@@ -16,11 +17,13 @@ class Company {
   final String? plotIdentification;
   final String? citySubdivisionName;
   final String? countrySubentity;
+  final String? logo;
 
   Company({
     required this.id,
     required this.name,
     this.countryId,
+    this.countryName,
     this.address,
     this.postalCode,
     this.city,
@@ -35,6 +38,7 @@ class Company {
     this.plotIdentification,
     this.citySubdivisionName,
     this.countrySubentity,
+    this.logo,
   });
 
   factory Company.fromJson(Map<String, dynamic> json) {
@@ -42,6 +46,7 @@ class Company {
       id: json['id'] ?? 0,
       name: json['name'] ?? '',
       countryId: json['countryId'],
+      countryName: json['countryName'],
       address: json['address'],
       postalCode: json['postalCode'],
       city: json['city'],
@@ -56,6 +61,7 @@ class Company {
       plotIdentification: json['plotIdentification'],
       citySubdivisionName: json['citySubdivisionName'],
       countrySubentity: json['countrySubentity'],
+      logo: json['logo'],
     );
   }
 
@@ -63,6 +69,7 @@ class Company {
         'id': id,
         'name': name,
         'countryId': countryId,
+        'countryName': countryName,
         'address': address,
         'postalCode': postalCode,
         'city': city,
@@ -77,5 +84,31 @@ class Company {
         'plotIdentification': plotIdentification,
         'citySubdivisionName': citySubdivisionName,
         'countrySubentity': countrySubentity,
+        'logo': logo,
       };
+
+  Company copyWith({
+    String? logo,
+    String? countryName,
+  }) => Company(
+        id: id,
+        name: name,
+        countryId: countryId,
+        countryName: countryName ?? this.countryName,
+        address: address,
+        postalCode: postalCode,
+        city: city,
+        taxNumber: taxNumber,
+        email: email,
+        phoneNumber: phoneNumber,
+        bankAccountNumber: bankAccountNumber,
+        bankDetails: bankDetails,
+        streetName: streetName,
+        additionalStreetName: additionalStreetName,
+        buildingNumber: buildingNumber,
+        plotIdentification: plotIdentification,
+        citySubdivisionName: citySubdivisionName,
+        countrySubentity: countrySubentity,
+        logo: logo ?? this.logo,
+      );
 }

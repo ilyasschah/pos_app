@@ -24,8 +24,7 @@ final stockMasterProvider =
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return [];
 
-  final apiClient = ApiClient();
-  final dio = createDio(); // For raw calls if needed, but prefer ApiClient
+  final dio = createDio();
 
   // 1. Fetch all products
   final products = await ref.watch(allProductsListProvider.future);
@@ -104,7 +103,6 @@ class _StockScreenState extends ConsumerState<StockScreen> {
   Widget build(BuildContext context) {
     final asyncMaster = ref.watch(stockMasterProvider);
     final asyncWarehouses = ref.watch(allWarehousesProvider);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     final sym = ref.watch(currencySymbolProvider);
 
     return Scaffold(
