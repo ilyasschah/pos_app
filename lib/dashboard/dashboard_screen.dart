@@ -7,14 +7,13 @@ import 'package:intl/intl.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/dashboard/dashboard_model.dart';
 import 'package:pos_app/dashboard/dashboard_provider.dart';
-import 'package:pos_app/widgets/shared_drawer.dart';
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 
-const _kTeal   = Color(0xFF00C896);
+const _kTeal = Color(0xFF00C896);
 const _kTealDim = Color(0xFF008F6B);
-const _kAmber  = Color(0xFFFFB347);
-const _kBlue   = Color(0xFF4F9EFF);
+const _kAmber = Color(0xFFFFB347);
+const _kBlue = Color(0xFF4F9EFF);
 
 const _kPieColors = [
   Color(0xFF00C896),
@@ -25,15 +24,33 @@ const _kPieColors = [
 ];
 
 const _kMonths = [
-  '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  '',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ];
 
-TextStyle _mono({double size = 13, FontWeight weight = FontWeight.w600, Color? color}) =>
+TextStyle _mono({
+  double size = 13,
+  FontWeight weight = FontWeight.w600,
+  Color? color,
+}) =>
     GoogleFonts.jetBrainsMono(fontSize: size, fontWeight: weight, color: color);
 
-TextStyle _sans({double size = 13, FontWeight weight = FontWeight.w500, Color? color}) =>
-    GoogleFonts.dmSans(fontSize: size, fontWeight: weight, color: color);
+TextStyle _sans({
+  double size = 13,
+  FontWeight weight = FontWeight.w500,
+  Color? color,
+}) => GoogleFonts.dmSans(fontSize: size, fontWeight: weight, color: color);
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 
@@ -46,7 +63,6 @@ class DashboardScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      drawer: const SharedDrawer(),
       appBar: AppBar(
         backgroundColor: cs.surface,
         foregroundColor: cs.onSurface,
@@ -55,14 +71,22 @@ class DashboardScreen extends ConsumerWidget {
         title: Row(
           children: [
             Container(
-              width: 8, height: 8,
+              width: 8,
+              height: 8,
               decoration: const BoxDecoration(
-                color: _kTeal, shape: BoxShape.circle,
+                color: _kTeal,
+                shape: BoxShape.circle,
               ),
             ),
             const SizedBox(width: 10),
-            Text('Dashboard',
-                style: _sans(size: 18, weight: FontWeight.w700, color: cs.onSurface)),
+            Text(
+              'Dashboard',
+              style: _sans(
+                size: 18,
+                weight: FontWeight.w700,
+                color: cs.onSurface,
+              ),
+            ),
           ],
         ),
         actions: [
@@ -79,7 +103,8 @@ class DashboardScreen extends ConsumerWidget {
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
           child: Divider(
-            height: 1, thickness: 0.5,
+            height: 1,
+            thickness: 0.5,
             color: cs.outlineVariant.withValues(alpha: 0.4),
           ),
         ),
@@ -109,8 +134,8 @@ class _YearlyOverviewCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final cs   = Theme.of(context).colorScheme;
-    final sym  = ref.watch(currencySymbolProvider);
+    final cs = Theme.of(context).colorScheme;
+    final sym = ref.watch(currencySymbolProvider);
     final async = ref.watch(yearlyDashboardProvider);
     final year = DateTime.now().year;
 
@@ -138,8 +163,10 @@ class _YearlyOverviewCard extends ConsumerWidget {
             child: async.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(
-                child: Text('Failed to load yearly data',
-                    style: _sans(color: cs.error)),
+                child: Text(
+                  'Failed to load yearly data',
+                  style: _sans(color: cs.error),
+                ),
               ),
               data: (data) => _YearlyContent(data: data, sym: sym, year: year),
             ),
@@ -171,14 +198,12 @@ class _YearlyContent extends StatelessWidget {
     final topMonth = sorted.isNotEmpty ? sorted.first : null;
 
     // Max Y with headroom
-    final maxY = data.monthlySales.isEmpty
-        ? 100.0
-        : sorted.first.total * 1.4;
+    final maxY = data.monthlySales.isEmpty ? 100.0 : sorted.first.total * 1.4;
 
-    final tooltipBg  = cs.inverseSurface;
-    final tooltipFg  = cs.onInverseSurface;
-    final fmt        = NumberFormat.currency(symbol: sym, decimalDigits: 2);
-    final gridColor  = cs.outlineVariant.withValues(alpha: 0.25);
+    final tooltipBg = cs.inverseSurface;
+    final tooltipFg = cs.onInverseSurface;
+    final fmt = NumberFormat.currency(symbol: sym, decimalDigits: 2);
+    final gridColor = cs.outlineVariant.withValues(alpha: 0.25);
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -214,11 +239,14 @@ class _YearlyContent extends StatelessWidget {
                       borderData: FlBorderData(show: false),
                       titlesData: FlTitlesData(
                         leftTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
                         rightTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
                         topTitles: AxisTitles(
-                            sideTitles: SideTitles(showTitles: false)),
+                          sideTitles: SideTitles(showTitles: false),
+                        ),
                         bottomTitles: AxisTitles(
                           sideTitles: SideTitles(
                             showTitles: true,
@@ -256,10 +284,7 @@ class _YearlyContent extends StatelessWidget {
                               toY: monthTotal,
                               gradient: LinearGradient(
                                 colors: isTop
-                                    ? [
-                                        _kAmber,
-                                        _kAmber.withValues(alpha: 0.6),
-                                      ]
+                                    ? [_kAmber, _kAmber.withValues(alpha: 0.6)]
                                     : [_kTeal, _kTealDim],
                                 begin: Alignment.bottomCenter,
                                 end: Alignment.topCenter,
@@ -288,10 +313,7 @@ class _YearlyContent extends StatelessWidget {
                               children: [
                                 TextSpan(
                                   text: fmt.format(rod.toY),
-                                  style: _mono(
-                                    size: 11,
-                                    color: _kTeal,
-                                  ),
+                                  style: _mono(size: 11, color: _kTeal),
                                 ),
                               ],
                             );
@@ -365,7 +387,9 @@ class _YearlyContent extends StatelessWidget {
                   const SizedBox(height: 6),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 8),
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: _kAmber.withValues(alpha: 0.10),
                       borderRadius: BorderRadius.circular(10),
@@ -418,8 +442,8 @@ class _PeriodicFilterBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final cs     = Theme.of(context).colorScheme;
-    final range  = ref.watch(dashboardDateProvider);
+    final cs = Theme.of(context).colorScheme;
+    final range = ref.watch(dashboardDateProvider);
     final dateFmt = DateFormat('dd/MM/yyyy');
 
     return Row(
@@ -428,51 +452,74 @@ class _PeriodicFilterBar extends ConsumerWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Periodic Reports',
-                style: _sans(
-                    size: 20,
-                    weight: FontWeight.w700,
-                    color: cs.onSurface)),
+            Text(
+              'Periodic Reports',
+              style: _sans(
+                size: 20,
+                weight: FontWeight.w700,
+                color: cs.onSurface,
+              ),
+            ),
             const SizedBox(height: 2),
-            Text('Select a date range to filter the cards below',
-                style: _sans(
-                    size: 12,
-                    color: cs.onSurface.withValues(alpha: 0.4))),
+            Text(
+              'Select a date range to filter the cards below',
+              style: _sans(
+                size: 12,
+                color: cs.onSurface.withValues(alpha: 0.4),
+              ),
+            ),
           ],
         ),
         const Spacer(),
         // Date range button
         OutlinedButton.icon(
-          icon: Icon(Icons.date_range_outlined,
-              size: 15, color: cs.onSurface.withValues(alpha: 0.7)),
+          icon: Icon(
+            Icons.date_range_outlined,
+            size: 15,
+            color: cs.onSurface.withValues(alpha: 0.7),
+          ),
           label: Text(
             '${dateFmt.format(range.start)}  –  ${dateFmt.format(range.end)}',
             style: _mono(
-                size: 11,
-                weight: FontWeight.w500,
-                color: cs.onSurface.withValues(alpha: 0.85)),
+              size: 11,
+              weight: FontWeight.w500,
+              color: cs.onSurface.withValues(alpha: 0.85),
+            ),
           ),
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             side: BorderSide(
-                color: cs.outlineVariant.withValues(alpha: 0.6), width: 0.5),
+              color: cs.outlineVariant.withValues(alpha: 0.6),
+              width: 0.5,
+            ),
             shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10)),
+              borderRadius: BorderRadius.circular(10),
+            ),
           ),
           onPressed: () async {
             final result = await showDateRangePicker(
               context: context,
               firstDate: DateTime(2020),
               lastDate: DateTime.now().add(const Duration(days: 365)),
-              initialDateRange:
-                  DateTimeRange(start: range.start, end: range.end),
+              initialDateRange: DateTimeRange(
+                start: range.start,
+                end: range.end,
+              ),
             );
             if (result != null) {
-              ref.read(dashboardDateProvider.notifier).update(
+              ref
+                  .read(dashboardDateProvider.notifier)
+                  .update(
                     DashboardDateRange(
                       start: result.start,
-                      end: DateTime(result.end.year, result.end.month,
-                          result.end.day, 23, 59, 59),
+                      end: DateTime(
+                        result.end.year,
+                        result.end.month,
+                        result.end.day,
+                        23,
+                        59,
+                        59,
+                      ),
                     ),
                   );
             }
@@ -492,9 +539,9 @@ class _PeriodicGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final w    = constraints.maxWidth;
+        final w = constraints.maxWidth;
         final cols = w >= 1100 ? 3 : (w >= 680 ? 2 : 1);
-        final gap  = 16.0;
+        final gap = 16.0;
         final cardW = (w - gap * (cols - 1)) / cols;
 
         Widget sized(Widget child) =>
@@ -537,7 +584,9 @@ class _DashCard extends StatelessWidget {
         color: cs.surfaceContainerHighest.withValues(alpha: 0.55),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-            color: cs.outlineVariant.withValues(alpha: 0.35), width: 0.5),
+          color: cs.outlineVariant.withValues(alpha: 0.35),
+          width: 0.5,
+        ),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -548,7 +597,8 @@ class _DashCard extends StatelessWidget {
             height: 2.5,
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                  colors: [accent, accent.withValues(alpha: 0.0)]),
+                colors: [accent, accent.withValues(alpha: 0.0)],
+              ),
             ),
           ),
           // Header
@@ -589,13 +639,16 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.bar_chart_outlined,
-              size: 36, color: cs.onSurface.withValues(alpha: 0.18)),
+          Icon(
+            Icons.bar_chart_outlined,
+            size: 36,
+            color: cs.onSurface.withValues(alpha: 0.18),
+          ),
           const SizedBox(height: 10),
-          Text(message,
-              style: _sans(
-                  size: 12,
-                  color: cs.onSurface.withValues(alpha: 0.32))),
+          Text(
+            message,
+            style: _sans(size: 12, color: cs.onSurface.withValues(alpha: 0.32)),
+          ),
         ],
       ),
     );
@@ -610,8 +663,8 @@ class _TopProductsCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(periodicDashboardProvider);
-    final sym   = ref.watch(currencySymbolProvider);
-    final cs    = Theme.of(context).colorScheme;
+    final sym = ref.watch(currencySymbolProvider);
+    final cs = Theme.of(context).colorScheme;
 
     return _DashCard(
       title: 'TOP PRODUCTS',
@@ -622,7 +675,7 @@ class _TopProductsCard extends ConsumerWidget {
         data: (data) {
           if (data.topProducts.isEmpty) return const _EmptyState();
           final maxT = data.topProducts.first.total;
-          final fmt  = NumberFormat.currency(symbol: sym, decimalDigits: 2);
+          final fmt = NumberFormat.currency(symbol: sym, decimalDigits: 2);
           return Padding(
             padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
             child: Column(
@@ -636,22 +689,29 @@ class _TopProductsCard extends ConsumerWidget {
                       Row(
                         children: [
                           Expanded(
-                            child: Text(p.productName,
-                                style: _sans(size: 12),
-                                overflow: TextOverflow.ellipsis),
+                            child: Text(
+                              p.productName,
+                              style: _sans(size: 12),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                           const SizedBox(width: 8),
-                          Text('×${p.quantity.toStringAsFixed(0)}',
-                              style: _mono(
-                                  size: 10,
-                                  color:
-                                      cs.onSurface.withValues(alpha: 0.45))),
+                          Text(
+                            '×${p.quantity.toStringAsFixed(0)}',
+                            style: _mono(
+                              size: 10,
+                              color: cs.onSurface.withValues(alpha: 0.45),
+                            ),
+                          ),
                           const SizedBox(width: 8),
-                          Text(fmt.format(p.total),
-                              style: _mono(
-                                  size: 10,
-                                  weight: FontWeight.w700,
-                                  color: _kTeal)),
+                          Text(
+                            fmt.format(p.total),
+                            style: _mono(
+                              size: 10,
+                              weight: FontWeight.w700,
+                              color: _kTeal,
+                            ),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 4),
@@ -660,10 +720,12 @@ class _TopProductsCard extends ConsumerWidget {
                         child: LinearProgressIndicator(
                           value: ratio,
                           minHeight: 3,
-                          backgroundColor:
-                              cs.outlineVariant.withValues(alpha: 0.2),
-                          valueColor:
-                              AlwaysStoppedAnimation(_kTeal.withValues(alpha: 0.75)),
+                          backgroundColor: cs.outlineVariant.withValues(
+                            alpha: 0.2,
+                          ),
+                          valueColor: AlwaysStoppedAnimation(
+                            _kTeal.withValues(alpha: 0.75),
+                          ),
                         ),
                       ),
                     ],
@@ -685,9 +747,9 @@ class _HourlySalesCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async     = ref.watch(periodicDashboardProvider);
-    final sym       = ref.watch(currencySymbolProvider);
-    final cs        = Theme.of(context).colorScheme;
+    final async = ref.watch(periodicDashboardProvider);
+    final sym = ref.watch(currencySymbolProvider);
+    final cs = Theme.of(context).colorScheme;
     final tooltipBg = cs.inverseSurface;
     final tooltipFg = cs.onInverseSurface;
 
@@ -700,22 +762,26 @@ class _HourlySalesCard extends ConsumerWidget {
         data: (data) {
           if (data.hourlySales.isEmpty) return const _EmptyState();
 
-          final spots = (List<HourlySale>.from(data.hourlySales)
-                ..sort((a, b) => a.hour.compareTo(b.hour)))
-              .map((s) => FlSpot(s.hour.toDouble(), s.total))
-              .toList();
+          final spots =
+              (List<HourlySale>.from(data.hourlySales)
+                    ..sort((a, b) => a.hour.compareTo(b.hour)))
+                  .map((s) => FlSpot(s.hour.toDouble(), s.total))
+                  .toList();
 
-          final maxY   = spots.map((s) => s.y).reduce(max) * 1.35;
-          final minX   = spots.first.x;
-          final maxX   = spots.last.x;
-          final fmt    = NumberFormat.currency(symbol: sym, decimalDigits: 2);
-          final grid   = cs.outlineVariant.withValues(alpha: 0.25);
+          final maxY = spots.map((s) => s.y).reduce(max) * 1.35;
+          final minX = spots.first.x;
+          final maxX = spots.last.x;
+          final fmt = NumberFormat.currency(symbol: sym, decimalDigits: 2);
+          final grid = cs.outlineVariant.withValues(alpha: 0.25);
 
           return Padding(
             padding: const EdgeInsets.fromLTRB(6, 8, 16, 12),
             child: LineChart(
               LineChartData(
-                minX: minX, maxX: maxX, minY: 0, maxY: maxY,
+                minX: minX,
+                maxX: maxX,
+                minY: 0,
+                maxY: maxY,
                 gridData: FlGridData(
                   show: true,
                   drawVerticalLine: false,
@@ -726,11 +792,14 @@ class _HourlySalesCard extends ConsumerWidget {
                 borderData: FlBorderData(show: false),
                 titlesData: FlTitlesData(
                   leftTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false)),
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
                   rightTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false)),
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
                   topTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false)),
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
                   bottomTitles: AxisTitles(
                     sideTitles: SideTitles(
                       showTitles: true,
@@ -740,8 +809,9 @@ class _HourlySalesCard extends ConsumerWidget {
                         child: Text(
                           '${value.toInt()}h',
                           style: _mono(
-                              size: 9,
-                              color: cs.onSurface.withValues(alpha: 0.38)),
+                            size: 9,
+                            color: cs.onSurface.withValues(alpha: 0.38),
+                          ),
                         ),
                       ),
                     ),
@@ -757,8 +827,7 @@ class _HourlySalesCard extends ConsumerWidget {
                     isStrokeCapRound: true,
                     dotData: FlDotData(
                       show: true,
-                      getDotPainter: (_, __, ___, ____) =>
-                          FlDotCirclePainter(
+                      getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
                         radius: 3,
                         color: _kBlue,
                         strokeWidth: 1.5,
@@ -784,8 +853,11 @@ class _HourlySalesCard extends ConsumerWidget {
                     getTooltipItems: (spots) => spots.map((s) {
                       return LineTooltipItem(
                         '${s.x.toInt().toString().padLeft(2, '0')}:00\n',
-                        _sans(size: 11, weight: FontWeight.w600,
-                            color: tooltipFg),
+                        _sans(
+                          size: 11,
+                          weight: FontWeight.w600,
+                          color: tooltipFg,
+                        ),
                         children: [
                           TextSpan(
                             text: fmt.format(s.y),
@@ -815,8 +887,8 @@ class _TotalSalesCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(periodicDashboardProvider);
-    final sym   = ref.watch(currencySymbolProvider);
-    final cs    = Theme.of(context).colorScheme;
+    final sym = ref.watch(currencySymbolProvider);
+    final cs = Theme.of(context).colorScheme;
 
     return _DashCard(
       title: 'TOTAL REVENUE',
@@ -851,25 +923,31 @@ class _TotalSalesCard extends ConsumerWidget {
                   const SizedBox(height: 10),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: _kTeal.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                          color: _kTeal.withValues(alpha: 0.25), width: 0.5),
+                        color: _kTeal.withValues(alpha: 0.25),
+                        width: 0.5,
+                      ),
                     ),
                     child: Text(
                       'Selected Period',
                       style: _sans(
-                          size: 11,
-                          color: cs.onSurface.withValues(alpha: 0.45)),
+                        size: 11,
+                        color: cs.onSurface.withValues(alpha: 0.45),
+                      ),
                     ),
                   ),
                   if (data.topProducts.isNotEmpty) ...[
                     const SizedBox(height: 18),
                     Divider(
-                        color: cs.outlineVariant.withValues(alpha: 0.3),
-                        thickness: 0.5),
+                      color: cs.outlineVariant.withValues(alpha: 0.3),
+                      thickness: 0.5,
+                    ),
                     const SizedBox(height: 10),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -909,10 +987,15 @@ class _MiniStat extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     return Column(
       children: [
-        Text(value, style: _mono(size: 16, weight: FontWeight.w700, color: cs.onSurface)),
+        Text(
+          value,
+          style: _mono(size: 16, weight: FontWeight.w700, color: cs.onSurface),
+        ),
         const SizedBox(height: 2),
-        Text(label,
-            style: _sans(size: 10, color: cs.onSurface.withValues(alpha: 0.4))),
+        Text(
+          label,
+          style: _sans(size: 10, color: cs.onSurface.withValues(alpha: 0.4)),
+        ),
       ],
     );
   }
@@ -933,7 +1016,7 @@ class _TopGroupsCardState extends ConsumerState<_TopGroupsCard> {
   @override
   Widget build(BuildContext context) {
     final async = ref.watch(periodicDashboardProvider);
-    final cs    = Theme.of(context).colorScheme;
+    final cs = Theme.of(context).colorScheme;
 
     return _DashCard(
       title: 'PRODUCT GROUPS',
@@ -943,8 +1026,10 @@ class _TopGroupsCardState extends ConsumerState<_TopGroupsCard> {
         error: (_, __) => const _EmptyState(message: 'Error loading data'),
         data: (data) {
           if (data.topProductGroups.isEmpty) return const _EmptyState();
-          final total =
-              data.topProductGroups.fold<double>(0, (s, g) => s + g.total);
+          final total = data.topProductGroups.fold<double>(
+            0,
+            (s, g) => s + g.total,
+          );
           final fmt = NumberFormat.compact(locale: 'en');
 
           return Padding(
@@ -956,14 +1041,12 @@ class _TopGroupsCardState extends ConsumerState<_TopGroupsCard> {
                   width: 120,
                   child: PieChart(
                     PieChartData(
-                      sections: data.topProductGroups
-                          .asMap()
-                          .entries
-                          .map((e) {
-                        final i     = e.key;
+                      sections: data.topProductGroups.asMap().entries.map((e) {
+                        final i = e.key;
                         final group = e.value;
-                        final pct =
-                            total > 0 ? (group.total / total * 100) : 0.0;
+                        final pct = total > 0
+                            ? (group.total / total * 100)
+                            : 0.0;
                         final isTouched = _touched == i;
                         return PieChartSectionData(
                           value: group.total,
@@ -985,7 +1068,7 @@ class _TopGroupsCardState extends ConsumerState<_TopGroupsCard> {
                           setState(() {
                             _touched =
                                 response?.touchedSection?.touchedSectionIndex ??
-                                    -1;
+                                -1;
                           });
                         },
                       ),
@@ -998,11 +1081,8 @@ class _TopGroupsCardState extends ConsumerState<_TopGroupsCard> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: data.topProductGroups
-                        .asMap()
-                        .entries
-                        .map((e) {
-                      final i     = e.key;
+                    children: data.topProductGroups.asMap().entries.map((e) {
+                      final i = e.key;
                       final group = e.value;
                       final color = _kPieColors[i % _kPieColors.length];
                       return Padding(
@@ -1010,27 +1090,31 @@ class _TopGroupsCardState extends ConsumerState<_TopGroupsCard> {
                         child: Row(
                           children: [
                             Container(
-                              width: 8, height: 8,
+                              width: 8,
+                              height: 8,
                               decoration: BoxDecoration(
-                                  color: color, shape: BoxShape.circle),
+                                color: color,
+                                shape: BoxShape.circle,
+                              ),
                             ),
                             const SizedBox(width: 7),
                             Expanded(
                               child: Text(
                                 group.groupName,
                                 style: _sans(
-                                    size: 11,
-                                    color: cs.onSurface
-                                        .withValues(alpha: 0.75)),
+                                  size: 11,
+                                  color: cs.onSurface.withValues(alpha: 0.75),
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
                             Text(
                               fmt.format(group.total),
                               style: _mono(
-                                  size: 10,
-                                  weight: FontWeight.w700,
-                                  color: color),
+                                size: 10,
+                                weight: FontWeight.w700,
+                                color: color,
+                              ),
                             ),
                           ],
                         ),
@@ -1055,8 +1139,8 @@ class _TopCustomersCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(periodicDashboardProvider);
-    final sym   = ref.watch(currencySymbolProvider);
-    final cs    = Theme.of(context).colorScheme;
+    final sym = ref.watch(currencySymbolProvider);
+    final cs = Theme.of(context).colorScheme;
 
     return _DashCard(
       title: 'TOP CUSTOMERS',
@@ -1070,10 +1154,12 @@ class _TopCustomersCard extends ConsumerWidget {
           return Padding(
             padding: const EdgeInsets.fromLTRB(14, 6, 14, 10),
             child: Column(
-              children: data.topCustomers.take(5).toList().asMap().entries.map((e) {
-                final rank     = e.key + 1;
+              children: data.topCustomers.take(5).toList().asMap().entries.map((
+                e,
+              ) {
+                final rank = e.key + 1;
                 final customer = e.value;
-                final isFirst  = rank == 1;
+                final isFirst = rank == 1;
                 final rankColor = isFirst
                     ? _kAmber
                     : cs.onSurface.withValues(alpha: 0.35);
@@ -1084,7 +1170,8 @@ class _TopCustomersCard extends ConsumerWidget {
                     children: [
                       // Rank badge
                       Container(
-                        width: 26, height: 26,
+                        width: 26,
+                        height: 26,
                         decoration: BoxDecoration(
                           color: isFirst
                               ? _kAmber.withValues(alpha: 0.15)
@@ -1096,11 +1183,14 @@ class _TopCustomersCard extends ConsumerWidget {
                           ),
                         ),
                         child: Center(
-                          child: Text('#$rank',
-                              style: _mono(
-                                  size: 9,
-                                  weight: FontWeight.w800,
-                                  color: rankColor)),
+                          child: Text(
+                            '#$rank',
+                            style: _mono(
+                              size: 9,
+                              weight: FontWeight.w800,
+                              color: rankColor,
+                            ),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -1116,11 +1206,12 @@ class _TopCustomersCard extends ConsumerWidget {
                       Text(
                         fmt.format(customer.total),
                         style: _mono(
-                            size: 11,
-                            weight: FontWeight.w700,
-                            color: isFirst
-                                ? _kAmber
-                                : cs.onSurface.withValues(alpha: 0.7)),
+                          size: 11,
+                          weight: FontWeight.w700,
+                          color: isFirst
+                              ? _kAmber
+                              : cs.onSurface.withValues(alpha: 0.7),
+                        ),
                       ),
                     ],
                   ),

@@ -67,20 +67,16 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
     try {
       final dio = createDio();
 
-      // Always fetch authoritative detail from GetById — the list endpoint
-      // may return a lightweight DTO without address/tax/banking fields.
       final companyResponse = await dio.get(
         '/Company/GetById',
         queryParameters: {'id': selected.id},
       );
-      final company =
-          Company.fromJson(companyResponse.data as Map<String, dynamic>);
+      final company = Company.fromJson(
+        companyResponse.data as Map<String, dynamic>,
+      );
 
-      // Sync the enriched object back into the provider so the rest of the
-      // app (e.g. receipt printer) always has complete company data.
       ref.read(selectedCompanyProvider.notifier).update(company);
 
-      // Populate form controllers with the fresh values.
       _nameCtrl.text = company.name;
       _taxNumberCtrl.text = company.taxNumber ?? '';
       _streetNameCtrl.text = company.streetName ?? '';
@@ -96,10 +92,8 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
       _bankAccountCtrl.text = company.bankAccountNumber ?? '';
       _bankDetailsCtrl.text = company.bankDetails ?? '';
 
-      // Company loaded — show the form while countries load in background.
       if (mounted) setState(() => _isLoadingCompany = false);
 
-      // Countries are secondary; a failure only empties the dropdown.
       try {
         final countryResponse = await dio.get(
           '/Country/GetAllCountries',
@@ -182,10 +176,10 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
     try {
       final base64Logo = base64Encode(bytes);
       final dio = createDio();
-      await dio.put('/Company/UpdateLogo', data: {
-        'id': company.id,
-        'logo': base64Logo,
-      });
+      await dio.put(
+        '/Company/UpdateLogo',
+        data: {'id': company.id, 'logo': base64Logo},
+      );
 
       ref.read(selectedCompanyProvider.notifier).updateLogo(base64Logo);
       ref.invalidate(allCompaniesProvider);
@@ -280,8 +274,9 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
           ),
           backgroundColor: Colors.green.shade700,
           behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
       );
       ref.invalidate(allCompaniesProvider);
@@ -299,7 +294,6 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
   Widget build(BuildContext context) {
     final company = ref.watch(selectedCompanyProvider);
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -307,290 +301,433 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
         title: Text(company?.name ?? "My Company"),
         elevation: 0,
         backgroundColor: Colors.transparent,
-        centerTitle: true,
+        centerTitle: false,
       ),
       body: _isLoadingCompany
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(
+              child: CircularProgressIndicator(
+                color: theme.colorScheme.primary,
+              ),
+            )
           : _loadError != null
-              ? _buildLoadError()
-              : company == null
-                  ? const Center(child: Text("No company selected."))
-                  : Center(
+          ? _buildLoadError()
+          : company == null
+          ? Center(
+              child: Text(
+                "No company selected.",
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+              ),
+            )
+          : Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 700),
+                constraints: const BoxConstraints(
+                  maxWidth: 1000,
+                ), // WIDENED MAX WIDTH
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 24,
+                    horizontal: 24,
+                    vertical: 32,
                   ),
-                  child: Column(
-                    children: [
-                      _buildLogoSection(company, theme, isDark),
-                      Card(
-                        elevation: isDark ? 0 : 2,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          side: isDark
-                              ? BorderSide(
-                                  color: theme.dividerColor,
-                                  width: 0.5,
-                                )
-                              : BorderSide.none,
-                        ),
-                        color: theme.cardColor,
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Form(
-                            key: _formKey,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      children: [
+                        _buildLogoSection(company, theme),
+                        const SizedBox(height: 32),
+
+                        if (_errorMessage != null)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 24),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.errorContainer,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: theme.colorScheme.error,
+                              ),
+                            ),
+                            child: Row(
                               children: [
-                                if (_errorMessage != null)
-                                  Container(
-                                    margin: const EdgeInsets.only(bottom: 24),
-                                    padding: const EdgeInsets.all(16),
-                                    decoration: BoxDecoration(
-                                      color: theme.colorScheme.errorContainer,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: theme.colorScheme.error,
-                                      ),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Icon(
-                                          Icons.error_outline,
-                                          color: theme.colorScheme.error,
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Text(
-                                            _errorMessage!,
-                                            style: TextStyle(
-                                              color: theme.colorScheme.error,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-
-                                _sectionHeader(context, "General Info"),
-                                _buildRow([
-                                  _field(
-                                    context,
-                                    _nameCtrl,
-                                    "Company Name",
-                                    icon: Icons.business,
-                                    validator: (v) =>
-                                        v == null || v.trim().isEmpty
-                                        ? "Required"
-                                        : null,
-                                  ),
-                                  _field(
-                                    context,
-                                    _taxNumberCtrl,
-                                    "Tax Number",
-                                    icon: Icons.receipt_long,
-                                  ),
-                                ]),
-                                _buildRow([
-                                  _field(
-                                    context,
-                                    _emailCtrl,
-                                    "Email Address",
-                                    icon: Icons.email,
-                                  ),
-                                  _field(
-                                    context,
-                                    _phoneCtrl,
-                                    "Phone Number",
-                                    icon: Icons.phone,
-                                  ),
-                                ]),
-
-                                const SizedBox(height: 32),
-                                _sectionHeader(context, "Location & Address"),
-                                _buildRow([
-                                  _field(
-                                    context,
-                                    _streetNameCtrl,
-                                    "Street",
-                                    icon: Icons.location_on,
-                                  ),
-                                  _field(
-                                    context,
-                                    _buildingNumberCtrl,
-                                    "No.",
-                                    icon: Icons.numbers,
-                                  ),
-                                ]),
-                                _buildRow([
-                                  _field(
-                                    context,
-                                    _additionalStreetCtrl,
-                                    "Additional Street",
-                                    icon: Icons.add_location,
-                                  ),
-                                  _field(
-                                    context,
-                                    _plotIdCtrl,
-                                    "Plot ID",
-                                    icon: Icons.map,
-                                  ),
-                                ]),
-                                _buildRow([
-                                  _field(
-                                    context,
-                                    _citySubdivisionCtrl,
-                                    "District",
-                                    icon: Icons.location_city,
-                                  ),
-                                  _field(
-                                    context,
-                                    _postalCodeCtrl,
-                                    "Postal Code",
-                                    icon: Icons.local_post_office,
-                                  ),
-                                ]),
-                                _buildRow([
-                                  _field(
-                                    context,
-                                    _cityCtrl,
-                                    "City",
-                                    icon: Icons.location_city,
-                                  ),
-                                  _field(
-                                    context,
-                                    _countrySubentityCtrl,
-                                    "State / Province",
-                                    icon: Icons.map,
-                                  ),
-                                ]),
-
-                                // Country Dropdown
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 20),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        "Country *",
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                          color: theme.colorScheme.primary,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      _countriesLoading
-                                          ? const LinearProgressIndicator()
-                                          : DropdownButtonFormField<int>(
-                                              initialValue: _selectedCountryId,
-                                              dropdownColor: theme.cardColor,
-                                              decoration: InputDecoration(
-                                                filled: true,
-                                                fillColor:
-                                                    theme.colorScheme.surface,
-                                                prefixIcon: Icon(
-                                                  Icons.public,
-                                                  color:
-                                                      theme.colorScheme.primary,
-                                                ),
-                                                border: OutlineInputBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                  borderSide: BorderSide.none,
-                                                ),
-                                                contentPadding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 16,
-                                                      vertical: 14,
-                                                    ),
-                                              ),
-                                              items: _countries
-                                                  .map(
-                                                    (c) => DropdownMenuItem(
-                                                      value: c.id,
-                                                      child: Text(c.name),
-                                                    ),
-                                                  )
-                                                  .toList(),
-                                              onChanged: (v) => setState(
-                                                () => _selectedCountryId = v,
-                                              ),
-                                              validator: (v) => v == null
-                                                  ? "Country is required"
-                                                  : null,
-                                            ),
-                                    ],
-                                  ),
+                                Icon(
+                                  Icons.error_outline,
+                                  color: theme.colorScheme.error,
                                 ),
-
-                                const SizedBox(height: 32),
-                                _sectionHeader(context, "Financial Info"),
-                                _buildRow([
-                                  _field(
-                                    context,
-                                    _bankAccountCtrl,
-                                    "Bank Account Number",
-                                    icon: Icons.account_balance,
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    _errorMessage!,
+                                    style: TextStyle(
+                                      color: theme.colorScheme.onErrorContainer,
+                                    ),
                                   ),
-                                ]),
-                                _field(
-                                  context,
-                                  _bankDetailsCtrl,
-                                  "Bank Details",
-                                  icon: Icons.description,
-                                  maxLines: 3,
                                 ),
                               ],
                             ),
                           ),
+
+                        // --- MODULAR CARDS FOR WIDER LAYOUT ---
+                        _buildSectionCard(
+                          context: context,
+                          title: "General Info",
+                          icon: Icons.business,
+                          children: [
+                            _buildRow([
+                              _field(
+                                context,
+                                _nameCtrl,
+                                "Company Name",
+                                icon: Icons.storefront,
+                                validator: (v) => v == null || v.trim().isEmpty
+                                    ? "Required"
+                                    : null,
+                              ),
+                              _field(
+                                context,
+                                _taxNumberCtrl,
+                                "Tax Number",
+                                icon: Icons.receipt_long,
+                              ),
+                            ]),
+                            _buildRow([
+                              _field(
+                                context,
+                                _emailCtrl,
+                                "Email Address",
+                                icon: Icons.email_outlined,
+                              ),
+                              _field(
+                                context,
+                                _phoneCtrl,
+                                "Phone Number",
+                                icon: Icons.phone_outlined,
+                              ),
+                            ]),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 32),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 56,
-                        child: ElevatedButton.icon(
-                          onPressed: _isSaving ? null : _save,
-                          icon: _isSaving
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : const Icon(Icons.check_circle_outline),
-                          label: Text(
-                            _isSaving ? "SAVING..." : "SAVE COMPANY CHANGES",
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                        const SizedBox(height: 24),
+
+                        _buildSectionCard(
+                          context: context,
+                          title: "Location & Address",
+                          icon: Icons.location_on_outlined,
+                          children: [
+                            _buildRow([
+                              _field(
+                                context,
+                                _streetNameCtrl,
+                                "Street Name",
+                                icon: Icons.add_road,
+                              ),
+                              _field(
+                                context,
+                                _buildingNumberCtrl,
+                                "Building No.",
+                                icon: Icons.numbers,
+                              ),
+                              _field(
+                                context,
+                                _additionalStreetCtrl,
+                                "Additional Street",
+                                icon: Icons.edit_road,
+                              ),
+                            ]),
+                            _buildRow([
+                              _field(
+                                context,
+                                _plotIdCtrl,
+                                "Plot ID",
+                                icon: Icons.map_outlined,
+                              ),
+                              _field(
+                                context,
+                                _citySubdivisionCtrl,
+                                "District / Subdivision",
+                                icon: Icons.holiday_village_outlined,
+                              ),
+                              _field(
+                                context,
+                                _postalCodeCtrl,
+                                "Postal Code",
+                                icon: Icons.local_post_office_outlined,
+                              ),
+                            ]),
+                            _buildRow([
+                              _field(
+                                context,
+                                _cityCtrl,
+                                "City",
+                                icon: Icons.location_city_outlined,
+                              ),
+                              _field(
+                                context,
+                                _countrySubentityCtrl,
+                                "State / Province",
+                                icon: Icons.public_outlined,
+                              ),
+                              _buildCountryDropdown(theme),
+                            ]),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+
+                        _buildSectionCard(
+                          context: context,
+                          title: "Financial Info",
+                          icon: Icons.account_balance_outlined,
+                          children: [
+                            _buildRow([
+                              _field(
+                                context,
+                                _bankAccountCtrl,
+                                "Bank Account Number",
+                                icon: Icons.account_balance_wallet_outlined,
+                              ),
+                            ]),
+                            _buildRow([
+                              _field(
+                                context,
+                                _bankDetailsCtrl,
+                                "Bank Details (IBAN, SWIFT, etc.)",
+                                icon: Icons.description_outlined,
+                                maxLines: 3,
+                              ),
+                            ]),
+                          ],
+                        ),
+
+                        const SizedBox(height: 40),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 56,
+                          child: ElevatedButton.icon(
+                            onPressed: _isSaving ? null : _save,
+                            icon: _isSaving
+                                ? SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: theme.colorScheme.onPrimary,
+                                    ),
+                                  )
+                                : const Icon(Icons.check_circle_outline),
+                            label: Text(
+                              _isSaving ? "SAVING..." : "SAVE COMPANY CHANGES",
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: theme.colorScheme.primary,
+                              foregroundColor: theme.colorScheme.onPrimary,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: 0,
                             ),
                           ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: theme.colorScheme.primary,
-                            foregroundColor: theme.colorScheme.onPrimary,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            elevation: 0,
-                          ),
                         ),
-                      ),
-                      const SizedBox(height: 40),
-                    ],
+                        const SizedBox(height: 40),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
     );
   }
+
+  // ── Modular UI Builders ──────────────────────────────────────────────────
+
+  Widget _buildSectionCard({
+    required BuildContext context,
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
+    final theme = Theme.of(context);
+    return Card(
+      elevation: 0,
+      color: theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: theme.colorScheme.outlineVariant, width: 1),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(icon, color: theme.colorScheme.primary, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRow(List<Widget> children) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children.asMap().entries.map((entry) {
+          final int idx = entry.key;
+          final Widget w = entry.value;
+          return Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(
+                right: idx == children.length - 1 ? 0 : 16.0,
+              ),
+              child: w,
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _fieldWrapper(
+    BuildContext context,
+    String label,
+    Widget child, {
+    bool isRequired = false,
+  }) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          isRequired ? "$label *" : label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 8),
+        child,
+      ],
+    );
+  }
+
+  InputDecoration _inputDecoration(
+    ThemeData theme, {
+    IconData? icon,
+    String? hintText,
+  }) {
+    return InputDecoration(
+      filled: true,
+      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(
+        alpha: 0.3,
+      ),
+      prefixIcon: icon != null
+          ? Icon(icon, color: theme.colorScheme.primary, size: 20)
+          : null,
+      hintText: hintText,
+      hintStyle: TextStyle(
+        color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+      ),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+        ),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: theme.colorScheme.primary, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    );
+  }
+
+  Widget _field(
+    BuildContext context,
+    TextEditingController ctrl,
+    String label, {
+    IconData? icon,
+    int maxLines = 1,
+    String? Function(String?)? validator,
+  }) {
+    final theme = Theme.of(context);
+    return _fieldWrapper(
+      context,
+      label,
+      TextFormField(
+        controller: ctrl,
+        maxLines: maxLines,
+        style: TextStyle(fontSize: 15, color: theme.colorScheme.onSurface),
+        decoration: _inputDecoration(
+          theme,
+          icon: icon,
+          hintText: "Enter $label",
+        ),
+        validator: validator,
+      ),
+      isRequired: validator != null,
+    );
+  }
+
+  Widget _buildCountryDropdown(ThemeData theme) {
+    return _fieldWrapper(
+      context,
+      "Country",
+      _countriesLoading
+          ? const SizedBox(
+              height: 54,
+              child: Center(child: LinearProgressIndicator()),
+            )
+          : DropdownButtonFormField<int>(
+              initialValue: _selectedCountryId,
+              dropdownColor: theme.colorScheme.surfaceContainerHighest,
+              decoration: _inputDecoration(theme, icon: Icons.public),
+              items: _countries
+                  .map(
+                    (c) => DropdownMenuItem(
+                      value: c.id,
+                      child: Text(
+                        c.name,
+                        style: TextStyle(color: theme.colorScheme.onSurface),
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (v) => setState(() => _selectedCountryId = v),
+              validator: (v) => v == null ? "Required" : null,
+            ),
+      isRequired: true,
+    );
+  }
+
+  // ── Extracted Loading & Logo Widgets ─────────────────────────────────────
 
   Widget _buildLoadError() {
     final theme = Theme.of(context);
@@ -630,13 +767,11 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
     );
   }
 
-  Widget _buildLogoSection(company, ThemeData theme, bool isDark) {
-    // Resolve which image to display
+  Widget _buildLogoSection(company, ThemeData theme) {
     ImageProvider? imageProvider;
     if (_selectedLogoBytes != null) {
       imageProvider = MemoryImage(_selectedLogoBytes!);
-    } else if (company.logo != null &&
-        (company.logo as String).isNotEmpty) {
+    } else if (company.logo != null && (company.logo as String).isNotEmpty) {
       try {
         imageProvider = MemoryImage(base64Decode(company.logo as String));
       } catch (_) {}
@@ -644,239 +779,105 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
 
     final hasLogo = imageProvider != null;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 28),
-      child: Column(
-        children: [
-          Stack(
-            alignment: Alignment.bottomRight,
-            children: [
-              // Outer glow ring (only when logo exists)
-              if (hasLogo)
-                Container(
-                  width: 132,
-                  height: 132,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        theme.colorScheme.primary.withValues(alpha: 0.2),
-                        Colors.transparent,
-                      ],
-                    ),
+    return Column(
+      children: [
+        Stack(
+          alignment: Alignment.bottomRight,
+          children: [
+            if (hasLogo)
+              Container(
+                width: 132,
+                height: 132,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      theme.colorScheme.primary.withValues(alpha: 0.2),
+                      Colors.transparent,
+                    ],
                   ),
                 ),
-              // Avatar container
+              ),
+            Container(
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: theme.colorScheme.surfaceContainerHighest,
+                border: Border.all(
+                  color: hasLogo
+                      ? theme.colorScheme.primary.withValues(alpha: 0.4)
+                      : theme.colorScheme.outline.withValues(alpha: 0.25),
+                  width: hasLogo ? 2.5 : 1.5,
+                ),
+                boxShadow: hasLogo
+                    ? [
+                        BoxShadow(
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.25,
+                          ),
+                          blurRadius: 24,
+                          offset: const Offset(0, 8),
+                        ),
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ]
+                    : [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.06),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+              ),
+              child: ClipOval(
+                child: hasLogo
+                    ? Image(image: imageProvider, fit: BoxFit.cover)
+                    : _LogoPlaceholder(theme: theme),
+              ),
+            ),
+            if (_isUploadingLogo)
               Container(
                 width: 120,
                 height: 120,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  border: Border.all(
-                    color: hasLogo
-                        ? theme.colorScheme.primary.withValues(alpha: 0.4)
-                        : theme.colorScheme.outline.withValues(alpha: 0.25),
-                    width: hasLogo ? 2.5 : 1.5,
-                  ),
-                  boxShadow: hasLogo
-                      ? [
-                          BoxShadow(
-                            color: theme.colorScheme.primary
-                                .withValues(alpha: 0.15),
-                            blurRadius: 24,
-                            offset: const Offset(0, 8),
-                          ),
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.06),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
+                  color: theme.colorScheme.surface.withValues(alpha: 0.75),
                 ),
-                child: ClipOval(
-                  child: hasLogo
-                      ? Image(image: imageProvider, fit: BoxFit.cover)
-                      : _LogoPlaceholder(theme: theme),
-                ),
-              ),
-              // Loading overlay
-              if (_isUploadingLogo)
-                Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: theme.colorScheme.surface.withValues(alpha: 0.75),
-                  ),
-                  child: Center(
-                    child: SizedBox(
-                      width: 28,
-                      height: 28,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        color: theme.colorScheme.primary,
-                      ),
+                child: Center(
+                  child: SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: theme.colorScheme.primary,
                     ),
                   ),
                 ),
-              // Camera button (hidden while uploading)
-              if (!_isUploadingLogo)
-                Positioned(
-                  bottom: 2,
-                  right: 2,
-                  child: _CameraButton(
-                    theme: theme,
-                    onTap: _pickAndUploadLogo,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            hasLogo ? 'Tap the camera icon to change logo' : 'No logo uploaded yet',
-            style: TextStyle(
-              fontSize: 12,
-              color: theme.hintColor.withValues(alpha: 0.7),
-              letterSpacing: 0.2,
-            ),
-          ),
-          if (!hasLogo) ...[
-            const SizedBox(height: 10),
-            TextButton.icon(
-              onPressed: _isUploadingLogo ? null : _pickAndUploadLogo,
-              icon: Icon(
-                Icons.upload_rounded,
-                size: 16,
-                color: theme.colorScheme.primary,
               ),
-              label: Text(
-                'Upload Logo',
-                style: TextStyle(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                ),
+            if (!_isUploadingLogo)
+              Positioned(
+                bottom: 2,
+                right: 2,
+                child: _CameraButton(theme: theme, onTap: _pickAndUploadLogo),
               ),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 8,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.35),
-                  ),
-                ),
-              ),
-            ),
           ],
-        ],
-      ),
-    );
-  }
-
-  Widget _sectionHeader(BuildContext context, String title) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        children: [
-          Container(
-            width: 4,
-            height: 18,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary,
-              borderRadius: BorderRadius.circular(2),
-            ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          hasLogo
+              ? 'Tap the camera icon to change logo'
+              : 'No logo uploaded yet',
+          style: TextStyle(
+            fontSize: 12,
+            color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+            letterSpacing: 0.2,
           ),
-          const SizedBox(width: 8),
-          Text(
-            title.toUpperCase(),
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 1.2,
-              color: theme.colorScheme.primary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRow(List<Widget> children) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children:
-            children
-                .expand((w) => [Expanded(child: w), const SizedBox(width: 16)])
-                .toList()
-              ..removeLast(),
-      ),
-    );
-  }
-
-  Widget _field(
-    BuildContext context,
-    TextEditingController ctrl,
-    String label, {
-    IconData? icon,
-    int maxLines = 1,
-    String? Function(String?)? validator,
-  }) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: theme.colorScheme.primary.withValues(alpha: 0.8),
-            ),
-          ),
-          const SizedBox(height: 8),
-          TextFormField(
-            controller: ctrl,
-            maxLines: maxLines,
-            style: const TextStyle(fontSize: 15),
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: theme.colorScheme.surface,
-              prefixIcon: icon != null
-                  ? Icon(icon, color: theme.colorScheme.primary, size: 20)
-                  : null,
-              hintText: "Enter $label",
-              hintStyle: TextStyle(
-                color: theme.hintColor.withValues(alpha: 0.5),
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 14,
-              ),
-            ),
-            validator: validator,
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

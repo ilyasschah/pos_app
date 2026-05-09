@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/product/product_provider.dart';
 import 'package:pos_app/product/product_model.dart';
 import 'package:pos_app/cart/cart_provider.dart';
@@ -708,7 +709,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                 ref.read(cartProvider.notifier).clearCart();
                 Navigator.pushAndRemoveUntil(
                   context,
-                  MaterialPageRoute(builder: (_) => const BookingsScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const MainLayout(initialIndex: 2),
+                  ), // Index 2 is Bookings
                   (route) => false,
                 );
               },
@@ -1566,25 +1569,33 @@ class _CartSectionState extends ConsumerState<CartSection> {
         if (wasBookingOrder && bookingEnabled) {
           Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(builder: (_) => const BookingsScreen()),
+            MaterialPageRoute(
+              builder: (_) => const MainLayout(initialIndex: 2),
+            ), // Index 2 is Bookings
             (route) => false,
           );
         } else if (wasTableOrder && floorPlanEnabled) {
           Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
+            MaterialPageRoute(
+              builder: (_) => const MainLayout(initialIndex: 3),
+            ), // Index 3 is Floor Plan
             (route) => false,
           );
         } else if (bookingEnabled) {
           Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(builder: (_) => const BookingsScreen()),
+            MaterialPageRoute(
+              builder: (_) => const MainLayout(initialIndex: 2),
+            ), // Index 2 is Bookings
             (route) => false,
           );
         } else if (floorPlanEnabled) {
           Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(builder: (_) => const FloorPlanScreen()),
+            MaterialPageRoute(
+              builder: (_) => const MainLayout(initialIndex: 3),
+            ), // Index 3 is Floor Plan
             (route) => false,
           );
         } else {

@@ -12,7 +12,6 @@ import 'package:pos_app/floor_plan/floor_plan_table.dart';
 import 'package:pos_app/menu/menu_screen.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
-import 'package:pos_app/widgets/shared_drawer.dart';
 import 'package:pos_app/document/document_editor_screen.dart';
 import 'package:pos_app/document/document_model.dart';
 import 'package:pos_app/customer/customer_model.dart';
@@ -23,8 +22,8 @@ const double _slotHeight = 64.0;
 const double _timeColWidth = 72.0;
 const double _staffColWidth = 180.0;
 const double _headerRowHeight = 48.0;
-const int _dayStart = 8;  // 08:00
-const int _dayEnd = 24;   // midnight
+const int _dayStart = 8; // 08:00
+const int _dayEnd = 24; // midnight
 const int _totalSlots = (_dayEnd - _dayStart) * 2; // 32 half-hour slots
 const double _totalHeight = _totalSlots * _slotHeight; // 2048px
 
@@ -183,8 +182,8 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
         bookingsAsync.hasError || usersAsync.hasError || roomsAsync.hasError;
 
     return Scaffold(
-      drawer: const SharedDrawer(),
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: const Text('Bookings'),
         actions: [
           IconButton(

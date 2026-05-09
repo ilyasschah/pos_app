@@ -1,5 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:pos_app/auth/users_screen.dart';
+import 'package:pos_app/cart/payment_types_screen.dart';
+import 'package:pos_app/company/my_company_screen.dart';
+import 'package:pos_app/customer/customers_screen.dart';
 import 'package:pos_app/navigation/nav_widgets.dart';
+import 'package:pos_app/dashboard/dashboard_screen.dart';
+import 'package:pos_app/document/documents_screen.dart';
+import 'package:pos_app/product/products_screen.dart';
+import 'package:pos_app/stock/stock_screen.dart';
+import 'package:pos_app/promotions/promotions_list_screen.dart';
+import 'package:pos_app/tax/tax_rates_screen.dart';
 
 class ManagementLayout extends StatefulWidget {
   const ManagementLayout({super.key});
@@ -13,19 +23,20 @@ class _ManagementLayoutState extends State<ManagementLayout> {
 
   @override
   Widget build(BuildContext context) {
+    // --- INJECT YOUR REAL SCREENS INTO THIS LIST ---
     final List<Widget> screens = [
-      const PlaceholderScreen(title: "Dashboard"), // Index 0
-      const PlaceholderScreen(title: "Documents"), // Index 1
-      const PlaceholderScreen(title: "Products"), // Index 2
-      const PlaceholderScreen(title: "Stock"), // Index 3
-      const PlaceholderScreen(title: "Reporting"), // Index 4
-      const PlaceholderScreen(title: "Customers & suppliers"), // Index 5
-      const PlaceholderScreen(title: "Promotions"), // Index 6
-      const PlaceholderScreen(title: "Users & security"), // Index 7
-      const PlaceholderScreen(title: "Payment types"), // Index 8
-      const PlaceholderScreen(title: "Countries"), // Index 9
-      const PlaceholderScreen(title: "Tax rates"), // Index 10
-      const PlaceholderScreen(title: "My company"), // Index 11
+      const DashboardScreen(),
+      const DocumentsScreen(),
+      const ProductsScreen(),
+      const StockScreen(),
+      const PlaceholderScreen(title: "Reporting"), // Replace when ready
+      const CustomersScreen(),
+      const PromotionsListScreen(),
+      const UsersScreen(),
+      const PaymentTypesScreen(),
+      const PlaceholderScreen(title: "Countries"), // Replace when ready
+      const TaxRatesScreen(),
+      const MyCompanyScreen(),
     ];
 
     return Scaffold(
@@ -145,14 +156,19 @@ class _ManagementLayoutState extends State<ManagementLayout> {
           ),
 
           // ACTIVE SCREEN CONTENT
-          Expanded(child: ClipRect(child: screens[_selectedIndex])),
+          Expanded(
+            child: ClipRect(
+              // This automatically loads the real screen based on what is clicked!
+              child: screens[_selectedIndex],
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-// Simple placeholder for screens we haven't built yet
+// Keep this at the bottom for any screens you haven't built yet!
 class PlaceholderScreen extends StatelessWidget {
   final String title;
   const PlaceholderScreen({super.key, required this.title});

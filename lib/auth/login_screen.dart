@@ -6,10 +6,8 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/company/company_model.dart';
+import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/settings/settings_provider.dart';
-import 'package:pos_app/floor_plan/floor_plan_screen.dart';
-import 'package:pos_app/bookings/bookings_screen.dart';
-import 'package:pos_app/menu/menu_screen.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 
@@ -42,9 +40,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           }
         } catch (_) {
           if (mounted) {
-            ref.read(selectedCompanyProvider.notifier).update(
-              Company(id: fallbackId, name: 'Branch #$fallbackId'),
-            );
+            ref
+                .read(selectedCompanyProvider.notifier)
+                .update(Company(id: fallbackId, name: 'Branch #$fallbackId'));
           }
         }
       }
@@ -66,9 +64,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         title: const Text("POS Login"),
         actions: [
           IconButton(
-            icon: Icon(ref.watch(themeModeProvider) == ThemeMode.dark
-                ? Icons.light_mode
-                : Icons.dark_mode),
+            icon: Icon(
+              ref.watch(themeModeProvider) == ThemeMode.dark
+                  ? Icons.light_mode
+                  : Icons.dark_mode,
+            ),
             onPressed: () {
               ref.read(themeModeProvider.notifier).toggleTheme();
             },
@@ -77,7 +77,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             icon: const Icon(Icons.business),
             label: Text(selectedCo.name),
             onPressed: () => Navigator.pushNamed(context, '/select-company'),
-          )
+          ),
         ],
       ),
       body: Center(
@@ -87,28 +87,34 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text("Select User",
-                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+              const Text(
+                "Select User",
+                style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 40),
               Expanded(
                 child: asyncUsers.when(
                   loading: () =>
                       const Center(child: CircularProgressIndicator()),
                   error: (err, stack) => Center(
-                      child: Text("Error loading users: $err",
-                          style: const TextStyle(color: Colors.red))),
+                    child: Text(
+                      "Error loading users: $err",
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
                   data: (users) {
                     if (users.isEmpty)
                       return const Center(
-                          child: Text("No enabled users found."));
+                        child: Text("No enabled users found."),
+                      );
                     return GridView.builder(
                       gridDelegate:
                           const SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: 200,
-                        childAspectRatio: 1.0,
-                        crossAxisSpacing: 20,
-                        mainAxisSpacing: 20,
-                      ),
+                            maxCrossAxisExtent: 200,
+                            childAspectRatio: 1.0,
+                            crossAxisSpacing: 20,
+                            mainAxisSpacing: 20,
+                          ),
                       itemCount: users.length,
                       itemBuilder: (context, index) =>
                           _buildUserCard(context, ref, users[index]),
@@ -128,18 +134,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       onTap: () {
         ref.read(currentUserProvider.notifier).state = user;
         final settings = ref.read(appSettingsProvider);
-        final bookingEnabled   = settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
-        final floorPlanEnabled = settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
-        final Widget destination;
+        final bookingEnabled =
+            settings[SettingKeys.featureBookingEnabled]?.toLowerCase() ==
+            'true';
+        final floorPlanEnabled =
+            settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() ==
+            'true';
+
+        int startingIndex = 0; // Default to Menu (Index 0)
+
         if (bookingEnabled) {
-          destination = const BookingsScreen();
+          startingIndex = 2; // Bookings is Index 2 in MainLayout
         } else if (floorPlanEnabled) {
-          destination = const FloorPlanScreen();
-        } else {
-          destination = const MenuScreen();
+          startingIndex = 3; // Floor Plan is Index 3 in MainLayout
         }
+
+        // Push directly to the MainLayout with the correct index!
         Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => destination));
+          MaterialPageRoute(
+            builder: (context) => MainLayout(initialIndex: startingIndex),
+          ),
+        );
       },
       child: Card(
         elevation: 4,
@@ -149,18 +164,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           children: [
             CircleAvatar(
               radius: 30,
-              backgroundColor:
-                  user.accessLevel >= 9 ? Colors.orange : Colors.blue,
+              backgroundColor: user.accessLevel >= 9
+                  ? Colors.orange
+                  : Colors.blue,
               child: const Icon(Icons.person, size: 35, color: Colors.white),
             ),
             const SizedBox(height: 16),
-            Text(user.displayName,
-                textAlign: TextAlign.center,
-                style:
-                    const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Text(
+              user.displayName,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 4),
-            Text(user.accessLevel >= 9 ? "Admin" : "Staff",
-                style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            Text(
+              user.accessLevel >= 9 ? "Admin" : "Staff",
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
           ],
         ),
       ),

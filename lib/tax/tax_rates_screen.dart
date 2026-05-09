@@ -14,10 +14,14 @@ class TaxRatesScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final asyncTaxes = ref.watch(allTaxesProvider);
     final company = ref.watch(selectedCompanyProvider);
+    final theme = Theme.of(context);
 
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text("Tax Rates"),
+        centerTitle: false,
+        elevation: 0,
         actions: [
           // Refresh
           IconButton(
@@ -43,41 +47,79 @@ class TaxRatesScreen extends ConsumerWidget {
                   },
           ),
           // Add
-          IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: "New Tax Rate",
-            onPressed: company == null
-                ? null
-                : () async {
-                    await showDialog(
-                      context: context,
-                      builder: (_) => _TaxFormDialog(companyId: company.id),
-                    );
-                    ref.invalidate(allTaxesProvider);
-                  },
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: IconButton(
+              icon: const Icon(Icons.add_circle_outline),
+              tooltip: "New Tax Rate",
+              color: theme.colorScheme.primary,
+              onPressed: company == null
+                  ? null
+                  : () async {
+                      await showDialog(
+                        context: context,
+                        builder: (_) => _TaxFormDialog(companyId: company.id),
+                      );
+                      ref.invalidate(allTaxesProvider);
+                    },
+            ),
           ),
         ],
       ),
       body: asyncTaxes.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text("Error loading taxes: $e")),
+        loading: () => Center(
+          child: CircularProgressIndicator(color: theme.colorScheme.primary),
+        ),
+        error: (e, _) => Center(
+          child: Text(
+            "Error loading taxes: $e",
+            style: TextStyle(color: theme.colorScheme.error),
+          ),
+        ),
         data: (taxes) {
           if (company == null) {
-            return const Center(child: Text("No company selected."));
+            return Center(
+              child: Text(
+                "No company selected.",
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+              ),
+            );
           }
           final int companyId = company.id;
 
           if (taxes.isEmpty) {
             return Center(
               child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text("No tax rates found.",
-                      style: TextStyle(color: Colors.grey, fontSize: 16)),
-                  const SizedBox(height: 12),
+                  Icon(
+                    Icons.percent,
+                    size: 64,
+                    color: theme.colorScheme.onSurfaceVariant.withValues(
+                      alpha: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    "No tax rates found.",
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontSize: 18,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
                   ElevatedButton.icon(
                     icon: const Icon(Icons.add),
                     label: const Text("Add First Tax Rate"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: theme.colorScheme.primary,
+                      foregroundColor: theme.colorScheme.onPrimary,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                    ),
                     onPressed: () async {
                       await showDialog(
                         context: context,
@@ -91,86 +133,243 @@ class TaxRatesScreen extends ConsumerWidget {
             );
           }
 
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SingleChildScrollView(
-              child: DataTable(
-                headingRowColor: WidgetStateProperty.all(Colors.blueGrey[50]),
-                columns: const [
-                  DataColumn(label: Text("Name")),
-                  DataColumn(label: Text("Rate"), numeric: true),
-                  DataColumn(label: Text("Code")),
-                  DataColumn(label: Text("Fixed")),
-                  DataColumn(label: Text("Tax on Total")),
-                  DataColumn(label: Text("Enabled")),
-                  DataColumn(label: Text("Actions")),
-                ],
-                rows: taxes.map((t) {
-                  return DataRow(cells: [
-                    DataCell(Text(t.name)),
-                    DataCell(Text(
-                        "${t.isFixed ? '' : ''}${t.rate.toStringAsFixed(t.rate % 1 == 0 ? 0 : 2)}${t.isFixed ? '' : '%'}")),
-                    DataCell(Text(t.code ?? '-')),
-                    DataCell(_BoolIcon(value: t.isFixed)),
-                    DataCell(_BoolIcon(value: t.isTaxOnTotal)),
-                    DataCell(_BoolIcon(value: t.isEnabled)),
-                    DataCell(
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.edit,
-                                color: Colors.blueGrey, size: 18),
-                            tooltip: "Edit",
-                            onPressed: () async {
-                              await showDialog(
-                                context: context,
-                                builder: (_) => _TaxFormDialog(
-                                  companyId: companyId,
-                                  tax: t,
-                                ),
-                              );
-                              ref.invalidate(allTaxesProvider);
-                            },
+          // FULL SCREEN RESPONSIVE LAYOUT
+          return Container(
+            width: double.infinity,
+            height: double.infinity,
+            padding: const EdgeInsets.all(24.0),
+            child: Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: theme.colorScheme.outlineVariant,
+                  width: 1,
+                ),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    scrollDirection: Axis.vertical, // Scroll down if many rows
+                    child: SingleChildScrollView(
+                      scrollDirection:
+                          Axis.horizontal, // Scroll right if screen is narrow
+                      child: ConstrainedBox(
+                        // This forces the table to stretch to the edges of the card!
+                        constraints: BoxConstraints(
+                          minWidth: constraints.maxWidth,
+                        ),
+                        child: DataTable(
+                          headingRowColor: WidgetStateProperty.all(
+                            theme.colorScheme.surfaceContainerHighest,
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.delete,
-                                color: Colors.red, size: 18),
-                            tooltip: "Delete",
-                            onPressed: () async {
-                              final confirm = await showDialog<bool>(
-                                context: context,
-                                builder: (ctx) => AlertDialog(
-                                  title: const Text("Delete Tax"),
-                                  content: Text("Delete tax rate '${t.name}'?"),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.of(ctx).pop(false),
-                                      child: const Text("Cancel"),
-                                    ),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.red),
-                                      onPressed: () =>
-                                          Navigator.of(ctx).pop(true),
-                                      child: const Text("Delete",
-                                          style:
-                                              TextStyle(color: Colors.white)),
-                                    ),
-                                  ],
+                          dataRowMaxHeight: 60,
+                          dataRowMinHeight: 60,
+                          columnSpacing:
+                              32, // Gives columns nice breathing room
+                          columns: [
+                            DataColumn(
+                              label: Text(
+                                "Name",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.colorScheme.onSurfaceVariant,
                                 ),
-                              );
-                              if (confirm == true && context.mounted) {
-                                await _delete(context, ref, t.id, companyId);
-                              }
-                            },
-                          ),
-                        ],
+                              ),
+                            ),
+                            DataColumn(
+                              label: Text(
+                                "Rate",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              numeric: true,
+                            ),
+                            DataColumn(
+                              label: Text(
+                                "Code",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                            DataColumn(
+                              label: Text(
+                                "Fixed",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                            DataColumn(
+                              label: Text(
+                                "Tax on Total",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                            DataColumn(
+                              label: Text(
+                                "Enabled",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                            DataColumn(
+                              label: Text(
+                                "Actions",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ],
+                          rows: taxes.map((t) {
+                            return DataRow(
+                              cells: [
+                                DataCell(
+                                  Text(
+                                    t.name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                DataCell(
+                                  Text(
+                                    "${t.isFixed ? '' : ''}${t.rate.toStringAsFixed(t.rate % 1 == 0 ? 0 : 2)}${t.isFixed ? '' : '%'}",
+                                    style: TextStyle(
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                DataCell(Text(t.code ?? '-')),
+                                DataCell(
+                                  _BoolIcon(value: t.isFixed, theme: theme),
+                                ),
+                                DataCell(
+                                  _BoolIcon(
+                                    value: t.isTaxOnTotal,
+                                    theme: theme,
+                                  ),
+                                ),
+                                DataCell(
+                                  _BoolIcon(value: t.isEnabled, theme: theme),
+                                ),
+                                DataCell(
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.edit,
+                                          color: theme.colorScheme.primary,
+                                          size: 20,
+                                        ),
+                                        tooltip: "Edit",
+                                        splashRadius: 24,
+                                        onPressed: () async {
+                                          await showDialog(
+                                            context: context,
+                                            builder: (_) => _TaxFormDialog(
+                                              companyId: companyId,
+                                              tax: t,
+                                            ),
+                                          );
+                                          ref.invalidate(allTaxesProvider);
+                                        },
+                                      ),
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.delete_outline,
+                                          color: theme.colorScheme.error,
+                                          size: 20,
+                                        ),
+                                        tooltip: "Delete",
+                                        splashRadius: 24,
+                                        onPressed: () async {
+                                          final confirm = await showDialog<bool>(
+                                            context: context,
+                                            builder: (ctx) => AlertDialog(
+                                              backgroundColor:
+                                                  theme.colorScheme.surface,
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(16),
+                                              ),
+                                              title: Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.warning_amber_rounded,
+                                                    color:
+                                                        theme.colorScheme.error,
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  const Text("Delete Tax"),
+                                                ],
+                                              ),
+                                              content: Text(
+                                                "Are you sure you want to delete the tax rate '${t.name}'?",
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.of(
+                                                    ctx,
+                                                  ).pop(false),
+                                                  child: const Text("Cancel"),
+                                                ),
+                                                ElevatedButton(
+                                                  style:
+                                                      ElevatedButton.styleFrom(
+                                                        backgroundColor: theme
+                                                            .colorScheme
+                                                            .error,
+                                                        foregroundColor: theme
+                                                            .colorScheme
+                                                            .onError,
+                                                      ),
+                                                  onPressed: () => Navigator.of(
+                                                    ctx,
+                                                  ).pop(true),
+                                                  child: const Text("Delete"),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                          if (confirm == true &&
+                                              context.mounted) {
+                                            await _delete(
+                                              context,
+                                              ref,
+                                              t.id,
+                                              companyId,
+                                              theme,
+                                            );
+                                          }
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
+                          }).toList(),
+                        ),
                       ),
                     ),
-                  ]);
-                }).toList(),
+                  );
+                },
               ),
             ),
           );
@@ -180,7 +379,12 @@ class TaxRatesScreen extends ConsumerWidget {
   }
 
   Future<void> _delete(
-      BuildContext context, WidgetRef ref, int id, int companyId) async {
+    BuildContext context,
+    WidgetRef ref,
+    int id,
+    int companyId,
+    ThemeData theme,
+  ) async {
     try {
       final dio = createDio();
       await dio.delete(
@@ -191,14 +395,18 @@ class TaxRatesScreen extends ConsumerWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text("Tax rate deleted"), backgroundColor: Colors.green),
+          content: Text("Tax rate deleted"),
+          backgroundColor: Colors.green,
+        ),
       );
     } on DioException catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(e.response?.data?.toString() ?? "Delete failed"),
-        backgroundColor: Colors.red,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.response?.data?.toString() ?? "Delete failed"),
+          backgroundColor: theme.colorScheme.error,
+        ),
+      );
     }
   }
 }
@@ -206,14 +414,19 @@ class TaxRatesScreen extends ConsumerWidget {
 // --- BOOL ICON ---
 class _BoolIcon extends StatelessWidget {
   final bool value;
-  const _BoolIcon({required this.value});
+  final ThemeData theme;
+  const _BoolIcon({required this.value, required this.theme});
 
   @override
   Widget build(BuildContext context) {
-    return Icon(
-      value ? Icons.check : null,
-      color: Colors.green,
-      size: 18,
+    if (!value) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(Icons.check, color: theme.colorScheme.primary, size: 14),
     );
   }
 }
@@ -249,11 +462,12 @@ class _TaxFormDialogState extends ConsumerState<_TaxFormDialog> {
     final t = widget.tax;
     _nameCtrl = TextEditingController(text: t?.name ?? '');
     _rateCtrl = TextEditingController(
-        text: t != null
-            ? t.rate % 1 == 0
+      text: t != null
+          ? t.rate % 1 == 0
                 ? t.rate.toInt().toString()
                 : t.rate.toString()
-            : '');
+          : '',
+    );
     _codeCtrl = TextEditingController(text: t?.code ?? '');
     _isFixed = t?.isFixed ?? false;
     _isTaxOnTotal = t?.isTaxOnTotal ?? true;
@@ -312,10 +526,17 @@ class _TaxFormDialogState extends ConsumerState<_TaxFormDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return AlertDialog(
-      title: Text(_isEditing ? "Edit Tax Rate" : "New Tax Rate"),
+      backgroundColor: theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text(
+        _isEditing ? "Edit Tax Rate" : "New Tax Rate",
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
       content: SizedBox(
-        width: 380,
+        width: 420,
         child: Form(
           key: _formKey,
           child: Column(
@@ -327,27 +548,43 @@ class _TaxFormDialogState extends ConsumerState<_TaxFormDialog> {
                     flex: 2,
                     child: TextFormField(
                       controller: _nameCtrl,
-                      decoration: const InputDecoration(labelText: "Name *"),
+                      decoration: InputDecoration(
+                        labelText: "Name *",
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
                       validator: (v) =>
                           v == null || v.trim().isEmpty ? "Required" : null,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 16),
                   Expanded(
                     child: TextFormField(
                       controller: _codeCtrl,
-                      decoration: const InputDecoration(labelText: "Code"),
+                      decoration: InputDecoration(
+                        labelText: "Code",
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _rateCtrl,
-                decoration: const InputDecoration(
-                    labelText: "Rate *", hintText: "e.g. 20 for 20%"),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  labelText: "Rate *",
+                  hintText: "e.g. 20 for 20%",
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) return "Required";
                   if (double.tryParse(v.trim()) == null) {
@@ -356,52 +593,101 @@ class _TaxFormDialogState extends ConsumerState<_TaxFormDialog> {
                   return null;
                 },
               ),
-              const SizedBox(height: 16),
-              _switchRow("Fixed Amount", _isFixed,
-                  (v) => setState(() => _isFixed = v)),
-              _switchRow("Tax on Total", _isTaxOnTotal,
-                  (v) => setState(() => _isTaxOnTotal = v)),
+              const SizedBox(height: 24),
               _switchRow(
-                  "Enabled", _isEnabled, (v) => setState(() => _isEnabled = v)),
+                "Fixed Amount",
+                _isFixed,
+                (v) => setState(() => _isFixed = v),
+                theme,
+              ),
+              _switchRow(
+                "Tax on Total",
+                _isTaxOnTotal,
+                (v) => setState(() => _isTaxOnTotal = v),
+                theme,
+              ),
+              _switchRow(
+                "Enabled",
+                _isEnabled,
+                (v) => setState(() => _isEnabled = v),
+                theme,
+              ),
               if (_errorMessage != null) ...[
-                const SizedBox(height: 12),
-                Text(_errorMessage!,
-                    style: const TextStyle(color: Colors.red, fontSize: 13)),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.error_outline,
+                        color: theme.colorScheme.error,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _errorMessage!,
+                          style: TextStyle(
+                            color: theme.colorScheme.onErrorContainer,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ],
           ),
         ),
       ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text("Cancel")),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text("Cancel"),
+        ),
         if (_isLoading)
-          const Padding(
-            padding: EdgeInsets.all(8.0),
-            child: CircularProgressIndicator(),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: CircularProgressIndicator(color: theme.colorScheme.primary),
           )
         else
           ElevatedButton.icon(
             icon: const Icon(Icons.save),
             label: Text(_isEditing ? "Update" : "Save"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: theme.colorScheme.primary,
+              foregroundColor: theme.colorScheme.onPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
             onPressed: _submit,
           ),
       ],
     );
   }
 
-  Widget _switchRow(String label, bool value, ValueChanged<bool> onChanged) {
+  Widget _switchRow(
+    String label,
+    bool value,
+    ValueChanged<bool> onChanged,
+    ThemeData theme,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label),
+          Text(label, style: const TextStyle(fontSize: 15)),
           Switch(
-              value: value,
-              onChanged: onChanged,
-              activeThumbColor: Colors.green),
+            value: value,
+            onChanged: onChanged,
+            activeThumbColor: theme.colorScheme.primary,
+          ),
         ],
       ),
     );
@@ -413,10 +699,7 @@ class _SwitchTaxesDialog extends ConsumerStatefulWidget {
   final List<Tax> taxes;
   final int companyId;
 
-  const _SwitchTaxesDialog({
-    required this.taxes,
-    required this.companyId,
-  });
+  const _SwitchTaxesDialog({required this.taxes, required this.companyId});
 
   @override
   ConsumerState<_SwitchTaxesDialog> createState() => _SwitchTaxesDialogState();
@@ -466,9 +749,11 @@ class _SwitchTaxesDialogState extends ConsumerState<_SwitchTaxesDialog> {
           'isEnabled': newTax.isEnabled,
         },
       );
-      setState(() => _successMessage =
-          "Rate ${oldTax.rate}${oldTax.isFixed ? '' : '%'} from '${oldTax.name}' "
-              "applied to '${newTax.name}' successfully.");
+      setState(
+        () => _successMessage =
+            "Rate ${oldTax.rate}${oldTax.isFixed ? '' : '%'} from '${oldTax.name}' "
+            "applied to '${newTax.name}' successfully.",
+      );
     } on DioException catch (e) {
       setState(() {
         _errorMessage = e.response?.data?.toString() ?? "Switch failed.";
@@ -480,50 +765,68 @@ class _SwitchTaxesDialogState extends ConsumerState<_SwitchTaxesDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return AlertDialog(
-      title: const Text("Switch Taxes"),
+      backgroundColor: theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text(
+        "Switch Taxes",
+        style: TextStyle(fontWeight: FontWeight.bold),
+      ),
       content: SizedBox(
-        width: 360,
+        width: 400,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             // Info banner
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.blue[50],
+                color: theme.colorScheme.primaryContainer,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue),
+                border: Border.all(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                ),
               ),
-              child: const Row(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.info_outline, color: Colors.blue),
-                  SizedBox(width: 8),
+                  Icon(Icons.info_outline, color: theme.colorScheme.primary),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       "Use this form to replace taxes for all products. "
-                      "Select old tax you wish to replace with new tax and click Replace.",
-                      style: TextStyle(fontSize: 13),
+                      "Select the old tax you wish to replace with the new tax and click Replace.",
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
             // Old Tax Dropdown
             DropdownButtonFormField<int>(
               initialValue: _oldTaxId,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: "Old Tax",
-                border: OutlineInputBorder(),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               items: widget.taxes
-                  .map((t) => DropdownMenuItem(
-                        value: t.id,
-                        child: Text(
-                            "${t.name} (${t.rate.toStringAsFixed(t.rate % 1 == 0 ? 0 : 2)}${t.isFixed ? '' : '%'})"),
-                      ))
+                  .map(
+                    (t) => DropdownMenuItem(
+                      value: t.id,
+                      child: Text(
+                        "${t.name} (${t.rate.toStringAsFixed(t.rate % 1 == 0 ? 0 : 2)}${t.isFixed ? '' : '%'})",
+                      ),
+                    ),
+                  )
                   .toList(),
               onChanged: (v) => setState(() => _oldTaxId = v),
             ),
@@ -532,46 +835,109 @@ class _SwitchTaxesDialogState extends ConsumerState<_SwitchTaxesDialog> {
             // New Tax Dropdown
             DropdownButtonFormField<int>(
               initialValue: _newTaxId,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: "New Tax",
-                border: OutlineInputBorder(),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               items: widget.taxes
-                  .map((t) => DropdownMenuItem(
-                        value: t.id,
-                        child: Text(
-                            "${t.name} (${t.rate.toStringAsFixed(t.rate % 1 == 0 ? 0 : 2)}${t.isFixed ? '' : '%'})"),
-                      ))
+                  .map(
+                    (t) => DropdownMenuItem(
+                      value: t.id,
+                      child: Text(
+                        "${t.name} (${t.rate.toStringAsFixed(t.rate % 1 == 0 ? 0 : 2)}${t.isFixed ? '' : '%'})",
+                      ),
+                    ),
+                  )
                   .toList(),
               onChanged: (v) => setState(() => _newTaxId = v),
             ),
 
             if (_errorMessage != null) ...[
-              const SizedBox(height: 12),
-              Text(_errorMessage!,
-                  style: const TextStyle(color: Colors.red, fontSize: 13)),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.errorContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      color: theme.colorScheme.error,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _errorMessage!,
+                        style: TextStyle(
+                          color: theme.colorScheme.onErrorContainer,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
             if (_successMessage != null) ...[
-              const SizedBox(height: 12),
-              Text(_successMessage!,
-                  style: const TextStyle(color: Colors.green, fontSize: 13)),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Colors.green.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.check_circle_outline,
+                      color: Colors.green,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _successMessage!,
+                        style: const TextStyle(
+                          color: Colors.green,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ],
         ),
       ),
+      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
       actions: [
         TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text("Close")),
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text("Close"),
+        ),
         if (_isLoading)
-          const Padding(
-            padding: EdgeInsets.all(8.0),
-            child: CircularProgressIndicator(),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: CircularProgressIndicator(color: theme.colorScheme.primary),
           )
         else
           ElevatedButton.icon(
             icon: const Icon(Icons.swap_horiz),
             label: const Text("Replace"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: theme.colorScheme.primary,
+              foregroundColor: theme.colorScheme.onPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
             onPressed: _replace,
           ),
       ],

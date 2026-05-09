@@ -53,6 +53,7 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
     final selectedTableId = ref.watch(floorPlanTableProvider);
     final isEditMode = ref.watch(floorPlanProvider).isEditMode;
     final isSelected = selectedTableId == widget.table.id && isEditMode;
+    final theme = Theme.of(context);
 
     return Positioned(
       left: localX,
@@ -82,15 +83,12 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                       widget.table.id,
                       widget.warehouseId,
                     );
-
                 if (success && mounted) {
                   Navigator.pushReplacementNamed(context, '/menu');
                 } else if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text(
-                        'Could not find active order for this table.',
-                      ),
+                      content: Text('Could not find active order.'),
                       backgroundColor: Colors.red,
                     ),
                   );
@@ -102,7 +100,7 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                 final serviceType = await showDialog<int>(
                   context: context,
                   builder: (dialogCtx) => Dialog(
-                    backgroundColor: const Color(0xFF2C3E50),
+                    backgroundColor: theme.colorScheme.surface,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
@@ -114,63 +112,66 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Text(
+                          Text(
                             "Service type",
                             style: TextStyle(
-                              fontSize: 32,
-                              color: Colors.white,
-                              fontWeight: FontWeight.w300,
+                              fontSize: 28,
+                              color: theme.colorScheme.onSurface,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                          const SizedBox(height: 10),
-                          const Text(
+                          const SizedBox(height: 8),
+                          Text(
                             "Select service type for this order",
                             style: TextStyle(
                               fontSize: 16,
-                              color: Colors.white70,
+                              color: theme.colorScheme.onSurfaceVariant,
                             ),
                           ),
-                          const SizedBox(height: 40),
+                          const SizedBox(height: 32),
                           Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
+                            spacing: 12,
+                            runSpacing: 12,
                             alignment: WrapAlignment.center,
                             children: types.asMap().entries.map((e) {
                               final idx = e.key;
                               final t = e.value;
-                              final color = _kServiceTypePalette[
-                                  idx % _kServiceTypePalette.length];
-                              final icon = _kServiceTypeIcons[
-                                  idx.clamp(0, _kServiceTypeIcons.length - 1)];
+                              final color =
+                                  _kServiceTypePalette[idx %
+                                      _kServiceTypePalette.length];
+                              final icon =
+                                  _kServiceTypeIcons[idx.clamp(
+                                    0,
+                                    _kServiceTypeIcons.length - 1,
+                                  )];
                               return InkWell(
-                                onTap: () =>
-                                    Navigator.pop(dialogCtx, t.id),
-                                borderRadius: BorderRadius.circular(12),
-                                hoverColor: Colors.white.withAlpha(25),
-                                splashColor: Colors.white.withAlpha(50),
-                                child: Padding(
+                                onTap: () => Navigator.pop(dialogCtx, t.id),
+                                borderRadius: BorderRadius.circular(16),
+                                child: Container(
+                                  width: 140,
                                   padding: const EdgeInsets.all(24.0),
+                                  decoration: BoxDecoration(
+                                    color: theme
+                                        .colorScheme
+                                        .surfaceContainerHighest
+                                        .withValues(alpha: 0.5),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: theme.dividerColor,
+                                    ),
+                                  ),
                                   child: Column(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(16),
-                                        decoration: BoxDecoration(
-                                          color: color.withValues(alpha: 0.25),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Icon(
-                                          icon,
-                                          size: 64,
-                                          color: color,
-                                        ),
-                                      ),
+                                      Icon(icon, size: 48, color: color),
                                       const SizedBox(height: 16),
                                       Text(
                                         t.name,
-                                        style: const TextStyle(
-                                          fontSize: 22,
-                                          color: Colors.white,
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: theme.colorScheme.onSurface,
                                         ),
                                       ),
                                     ],
@@ -188,7 +189,6 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                 if (serviceType == null) return;
 
                 if (serviceType != 0) {
-                  // Takeaway / Delivery: tableless order — do NOT attach table
                   await ref
                       .read(cartProvider.notifier)
                       .startTablelessOrder(
@@ -197,11 +197,8 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                         widget.userId,
                         serviceType,
                       );
-                  if (mounted) {
-                    Navigator.pushReplacementNamed(context, '/menu');
-                  }
+                  if (mounted) Navigator.pushReplacementNamed(context, '/menu');
                 } else {
-                  // Dine-In: reserve this specific table
                   final int newOrderId = await apiClient.createPosOrder(
                     widget.companyId,
                     widget.userId,
@@ -227,54 +224,53 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                 }
               }
             } catch (e) {
-              if (mounted) {
+              if (mounted)
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text('Error: $e'),
                     backgroundColor: Colors.red,
                   ),
                 );
-              }
             } finally {
               if (mounted) setState(() => isCreatingOrder = false);
             }
           }
         },
         onPanUpdate: isEditMode
-            ? (details) {
-                setState(() {
-                  localX += details.delta.dx;
-                  localY += details.delta.dy;
-                });
-              }
+            ? (details) => setState(() {
+                localX += details.delta.dx;
+                localY += details.delta.dy;
+              })
             : null,
         onPanEnd: isEditMode
-            ? (details) {
-                ref
-                    .read(floorPlanTableProvider.notifier)
-                    .updateTableGeometry(
-                      widget.table.id,
-                      localX,
-                      localY,
-                      widget.table.width,
-                      widget.table.height,
-                    );
-              }
+            ? (details) => ref
+                  .read(floorPlanTableProvider.notifier)
+                  .updateTableGeometry(
+                    widget.table.id,
+                    localX,
+                    localY,
+                    widget.table.width,
+                    widget.table.height,
+                  )
             : null,
         child: Container(
           decoration: BoxDecoration(
             gradient: ServiceStatusHelper.getGradient(widget.table.status),
             shape: widget.table.isRound ? BoxShape.circle : BoxShape.rectangle,
-            borderRadius: widget.table.isRound ? null : BorderRadius.circular(12),
+            borderRadius: widget.table.isRound
+                ? null
+                : BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected ? Colors.white : Colors.white.withValues(alpha: 0.2),
-              width: isSelected ? 3 : 1.5,
+              color: isSelected
+                  ? Colors.white
+                  : Colors.black.withValues(alpha: 0.1),
+              width: isSelected ? 4 : 1,
             ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.2),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
+                blurRadius: 10,
+                offset: const Offset(0, 5),
               ),
             ],
           ),
@@ -287,17 +283,24 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                       Icon(
                         ServiceStatusHelper.getIcon(widget.table.status),
                         color: Colors.white,
-                        size: 24,
+                        size: widget.table.height > 60 ? 24 : 16,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        widget.table.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
+                      if (widget.table.height > 50) const SizedBox(height: 4),
+                      if (widget.table.height > 50)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                          child: Text(
+                            widget.table.name,
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
                         ),
-                      ),
                     ],
                   ),
           ),
@@ -308,14 +311,13 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
 }
 
 const _kServiceTypePalette = [
-  Color(0xFF4F89F0), // Blue   – Dine-In
-  Color(0xFFFF7043), // Orange – Takeaway
-  Color(0xFF66BB6A), // Green  – Delivery
-  Color(0xFFAB47BC), // Purple
-  Color(0xFF26C6DA), // Cyan
-  Color(0xFFFFCA28), // Amber
+  Color(0xFF4F89F0),
+  Color(0xFFFF7043),
+  Color(0xFF66BB6A),
+  Color(0xFFAB47BC),
+  Color(0xFF26C6DA),
+  Color(0xFFFFCA28),
 ];
-
 const _kServiceTypeIcons = [
   Icons.restaurant,
   Icons.shopping_bag_outlined,

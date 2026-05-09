@@ -27,9 +27,10 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
 
     if (companyId == null || currentUser == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text("Error: Missing company or user context."),
-            backgroundColor: Colors.red),
+        SnackBar(
+          content: const Text("Error: Missing company or user context."),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
       return;
     }
@@ -40,10 +41,7 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
       final dio = createDio();
       final response = await dio.post(
         '/ZReports/Generate',
-        queryParameters: {
-          'companyId': companyId,
-          'userId': currentUser.id,
-        },
+        queryParameters: {'companyId': companyId, 'userId': currentUser.id},
       );
 
       final newReport = ZReportModel.fromJson(response.data);
@@ -55,21 +53,24 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text("Register Closed Successfully!"),
-              backgroundColor: Colors.green),
+            content: Text("Register Closed Successfully!"),
+            backgroundColor: Colors.green,
+          ),
         );
         _showReceiptDialog(newReport);
       }
     } on DioException catch (e) {
       if (mounted) {
-        final errorMsg = e.response?.data?['message'] ??
+        final errorMsg =
+            e.response?.data?['message'] ??
             e.response?.data?.toString() ??
             "Failed to close shift.";
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text(errorMsg),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 4)),
+            content: Text(errorMsg),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            duration: const Duration(seconds: 4),
+          ),
         );
       }
     } finally {
@@ -81,13 +82,29 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
 
   void _showReceiptDialog(ZReportModel report) {
     final sym = ref.read(currencySymbolProvider);
+    final theme = Theme.of(context);
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        title: Center(
-            child: Text("Z-Report #${report.number}",
-                style: const TextStyle(fontWeight: FontWeight.bold))),
+        backgroundColor: theme.colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Column(
+          children: [
+            Icon(
+              Icons.receipt_long,
+              size: 48,
+              color: theme.colorScheme.primary,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              "Z-Report #${report.number}",
+              style: const TextStyle(fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
         content: SizedBox(
           width: 400,
           child: SingleChildScrollView(
@@ -95,59 +112,123 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text("SHIFT SUMMARY",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey, letterSpacing: 2)),
-                const Divider(thickness: 2),
-                _receiptRow(
-                    "Date/Time",
-                    report.dateCreated
-                        .toIso8601String()
-                        .split('.')[0]
-                        .replaceFirst('T', ' ')),
-                _receiptRow("Documents",
-                    "#${report.fromDocumentId} to #${report.toDocumentId}"),
-                const Divider(),
-                _receiptRow(
-                    "Total Sales", "${report.totalSales.toStringAsFixed(2)} $sym"),
-                _receiptRow("Total Returns",
-                    "${report.totalReturns.toStringAsFixed(2)} $sym"),
-                _receiptRow("Discounts",
-                    "${report.discountsGranted.toStringAsFixed(2)} $sym"),
-                _receiptRow("Taxable Total",
-                    "${report.taxableTotal.toStringAsFixed(2)} $sym"),
-                _receiptRow(
-                    "Total Tax", "${report.totalTax.toStringAsFixed(2)} $sym"),
-                const Divider(thickness: 2),
+                Text(
+                  "SHIFT SUMMARY",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    letterSpacing: 2,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 8),
-                const Text("TENDER TYPES",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontWeight: FontWeight.bold)),
+                Divider(color: theme.colorScheme.outlineVariant),
+                const SizedBox(height: 8),
+                _receiptRow(
+                  "Date/Time",
+                  report.dateCreated
+                      .toIso8601String()
+                      .split('.')[0]
+                      .replaceFirst('T', ' '),
+                  theme,
+                ),
+                _receiptRow(
+                  "Documents",
+                  "#${report.fromDocumentId} to #${report.toDocumentId}",
+                  theme,
+                ),
+                const SizedBox(height: 8),
+                Divider(color: theme.colorScheme.outlineVariant),
+                const SizedBox(height: 8),
+                _receiptRow(
+                  "Total Sales",
+                  "${report.totalSales.toStringAsFixed(2)} $sym",
+                  theme,
+                ),
+                _receiptRow(
+                  "Total Returns",
+                  "${report.totalReturns.toStringAsFixed(2)} $sym",
+                  theme,
+                ),
+                _receiptRow(
+                  "Discounts",
+                  "${report.discountsGranted.toStringAsFixed(2)} $sym",
+                  theme,
+                ),
+                _receiptRow(
+                  "Taxable Total",
+                  "${report.taxableTotal.toStringAsFixed(2)} $sym",
+                  theme,
+                ),
+                _receiptRow(
+                  "Total Tax",
+                  "${report.totalTax.toStringAsFixed(2)} $sym",
+                  theme,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  "TENDER TYPES",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    letterSpacing: 2,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Divider(color: theme.colorScheme.outlineVariant),
                 const SizedBox(height: 8),
                 if (report.paymentSummaries.isEmpty)
-                  const Text("No payments recorded.",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontStyle: FontStyle.italic)),
-                ...report.paymentSummaries.map((p) => _receiptRow(
+                  Text(
+                    "No payments recorded.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontStyle: FontStyle.italic,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ...report.paymentSummaries.map(
+                  (p) => _receiptRow(
                     p.paymentTypeName ?? "Unknown",
-                    "${p.totalAmount.toStringAsFixed(2)} $sym")),
-                const Divider(thickness: 2),
-                _receiptRow(
-                    "GRAND TOTAL", "${report.grandTotal.toStringAsFixed(2)} $sym",
-                    isBold: true),
+                    "${p.totalAmount.toStringAsFixed(2)} $sym",
+                    theme,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: _receiptRow(
+                    "GRAND TOTAL",
+                    "${report.grandTotal.toStringAsFixed(2)} $sym",
+                    theme,
+                    isBold: true,
+                    overrideColor: theme.colorScheme.onPrimaryContainer,
+                  ),
+                ),
               ],
             ),
           ),
         ),
+        actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
         actions: [
           TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text("Close")),
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text("Close"),
+          ),
           ElevatedButton.icon(
             icon: const Icon(Icons.print),
             label: const Text("Print Receipt"),
             style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.indigo, foregroundColor: Colors.white),
+              backgroundColor: theme.colorScheme.primary,
+              foregroundColor: theme.colorScheme.onPrimary,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
             onPressed: () async {
               Navigator.of(ctx).pop();
               await ReceiptPrinterService().printZReport(
@@ -156,26 +237,40 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
                 roleSettings: ref.read(appSettingsProvider),
               );
             },
-          )
+          ),
         ],
       ),
     );
   }
 
-  Widget _receiptRow(String label, String value, {bool isBold = false}) {
+  Widget _receiptRow(
+    String label,
+    String value,
+    ThemeData theme, {
+    bool isBold = false,
+    Color? overrideColor,
+  }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label,
-              style: TextStyle(
-                  fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-                  fontSize: isBold ? 16 : 14)),
-          Text(value,
-              style: TextStyle(
-                  fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-                  fontSize: isBold ? 16 : 14)),
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
+              fontSize: isBold ? 16 : 14,
+              color: overrideColor ?? theme.colorScheme.onSurface,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: isBold ? FontWeight.bold : FontWeight.w600,
+              fontSize: isBold ? 18 : 14,
+              color: overrideColor ?? theme.colorScheme.onSurface,
+            ),
+          ),
         ],
       ),
     );
@@ -183,32 +278,52 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return DefaultTabController(
       length: 2,
       child: Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
         appBar: AppBar(
           title: const Text("End of Day"),
-          bottom: const TabBar(
-            tabs: [
+          centerTitle: false,
+          elevation: 0,
+          bottom: TabBar(
+            indicatorColor: theme.colorScheme.primary,
+            labelColor: theme.colorScheme.primary,
+            unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+            tabs: const [
               Tab(text: "Current Shift (Open)"),
               Tab(text: "History (Z-Reports)"),
             ],
           ),
           actions: [
             Padding(
-              padding: const EdgeInsets.all(8.0),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16.0,
+                vertical: 8.0,
+              ),
               child: _isGenerating
-                  ? const Center(
-                      child: CircularProgressIndicator(color: Colors.white))
+                  ? Center(
+                      child: CircularProgressIndicator(
+                        color: theme.colorScheme.primary,
+                      ),
+                    )
                   : ElevatedButton.icon(
                       icon: const Icon(Icons.lock_clock),
                       label: const Text("Close Register"),
                       style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.pink,
-                          foregroundColor: Colors.white),
+                        backgroundColor: theme.colorScheme.errorContainer,
+                        foregroundColor: theme.colorScheme.onErrorContainer,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
                       onPressed: _closeRegister,
                     ),
-            )
+            ),
           ],
         ),
         body: TabBarView(
@@ -227,16 +342,38 @@ class _CurrentShiftTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final asyncUnreported = ref.watch(unreportedPaymentsProvider);
+    final theme = Theme.of(context);
 
     return asyncUnreported.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(
-          child: Text("Error: $e", style: const TextStyle(color: Colors.red))),
+        child: Text(
+          "Error: $e",
+          style: TextStyle(color: theme.colorScheme.error),
+        ),
+      ),
       data: (payments) {
         if (payments.isEmpty) {
-          return const Center(
-            child: Text("No open transactions. The register is balanced.",
-                style: TextStyle(fontSize: 18, color: Colors.grey)),
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.check_circle_outline,
+                  size: 64,
+                  color: theme.colorScheme.primary,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  "No open transactions.\nThe register is balanced.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
           );
         }
 
@@ -249,121 +386,216 @@ class _CurrentShiftTab extends ConsumerWidget {
           grandTotal += p.amount;
         }
 
-        return Row(
-          children: [
-            // LEFT PANEL: Preview
-            Expanded(
-              flex: 1,
-              child: Container(
-                color: const Color(0xFF2B3344),
-                padding: const EdgeInsets.all(32.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    ...totalsByType.entries.map((e) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4.0),
+        return Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // LEFT PANEL: Breakdown Card
+              Expanded(
+                flex: 1,
+                child: Card(
+                  elevation: 0,
+                  color: theme.colorScheme.surface,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(
+                      color: theme.colorScheme.outlineVariant,
+                      width: 1,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(32.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          "Tender Breakdown",
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        ...totalsByType.entries.map(
+                          (e) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12.0),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  e.key,
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onSurface,
+                                    fontSize: 18,
+                                  ),
+                                ),
+                                Text(
+                                  e.value.toStringAsFixed(2),
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onSurface,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Divider(color: theme.colorScheme.outlineVariant),
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Text(e.key,
-                                  style: const TextStyle(
-                                      color: Colors.white, fontSize: 16)),
-                              Text(e.value.toStringAsFixed(2),
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold)),
+                              Text(
+                                "EXPECTED IN DRAWER",
+                                style: TextStyle(
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                grandTotal.toStringAsFixed(2),
+                                style: TextStyle(
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
                             ],
                           ),
-                        )),
-                    const SizedBox(height: 8),
-                    const Divider(color: Colors.grey, thickness: 1),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text("TOTAL:",
-                            style: TextStyle(
-                                color: Colors.pinkAccent,
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold)),
-                        Text(grandTotal.toStringAsFixed(2),
-                            style: const TextStyle(
-                                color: Colors.pinkAccent,
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold)),
+                        ),
                       ],
                     ),
-                    const SizedBox(height: 32),
-                  ],
+                  ),
                 ),
               ),
-            ),
-            // RIGHT PANEL: Details
-            Expanded(
-              flex: 1,
-              child: Container(
-                color: const Color(0xFF222835),
-                padding: const EdgeInsets.all(32.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text("Open transactions",
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.w300)),
-                    const SizedBox(height: 24),
-                    Text(
-                        ref
-                                .watch(currentUserProvider)
-                                ?.displayName
-                                .toUpperCase() ??
-                            "UNKNOWN USER",
-                        style: const TextStyle(
-                            color: Colors.grey,
-                            fontSize: 14,
-                            letterSpacing: 1.5)),
-                    const SizedBox(height: 16),
-                    ...totalsByType.entries.map((e) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8.0),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(e.key,
-                                  style: const TextStyle(
-                                      color: Colors.white70, fontSize: 16)),
-                              Text(e.value.toStringAsFixed(2),
-                                  style: const TextStyle(
-                                      color: Colors.white, fontSize: 16)),
-                            ],
-                          ),
-                        )),
-                    const SizedBox(height: 16),
-                    const Divider(color: Colors.grey),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              const SizedBox(width: 24),
+              // RIGHT PANEL: Details Card
+              Expanded(
+                flex: 1,
+                child: Card(
+                  elevation: 0,
+                  color: theme.colorScheme.surface,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: BorderSide(
+                      color: theme.colorScheme.outlineVariant,
+                      width: 1,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(32.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text("TOTAL:",
-                            style: TextStyle(
-                                color: Colors.pinkAccent,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold)),
-                        Text(grandTotal.toStringAsFixed(2),
-                            style: const TextStyle(
-                                color: Colors.pinkAccent,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold)),
+                        Text(
+                          "Shift Details",
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        _buildDetailRow(
+                          "Cashier on Duty",
+                          ref.watch(currentUserProvider)?.displayName ??
+                              "UNKNOWN USER",
+                          Icons.person_outline,
+                          theme,
+                        ),
+                        const SizedBox(height: 24),
+                        _buildDetailRow(
+                          "Transactions",
+                          "${payments.length} open payment(s)",
+                          Icons.receipt_long,
+                          theme,
+                        ),
+                        const SizedBox(height: 24),
+                        _buildDetailRow(
+                          "Status",
+                          "Shift is Open",
+                          Icons.lock_open,
+                          theme,
+                          iconColor: Colors.green,
+                        ),
+                        const SizedBox(height: 32),
+                        Text(
+                          "Closing the register will finalize these transactions, generate a Z-Report, and reset the day's totals. Ensure cash drops are complete before proceeding.",
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            height: 1.5,
+                            fontSize: 13,
+                          ),
+                        ),
                       ],
                     ),
-                  ],
+                  ),
                 ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailRow(
+    String label,
+    String value,
+    IconData icon,
+    ThemeData theme, {
+    Color? iconColor,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: (iconColor ?? theme.colorScheme.primary).withValues(
+              alpha: 0.1,
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: iconColor ?? theme.colorScheme.primary),
+        ),
+        const SizedBox(width: 16),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: TextStyle(
+                color: theme.colorScheme.onSurface,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
-        );
-      },
+        ),
+      ],
     );
   }
 }
@@ -378,36 +610,97 @@ class _ZReportHistoryTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final sym = ref.watch(currencySymbolProvider);
     final asyncReports = ref.watch(allZReportsProvider);
+    final theme = Theme.of(context);
 
     return asyncReports.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(
-          child: Text("Error: $e", style: const TextStyle(color: Colors.red))),
+        child: Text(
+          "Error: $e",
+          style: TextStyle(color: theme.colorScheme.error),
+        ),
+      ),
       data: (reports) {
         if (reports.isEmpty) {
-          return const Center(child: Text("No Z-Reports generated yet."));
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.history,
+                  size: 64,
+                  color: theme.colorScheme.onSurfaceVariant.withValues(
+                    alpha: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  "No Z-Reports generated yet.",
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          );
         }
         return ListView.builder(
+          padding: const EdgeInsets.all(16),
           itemCount: reports.length,
           itemBuilder: (context, index) {
             final report = reports[index];
             return Card(
-              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              elevation: 0,
+              color: theme.colorScheme.surface,
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: theme.colorScheme.outlineVariant,
+                  width: 1,
+                ),
+              ),
               child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.indigo.shade100,
-                  child: Text("#${report.number}",
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, color: Colors.indigo)),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 8,
+                ),
+                leading: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    "#${report.number}",
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
+                  ),
                 ),
                 title: Text(
-                    "Z-Report generated on ${report.dateCreated.toIso8601String().split('T').first}"),
-                subtitle: Text(
-                    "Documents: #${report.fromDocumentId} - #${report.toDocumentId} | Grand Total: ${report.grandTotal.toStringAsFixed(2)} $sym"),
-                trailing: IconButton(
-                  icon: const Icon(Icons.receipt_long, color: Colors.teal),
-                  onPressed: () => onViewReceipt(report),
-                  tooltip: "View Receipt",
+                  "Z-Report • ${report.dateCreated.toIso8601String().split('T').first}",
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 4.0),
+                  child: Text(
+                    "Documents: #${report.fromDocumentId} - #${report.toDocumentId}  •  Grand Total: ${report.grandTotal.toStringAsFixed(2)} $sym",
+                    style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                ),
+                trailing: Tooltip(
+                  message: "View & Print Receipt",
+                  child: IconButton(
+                    icon: Icon(
+                      Icons.receipt_long,
+                      color: theme.colorScheme.primary,
+                    ),
+                    onPressed: () => onViewReceipt(report),
+                    splashRadius: 24,
+                  ),
                 ),
               ),
             );

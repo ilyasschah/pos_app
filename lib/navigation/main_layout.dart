@@ -6,25 +6,41 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/menu/menu_screen.dart';
 import 'package:pos_app/menu/open_orders_screen.dart';
 import 'package:pos_app/bookings/bookings_screen.dart';
+import 'package:pos_app/floor_plan/floor_plan_screen.dart'; // Make sure to import this!
+import 'package:pos_app/reports/z_report_screen.dart';
 import 'package:pos_app/navigation/nav_widgets.dart';
 import 'package:pos_app/navigation/management_layout.dart';
 import 'package:pos_app/navigation/power_modal.dart';
+import 'package:pos_app/settings/settings_screen.dart';
+import 'package:window_manager/window_manager.dart';
 
 class MainLayout extends ConsumerStatefulWidget {
-  const MainLayout({super.key});
+  // Add this so we can start the app on any screen!
+  final int initialIndex;
+
+  const MainLayout({super.key, this.initialIndex = 0});
 
   @override
   ConsumerState<MainLayout> createState() => _MainLayoutState();
 }
 
 class _MainLayoutState extends ConsumerState<MainLayout> {
-  int _selectedIndex = 0;
+  late int _selectedIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    // Set the starting screen based on the parameter passed in
+    _selectedIndex = widget.initialIndex;
+  }
 
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(appSettingsProvider);
     final bookingEnabled =
         settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
+    final floorPlanEnabled =
+        settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
     final company = ref.watch(selectedCompanyProvider);
     final companyName = company?.name ?? "Default Branch";
 
@@ -32,8 +48,13 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     final List<Widget> screens = [
       const MenuScreen(), // Index 0
       const OpenOrdersScreen(), // Index 1
-      if (bookingEnabled) const BookingsScreen(),
-      // Add other POS screens here (Cash In/Out, End of Day)
+      bookingEnabled
+          ? const BookingsScreen()
+          : const SizedBox.shrink(), // Index 2
+      floorPlanEnabled
+          ? const FloorPlanScreen()
+          : const SizedBox.shrink(), // Index 3
+      const EndOfDayScreen(), // Index 4
     ];
 
     return Scaffold(
@@ -48,7 +69,6 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
               children: [
                 NavSidebarHeader(name: companyName),
 
-                // Management Transition Button
                 NavItem(
                   icon: Icons.build_circle,
                   label: "Management",
@@ -76,7 +96,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                 NavItem(
                   icon: Icons.receipt_long,
                   label: "View sales history",
-                  isActive: _selectedIndex == 99, // Add real index
+                  isActive: _selectedIndex == 99,
                   onTap: () {},
                 ),
                 NavItem(
@@ -92,6 +112,13 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     isActive: _selectedIndex == 2,
                     onTap: () => setState(() => _selectedIndex = 2),
                   ),
+                if (floorPlanEnabled)
+                  NavItem(
+                    icon: Icons.grid_view,
+                    label: settings[SettingKeys.tablesButtonLabel] ?? "Tables",
+                    isActive: _selectedIndex == 3,
+                    onTap: () => setState(() => _selectedIndex = 3),
+                  ),
                 NavItem(
                   icon: Icons.download,
                   label: "Cash In / Out",
@@ -105,7 +132,8 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                 NavItem(
                   icon: Icons.directions_run,
                   label: "End of day",
-                  onTap: () {},
+                  isActive: _selectedIndex == 4,
+                  onTap: () => setState(() => _selectedIndex = 4),
                 ),
 
                 const NavSectionLabel("User"),
@@ -139,13 +167,22 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                       NavIconButton(
                         icon: Icons.tune,
                         tooltip: "Quick Settings",
-                        onTap: () {},
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const SettingsScreen(),
+                            ),
+                          );
+                        },
                       ),
                       NavIconButton(
                         icon: Icons.fullscreen,
                         tooltip: "Full Screen",
-                        onTap: () {
-                          // Toggle window_manager full screen
+                        onTap: () async {
+                          bool isFullScreen = await windowManager
+                              .isFullScreen();
+                          await windowManager.setFullScreen(!isFullScreen);
                         },
                       ),
                       NavIconButton(

@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:pos_app/navigation/nav_widgets.dart'; // Adjust path if needed
+import 'package:pos_app/navigation/nav_widgets.dart';
 
 class PowerModal extends StatelessWidget {
   const PowerModal({super.key});
@@ -43,9 +43,15 @@ class PowerModal extends StatelessWidget {
                   icon: Icons.refresh,
                   label: "Restart application",
                   iconColor: Colors.white,
-                  onTap: () {
-                    // TODO: Implement app restart logic or window reload
-                    Navigator.pop(context);
+                  onTap: () async {
+                    try {
+                      await Process.run(Platform.resolvedExecutable, []);
+                      exit(0);
+                    } catch (e) {
+                      if (context.mounted) {
+                        Navigator.pop(context);
+                      }
+                    }
                   },
                 ),
                 _PowerOptionCard(
@@ -53,9 +59,23 @@ class PowerModal extends StatelessWidget {
                   label: "Turn off PC",
                   iconColor: Colors.redAccent,
                   textColor: Colors.redAccent,
-                  onTap: () {
-                    // TODO: Execute system shutdown command via Process.run
-                    Navigator.pop(context);
+                  onTap: () async {
+                    try {
+                      if (Platform.isWindows) {
+                        await Process.run('shutdown', ['/s', '/t', '0']);
+                      } else if (Platform.isMacOS) {
+                        await Process.run('osascript', [
+                          '-e',
+                          'tell app "System Events" to shut down',
+                        ]);
+                      } else if (Platform.isLinux) {
+                        await Process.run('systemctl', ['poweroff']);
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        Navigator.pop(context);
+                      }
+                    }
                   },
                 ),
               ],

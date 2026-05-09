@@ -5,10 +5,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pos_app/auth/login_screen.dart';
 import 'package:pos_app/company/company_selection_screen.dart';
 import 'package:pos_app/settings/settings_provider.dart';
+import 'package:window_manager/window_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
+  await windowManager.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
 
   runApp(

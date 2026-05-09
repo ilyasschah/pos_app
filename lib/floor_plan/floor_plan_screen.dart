@@ -10,8 +10,7 @@ import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'widgets/table_widget.dart';
 import 'widgets/side_panel.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
-import 'package:pos_app/bookings/bookings_screen.dart';
-import 'package:pos_app/widgets/shared_drawer.dart';
+import 'package:pos_app/navigation/main_layout.dart';
 
 class FloorPlanScreen extends ConsumerStatefulWidget {
   const FloorPlanScreen({Key? key}) : super(key: key);
@@ -26,7 +25,6 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
   @override
   void initState() {
     super.initState();
-    // ✨ Task 3: Auto-refresh Polling (15s)
     _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
       _refreshData(silent: true);
     });
@@ -41,8 +39,6 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
   void _refreshData({bool silent = false}) {
     ref.invalidate(allFloorPlansProvider);
     ref.invalidate(tablesByFloorPlanProvider);
-    // Note: Riverpod automatically keeps the old data on the screen (isRefreshing)
-    // until the new data arrives, naturally creating a "silent" refresh!
   }
 
   @override
@@ -53,31 +49,38 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
 
     final companyId = ref.watch(selectedCompanyProvider)?.id ?? 0;
     final userId = ref.watch(currentUserProvider)?.id ?? 0;
-    final selectedWarehouse = ref.watch(selectedWarehouseProvider);
-    final warehouseId = selectedWarehouse?.id ?? 1;
+    final warehouseId = ref.watch(selectedWarehouseProvider)?.id ?? 1;
     final settings = ref.watch(appSettingsProvider);
-    final industryMode = settings[SettingKeys.industryMode] ?? 'FB';
-    final isService = industryMode == 'Service';
+    final isService = (settings[SettingKeys.industryMode] ?? 'FB') == 'Service';
+    final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF2C3E50),
-      drawer: const SharedDrawer(),
+      backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(
+        alpha: 0.3,
+      ),
       endDrawer: SidePanel(isService: isService),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1F2937),
+        automaticallyImplyLeading: false,
+        backgroundColor: theme.colorScheme.surface,
+        elevation: 1,
         title: plansAsync.when(
           loading: () => const SizedBox(
             width: 20,
             height: 20,
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
-          error: (err, stack) => Text(isService ? "Error loading resources" : "Error loading rooms"),
+          error: (err, stack) => Text(
+            isService ? "Error loading resources" : "Error loading rooms",
+          ),
           data: (plans) {
-            if (plans.isEmpty) return Text(isService ? "No Resources" : "No Floor Plans");
+            if (plans.isEmpty)
+              return Text(isService ? "No Resources" : "No Floor Plans");
             if (fpState.activeFloorPlanId == null) {
-              Future.microtask(() => ref
-                  .read(floorPlanProvider.notifier)
-                  .setActiveFloorPlan(plans.first.id));
+              Future.microtask(
+                () => ref
+                    .read(floorPlanProvider.notifier)
+                    .setActiveFloorPlan(plans.first.id),
+              );
             }
             return SizedBox(
               height: 50,
@@ -93,19 +96,33 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
                         .setActiveFloorPlan(plan.id),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 12),
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
                       decoration: BoxDecoration(
-                          color: isActive
-                              ? const Color(0xFFD81B60)
-                              : Colors.transparent,
-                          border: Border(
-                              bottom: BorderSide(
-                                  color: const Color(0xFFD81B60),
-                                  width: isActive ? 0 : 2))),
+                        border: Border(
+                          bottom: BorderSide(
+                            color: isActive
+                                ? theme.colorScheme.primary
+                                : Colors.transparent,
+                            width: 3,
+                          ),
+                        ),
+                      ),
                       child: Center(
-                          child: Text(plan.name,
-                              style: const TextStyle(
-                                  color: Colors.white, fontSize: 16))),
+                        child: Text(
+                          plan.name,
+                          style: TextStyle(
+                            color: isActive
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.onSurfaceVariant,
+                            fontSize: 15,
+                            fontWeight: isActive
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ),
                     ),
                   );
                 },
@@ -116,54 +133,89 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
         actions: [
           if ((settings[SettingKeys.featureBookingEnabled] ?? 'true') == 'true')
             IconButton(
-              icon: const Icon(Icons.calendar_month, color: Colors.white),
+              icon: const Icon(Icons.calendar_month),
+              color: theme.colorScheme.primary,
               tooltip: 'Bookings',
-              onPressed: () => Navigator.push(
+              onPressed: () => Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(builder: (_) => const BookingsScreen()),
+                MaterialPageRoute(
+                  builder: (_) => const MainLayout(initialIndex: 2),
+                ),
               ),
             ),
-          // ✨ Task 2: Manual Refresh Button
           IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white),
+            icon: Icon(
+              Icons.refresh,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             onPressed: () => _refreshData(),
           ),
           Builder(
-              builder: (context) => IconButton(
-                  icon: const Icon(Icons.menu, color: Colors.white),
-                  onPressed: () => Scaffold.of(context).openEndDrawer()))
+            builder: (context) => IconButton(
+              icon: Icon(Icons.tune, color: theme.colorScheme.onSurfaceVariant),
+              tooltip: "Floor Plan Settings",
+              onPressed: () => Scaffold.of(context).openEndDrawer(),
+            ),
+          ),
         ],
       ),
       body: GestureDetector(
         onTap: () =>
             ref.read(floorPlanTableProvider.notifier).selectTable(null),
-        child: Container(
-          width: double.infinity,
-          height: double.infinity,
-          color: Colors.transparent,
-          child: tablesAsync.when(
-            loading: () => const Center(child: CircularProgressIndicator()),
-            error: (err, stack) => const Center(
-                child: Text("Error loading tables",
-                    style: TextStyle(color: Colors.white))),
-            data: (tables) {
-              return Stack(
-                children: [
-                  ...tables
-                      .map((t) => TableWidget(
+        child: CustomPaint(
+          painter: fpState.showGrid
+              ? _GridPainter(theme.dividerColor.withValues(alpha: 0.5))
+              : null,
+          child: Container(
+            width: double.infinity,
+            height: double.infinity,
+            color: Colors.transparent,
+            child: tablesAsync.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (err, stack) =>
+                  const Center(child: Text("Error loading tables")),
+              data: (tables) {
+                return Stack(
+                  children: [
+                    ...tables
+                        .map(
+                          (t) => TableWidget(
                             key: ValueKey(t.id),
                             table: t,
                             companyId: companyId,
                             userId: userId,
                             warehouseId: warehouseId,
-                          ))
-                      .toList(),
-                ],
-              );
-            },
+                          ),
+                        )
+                        .toList(),
+                  ],
+                );
+              },
+            ),
           ),
         ),
       ),
     );
   }
+}
+
+// Draws a subtle grid background
+class _GridPainter extends CustomPainter {
+  final Color color;
+  _GridPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+    const double step = 40;
+    for (double i = 0; i < size.width; i += step)
+      canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
+    for (double i = 0; i < size.height; i += step)
+      canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
