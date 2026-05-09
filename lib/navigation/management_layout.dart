@@ -23,143 +23,197 @@ class _ManagementLayoutState extends State<ManagementLayout> {
 
   @override
   Widget build(BuildContext context) {
-    // --- INJECT YOUR REAL SCREENS INTO THIS LIST ---
+    // 1. Detect Screen Size
+    final isDesktop = MediaQuery.of(context).size.width >= 850;
+
     final List<Widget> screens = [
-      const DashboardScreen(),
-      const DocumentsScreen(),
-      const ProductsScreen(),
-      const StockScreen(),
-      const PlaceholderScreen(title: "Reporting"), // Replace when ready
-      const CustomersScreen(),
-      const PromotionsListScreen(),
-      const UsersScreen(),
-      const PaymentTypesScreen(),
-      const PlaceholderScreen(title: "Countries"), // Replace when ready
-      const TaxRatesScreen(),
-      const MyCompanyScreen(),
+      const DashboardScreen(), // Index 0
+      const DocumentsScreen(), // Index 1
+      const ProductsScreen(), // Index 2
+      const StockScreen(), // Index 3
+      const PlaceholderScreen(title: "Reporting"), // Index 4
+      const CustomersScreen(), // Index 5
+      const PromotionsListScreen(), // Index 6
+      const UsersScreen(), // Index 7
+      const PaymentTypesScreen(), // Index 8
+      const PlaceholderScreen(title: "Countries"), // Index 9
+      const TaxRatesScreen(), // Index 10
+      const MyCompanyScreen(), // Index 11
     ];
+
+    void handleNavTap(int index) {
+      setState(() => _selectedIndex = index);
+      if (!isDesktop && Scaffold.of(context).hasDrawer) {
+        Navigator.pop(context); // Auto-close drawer on mobile tap
+      }
+    }
+
+    // 2. Extract Sidebar Content
+    Widget sidebar = Container(
+      width: kSidebarW,
+      color: kNavSidebar,
+      child: SafeArea(
+        child: Column(
+          children: [
+            // Top Back Button
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+              alignment: Alignment.centerLeft,
+              child: InkWell(
+                onTap: () => Navigator.pop(context),
+                child: Row(
+                  children: const [
+                    Icon(Icons.arrow_back, color: Colors.white, size: 20),
+                    SizedBox(width: 8),
+                    Text(
+                      "POS System",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // 3. Make Menu Scrollable
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    NavItem(
+                      icon: Icons.dashboard,
+                      label: "Dashboard",
+                      isActive: _selectedIndex == 0,
+                      onTap: () => handleNavTap(0),
+                    ),
+                    NavItem(
+                      icon: Icons.description,
+                      label: "Documents",
+                      isActive: _selectedIndex == 1,
+                      onTap: () => handleNavTap(1),
+                    ),
+                    NavItem(
+                      icon: Icons.local_offer,
+                      label: "Products",
+                      isActive: _selectedIndex == 2,
+                      onTap: () => handleNavTap(2),
+                    ),
+                    NavItem(
+                      icon: Icons.inventory_2,
+                      label: "Stock",
+                      isActive: _selectedIndex == 3,
+                      onTap: () => handleNavTap(3),
+                    ),
+                    NavItem(
+                      icon: Icons.bar_chart,
+                      label: "Reporting",
+                      isActive: _selectedIndex == 4,
+                      onTap: () => handleNavTap(4),
+                    ),
+                    NavItem(
+                      icon: Icons.people,
+                      label: "Customers & suppliers",
+                      isActive: _selectedIndex == 5,
+                      onTap: () => handleNavTap(5),
+                    ),
+                    NavItem(
+                      icon: Icons.favorite,
+                      label: "Promotions",
+                      isActive: _selectedIndex == 6,
+                      onTap: () => handleNavTap(6),
+                    ),
+                    NavItem(
+                      icon: Icons.vpn_key,
+                      label: "Users & security",
+                      isActive: _selectedIndex == 7,
+                      onTap: () => handleNavTap(7),
+                    ),
+                    NavItem(
+                      icon: Icons.credit_card,
+                      label: "Payment types",
+                      isActive: _selectedIndex == 8,
+                      onTap: () => handleNavTap(8),
+                    ),
+                    NavItem(
+                      icon: Icons.public,
+                      label: "Countries",
+                      isActive: _selectedIndex == 9,
+                      onTap: () => handleNavTap(9),
+                    ),
+                    NavItem(
+                      icon: Icons.percent,
+                      label: "Tax rates",
+                      isActive: _selectedIndex == 10,
+                      onTap: () => handleNavTap(10),
+                    ),
+                    NavItem(
+                      icon: Icons.business,
+                      label: "My company",
+                      isActive: _selectedIndex == 11,
+                      onTap: () => handleNavTap(11),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
 
     return Scaffold(
       backgroundColor: kNavBg,
+      // 4. Attach Drawer ONLY for Mobile
+      drawer: isDesktop
+          ? null
+          : Drawer(backgroundColor: kNavSidebar, child: sidebar),
       body: Row(
         children: [
-          // TIER 2 SIDEBAR
-          Container(
-            width: kSidebarW,
-            color: kNavSidebar,
-            child: Column(
-              children: [
-                // Top Back Button
-                Container(
-                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
-                  alignment: Alignment.centerLeft,
-                  child: InkWell(
-                    onTap: () => Navigator.pop(context),
-                    child: Row(
-                      children: const [
-                        Icon(Icons.arrow_back, color: Colors.white, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          "Management",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+          if (isDesktop) sidebar,
 
-                Expanded(
-                  child: ListView(
-                    padding: EdgeInsets.zero,
-                    children: [
-                      NavItem(
-                        icon: Icons.dashboard,
-                        label: "Dashboard",
-                        isActive: _selectedIndex == 0,
-                        onTap: () => setState(() => _selectedIndex = 0),
-                      ),
-                      NavItem(
-                        icon: Icons.description,
-                        label: "Documents",
-                        isActive: _selectedIndex == 1,
-                        onTap: () => setState(() => _selectedIndex = 1),
-                      ),
-                      NavItem(
-                        icon: Icons.local_offer,
-                        label: "Products",
-                        isActive: _selectedIndex == 2,
-                        onTap: () => setState(() => _selectedIndex = 2),
-                      ),
-                      NavItem(
-                        icon: Icons.inventory_2,
-                        label: "Stock",
-                        isActive: _selectedIndex == 3,
-                        onTap: () => setState(() => _selectedIndex = 3),
-                      ),
-                      NavItem(
-                        icon: Icons.bar_chart,
-                        label: "Reporting",
-                        isActive: _selectedIndex == 4,
-                        onTap: () => setState(() => _selectedIndex = 4),
-                      ),
-                      NavItem(
-                        icon: Icons.people,
-                        label: "Customers & suppliers",
-                        isActive: _selectedIndex == 5,
-                        onTap: () => setState(() => _selectedIndex = 5),
-                      ),
-                      NavItem(
-                        icon: Icons.favorite,
-                        label: "Promotions",
-                        isActive: _selectedIndex == 6,
-                        onTap: () => setState(() => _selectedIndex = 6),
-                      ),
-                      NavItem(
-                        icon: Icons.vpn_key,
-                        label: "Users & security",
-                        isActive: _selectedIndex == 7,
-                        onTap: () => setState(() => _selectedIndex = 7),
-                      ),
-                      NavItem(
-                        icon: Icons.credit_card,
-                        label: "Payment types",
-                        isActive: _selectedIndex == 8,
-                        onTap: () => setState(() => _selectedIndex = 8),
-                      ),
-                      NavItem(
-                        icon: Icons.public,
-                        label: "Countries",
-                        isActive: _selectedIndex == 9,
-                        onTap: () => setState(() => _selectedIndex = 9),
-                      ),
-                      NavItem(
-                        icon: Icons.percent,
-                        label: "Tax rates",
-                        isActive: _selectedIndex == 10,
-                        onTap: () => setState(() => _selectedIndex = 10),
-                      ),
-                      NavItem(
-                        icon: Icons.business,
-                        label: "My company",
-                        isActive: _selectedIndex == 11,
-                        onTap: () => setState(() => _selectedIndex = 11),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // ACTIVE SCREEN CONTENT
           Expanded(
             child: ClipRect(
-              // This automatically loads the real screen based on what is clicked!
-              child: screens[_selectedIndex],
+              child: Column(
+                children: [
+                  // 5. Mini Header for Hamburger icon on Mobile
+                  if (!isDesktop)
+                    Container(
+                      height: kToolbarHeight,
+                      color: kNavSidebar,
+                      child: Row(
+                        children: [
+                          Builder(
+                            builder: (ctx) => IconButton(
+                              icon: const Icon(Icons.menu, color: Colors.white),
+                              onPressed: () => Scaffold.of(ctx).openDrawer(),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            "Management",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.white),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // The real management screen
+                  Expanded(child: screens[_selectedIndex]),
+                ],
+              ),
             ),
           ),
         ],
