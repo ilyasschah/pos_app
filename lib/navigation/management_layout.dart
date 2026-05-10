@@ -20,11 +20,14 @@ class ManagementLayout extends StatefulWidget {
 
 class _ManagementLayoutState extends State<ManagementLayout> {
   int _selectedIndex = 0;
+  bool _isSidebarVisible = true; // ✨ NEW: Desktop Sidebar Toggle State
 
   @override
   Widget build(BuildContext context) {
-    // 1. Detect Screen Size
     final isDesktop = MediaQuery.of(context).size.width >= 850;
+
+    // ✨ Only show the permanent sidebar if we are on Desktop AND it hasn't been hidden
+    final showPermanentSidebar = isDesktop && _isSidebarVisible;
 
     final List<Widget> screens = [
       const DashboardScreen(), // Index 0
@@ -44,41 +47,52 @@ class _ManagementLayoutState extends State<ManagementLayout> {
     void handleNavTap(int index) {
       setState(() => _selectedIndex = index);
       if (!isDesktop && Scaffold.of(context).hasDrawer) {
-        Navigator.pop(context); // Auto-close drawer on mobile tap
+        Navigator.pop(context);
       }
     }
 
-    // 2. Extract Sidebar Content
     Widget sidebar = Container(
       width: kSidebarW,
       color: kNavSidebar,
       child: SafeArea(
         child: Column(
           children: [
-            // Top Back Button
+            // ✨ Top header with Desktop collapse button
             Container(
-              padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+              padding: const EdgeInsets.fromLTRB(16, 16, 8, 16),
               alignment: Alignment.centerLeft,
-              child: InkWell(
-                onTap: () => Navigator.pop(context),
-                child: Row(
-                  children: const [
-                    Icon(Icons.arrow_back, color: Colors.white, size: 20),
-                    SizedBox(width: 8),
-                    Text(
-                      "POS System",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => Navigator.pop(context),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.arrow_back, color: Colors.white, size: 20),
+                          SizedBox(width: 8),
+                          Text(
+                            "POS System",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                  if (isDesktop)
+                    IconButton(
+                      icon: const Icon(Icons.menu_open, color: Colors.white70),
+                      tooltip: "Hide Sidebar",
+                      onPressed: () =>
+                          setState(() => _isSidebarVisible = false),
+                    ),
+                ],
               ),
             ),
 
-            // 3. Make Menu Scrollable
             Expanded(
               child: SingleChildScrollView(
                 child: Column(
@@ -167,20 +181,20 @@ class _ManagementLayoutState extends State<ManagementLayout> {
 
     return Scaffold(
       backgroundColor: kNavBg,
-      // 4. Attach Drawer ONLY for Mobile
       drawer: isDesktop
           ? null
           : Drawer(backgroundColor: kNavSidebar, child: sidebar),
       body: Row(
         children: [
-          if (isDesktop) sidebar,
+          // ✨ Conditionally show sidebar based on our new variable
+          if (showPermanentSidebar) sidebar,
 
           Expanded(
             child: ClipRect(
               child: Column(
                 children: [
-                  // 5. Mini Header for Hamburger icon on Mobile
-                  if (!isDesktop)
+                  // ✨ Show the Top Bar if the sidebar is hidden (Mobile OR Desktop)
+                  if (!showPermanentSidebar)
                     Container(
                       height: kToolbarHeight,
                       color: kNavSidebar,
@@ -189,7 +203,15 @@ class _ManagementLayoutState extends State<ManagementLayout> {
                           Builder(
                             builder: (ctx) => IconButton(
                               icon: const Icon(Icons.menu, color: Colors.white),
-                              onPressed: () => Scaffold.of(ctx).openDrawer(),
+                              onPressed: () {
+                                if (isDesktop) {
+                                  // Restore Desktop Sidebar
+                                  setState(() => _isSidebarVisible = true);
+                                } else {
+                                  // Open Mobile Drawer
+                                  Scaffold.of(ctx).openDrawer();
+                                }
+                              },
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -210,7 +232,7 @@ class _ManagementLayoutState extends State<ManagementLayout> {
                       ),
                     ),
 
-                  // The real management screen
+                  // Active Screen
                   Expanded(child: screens[_selectedIndex]),
                 ],
               ),

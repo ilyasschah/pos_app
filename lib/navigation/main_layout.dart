@@ -13,6 +13,7 @@ import 'package:pos_app/navigation/management_layout.dart';
 import 'package:pos_app/navigation/power_modal.dart';
 import 'package:pos_app/settings/settings_screen.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:pos_app/auth/user_info_screen.dart';
 
 class MainLayout extends ConsumerStatefulWidget {
   final int initialIndex;
@@ -25,6 +26,7 @@ class MainLayout extends ConsumerStatefulWidget {
 
 class _MainLayoutState extends ConsumerState<MainLayout> {
   late int _selectedIndex;
+  bool _isSidebarVisible = true; // ✨ NEW: Desktop Sidebar Toggle State
 
   @override
   void initState() {
@@ -34,8 +36,10 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Detect if we are on a desktop/tablet vs small mobile screen
     final isDesktop = MediaQuery.of(context).size.width >= 850;
+
+    // ✨ Only show the permanent sidebar if we are on Desktop AND it hasn't been hidden
+    final showPermanentSidebar = isDesktop && _isSidebarVisible;
 
     final settings = ref.watch(appSettingsProvider);
     final bookingEnabled =
@@ -55,26 +59,28 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
           ? const FloorPlanScreen()
           : const SizedBox.shrink(), // Index 3
       const EndOfDayScreen(), // Index 4
+      const UserInfoScreen(), // Index 5
     ];
 
-    // Helper to change screens and automatically close the drawer on mobile
     void handleNavTap(int index) {
       setState(() => _selectedIndex = index);
       if (!isDesktop && Scaffold.of(context).hasDrawer) {
-        Navigator.pop(context); // Close Hamburger Drawer
+        Navigator.pop(context);
       }
     }
 
-    // 2. Wrap the sidebar in a variable so we can use it in both Row AND Drawer
     Widget sidebar = Container(
       width: kSidebarW,
       color: kNavSidebar,
       child: SafeArea(
         child: Column(
           children: [
-            NavSidebarHeader(name: companyName),
-
-            // 3. Make the middle section Scrollable so it never overflows!
+            NavSidebarHeader(
+              name: companyName,
+              onHideSidebar: isDesktop
+                  ? () => setState(() => _isSidebarVisible = false)
+                  : null,
+            ),
             Expanded(
               child: SingleChildScrollView(
                 child: Column(
@@ -152,7 +158,8 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     NavItem(
                       icon: Icons.person_outline,
                       label: "User info",
-                      onTap: () {},
+                      isActive: _selectedIndex == 5,
+                      onTap: () => handleNavTap(5),
                     ),
                     NavItem(
                       icon: Icons.logout,
@@ -226,21 +233,20 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
 
     return Scaffold(
       backgroundColor: kNavBg,
-      // 4. Attach the sidebar to the Drawer only when in mobile view!
       drawer: isDesktop
           ? null
           : Drawer(backgroundColor: kNavSidebar, child: sidebar),
       body: Row(
         children: [
-          // If desktop, permanently show the sidebar
-          if (isDesktop) sidebar,
+          // ✨ Conditionally show sidebar based on our new variable
+          if (showPermanentSidebar) sidebar,
 
           Expanded(
             child: ClipRect(
               child: Column(
                 children: [
-                  // 5. Create a mini top bar with Hamburger menu for Mobile ONLY
-                  if (!isDesktop)
+                  // ✨ Show the Top Bar if the sidebar is hidden (Mobile OR Desktop)
+                  if (!showPermanentSidebar)
                     Container(
                       height: kToolbarHeight,
                       color: kNavSidebar,
@@ -249,7 +255,15 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                           Builder(
                             builder: (ctx) => IconButton(
                               icon: const Icon(Icons.menu, color: Colors.white),
-                              onPressed: () => Scaffold.of(ctx).openDrawer(),
+                              onPressed: () {
+                                if (isDesktop) {
+                                  // Restore Desktop Sidebar
+                                  setState(() => _isSidebarVisible = true);
+                                } else {
+                                  // Open Mobile Drawer
+                                  Scaffold.of(ctx).openDrawer();
+                                }
+                              },
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -268,7 +282,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                       ),
                     ),
 
-                  // The actual active screen
+                  // Active Screen
                   Expanded(child: screens[_selectedIndex]),
                 ],
               ),

@@ -1,17 +1,19 @@
 // Shared design tokens and primitive widgets for the two-tier navigation shell.
 import 'package:flutter/material.dart';
-
+import 'dart:convert';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pos_app/company/company_provider.dart';
 // ── Colour palette ────────────────────────────────────────────────────────────
 
-const kNavBg       = Color(0xFF0D1117);
-const kNavSidebar  = Color(0xFF161B22);
-const kNavHover    = Color(0xFF21262D);
+const kNavBg = Color(0xFF0D1117);
+const kNavSidebar = Color(0xFF161B22);
+const kNavHover = Color(0xFF21262D);
 const kNavActiveBg = Color(0xFF1C2E23);
-const kNavAccent   = Color(0xFF00C896);
-const kNavText     = Color(0xFFC9D1D9);
-const kNavMuted    = Color(0xFF8B949E);
-const kNavDivider  = Color(0xFF30363D);
-const kSidebarW    = 220.0;
+const kNavAccent = Color(0xFF00C896);
+const kNavText = Color(0xFFC9D1D9);
+const kNavMuted = Color(0xFF8B949E);
+const kNavDivider = Color(0xFF30363D);
+const kSidebarW = 220.0;
 
 // ── Section label ─────────────────────────────────────────────────────────────
 
@@ -38,75 +40,114 @@ class NavSectionLabel extends StatelessWidget {
 
 // ── Sidebar company / logo header ─────────────────────────────────────────────
 
-class NavSidebarHeader extends StatelessWidget {
+class NavSidebarHeader extends ConsumerWidget {
   final String name;
-  const NavSidebarHeader({super.key, required this.name});
+  final VoidCallback? onHideSidebar; // ✨ NEW: Pass the collapse action here
+
+  const NavSidebarHeader({super.key, required this.name, this.onHideSidebar});
 
   @override
-  Widget build(BuildContext context) {
-    final letter = name.isNotEmpty ? name[0].toUpperCase() : 'P';
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 20, 14, 14),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final company = ref.watch(selectedCompanyProvider);
+
+    // Safely decode the logo if it exists
+    ImageProvider? logoProvider;
+    if (company?.logo != null && company!.logo!.isNotEmpty) {
+      try {
+        logoProvider = MemoryImage(base64Decode(company.logo!));
+      } catch (_) {}
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        16,
+        24,
+        8,
+        20,
+      ), // Adjusted right padding for the button
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment
+            .start, // Align to top so long text flows down nicely
         children: [
+          // 1. Company Logo
           Container(
-            width: 36,
-            height: 36,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [kNavAccent, Color(0xFF007A5A)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+              color: kNavAccent,
               borderRadius: BorderRadius.circular(10),
+              image: logoProvider != null
+                  ? DecorationImage(image: logoProvider, fit: BoxFit.cover)
+                  : null,
             ),
-            child: Center(
-              child: Text(
-                letter,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 16,
-                ),
-              ),
-            ),
+            child: logoProvider == null
+                ? Center(
+                    child: Text(
+                      name.isNotEmpty ? name[0].toUpperCase() : 'C',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  )
+                : null,
           ),
           const SizedBox(width: 12),
+
+          // 2. Wrap text in Expanded so it drops to the next line smoothly
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: kNavText,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    height: 1.2, // Gives the text breathing room when it wraps
                   ),
+                  // ✨ Removed maxLines and ellipsis so it wraps perfectly!
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 8),
+
+                // 3. Online Status
                 Row(
                   children: [
                     Container(
-                      width: 6,
-                      height: 6,
+                      width: 8,
+                      height: 8,
                       decoration: const BoxDecoration(
                         color: kNavAccent,
                         shape: BoxShape.circle,
                       ),
                     ),
-                    const SizedBox(width: 5),
+                    const SizedBox(width: 6),
                     const Text(
-                      'Online',
-                      style: TextStyle(color: kNavAccent, fontSize: 10),
+                      "Online",
+                      style: TextStyle(
+                        color: kNavAccent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ],
                 ),
               ],
             ),
           ),
+
+          // 4. Hamburger button elegantly placed inside the Row
+          if (onHideSidebar != null)
+            IconButton(
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              icon: const Icon(Icons.menu_open, color: Colors.white70),
+              tooltip: "Hide Sidebar",
+              onPressed: onHideSidebar,
+            ),
         ],
       ),
     );
@@ -144,17 +185,17 @@ class _NavItemState extends State<NavItem> {
 
   @override
   Widget build(BuildContext context) {
-    final active      = widget.isActive;
-    final textColor   = widget.textColor ?? (active ? kNavAccent : kNavText);
-    final iconColor   = widget.iconColor ?? (active ? kNavAccent : kNavMuted);
-    final bg          = active
+    final active = widget.isActive;
+    final textColor = widget.textColor ?? (active ? kNavAccent : kNavText);
+    final iconColor = widget.iconColor ?? (active ? kNavAccent : kNavMuted);
+    final bg = active
         ? kNavActiveBg
         : (_hovered ? kNavHover : Colors.transparent);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
-      onExit:  (_) => setState(() => _hovered = false),
+      onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
         child: Padding(
@@ -189,8 +230,7 @@ class _NavItemState extends State<NavItem> {
                     style: TextStyle(
                       color: textColor,
                       fontSize: 13,
-                      fontWeight:
-                          active ? FontWeight.w600 : FontWeight.w400,
+                      fontWeight: active ? FontWeight.w600 : FontWeight.w400,
                     ),
                   ),
                 ),
@@ -234,7 +274,7 @@ class _NavIconButtonState extends State<NavIconButton> {
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hovered = true),
-        onExit:  (_) => setState(() => _hovered = false),
+        onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
           onTap: widget.onTap,
           child: AnimatedContainer(
