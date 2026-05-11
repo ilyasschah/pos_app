@@ -38,7 +38,7 @@ class _UserInfoScreenState extends ConsumerState<UserInfoScreen> {
     try {
       final dio = createDio();
       final response = await dio.get(
-        '/Auth/GetActiveDevices',
+        '/UserDevicePins/GetActiveDevices',
         queryParameters: {'userId': user.id, 'companyId': user.companyId},
       );
       if (mounted) {
@@ -60,12 +60,9 @@ class _UserInfoScreenState extends ConsumerState<UserInfoScreen> {
     try {
       final dio = createDio();
       await dio.delete(
-        '/Auth/RevokeDevice',
-        queryParameters: {
-          'userId': user.id,
-          'deviceId': deviceId,
-          'companyId': user.companyId,
-        },
+        '/UserDevicePins/RevokeDevice',
+        queryParameters: {'companyId': user.companyId},
+        data: {'userId': user.id, 'deviceId': deviceId},
       );
       _fetchDevices();
       if (mounted) {
@@ -235,10 +232,10 @@ class _UserInfoScreenState extends ConsumerState<UserInfoScreen> {
                           final user = ref.read(currentUserProvider);
                           final dio = createDio();
                           await dio.post(
-                            '/Auth/SetDevicePin',
+                            '/UserDevicePins/SetDevicePin',
+                            queryParameters: {'companyId': user!.companyId},
                             data: {
-                              'userId': user!.id,
-                              'companyId': user.companyId,
+                              'userId': user.id,
                               'deviceId': _currentDeviceId,
                               'pin': pinCtrl.text,
                             },
@@ -337,8 +334,10 @@ class _UserInfoScreenState extends ConsumerState<UserInfoScreen> {
                           ),
                           decoration: BoxDecoration(
                             color: currentUser.accessLevel == 0
-                                ? Colors.orange.withOpacity(0.1)
-                                : theme.colorScheme.primary.withOpacity(0.1),
+                                ? Colors.orange.withValues(alpha: 0.1)
+                                : theme.colorScheme.primary.withValues(
+                                    alpha: 0.1,
+                                  ),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(

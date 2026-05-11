@@ -1,5 +1,7 @@
-TODO : check the settigns if they realy work and effect the application
-TODO : Make a realy login with a token generator 
-TODO : report page 
-TODO  inventory page 
+check the settigns if they realy work and effect the application
+report page 
+inventory page 
 hover ov  er product to show its details in menu screen 
+local PIN cashing
+when i desible a user is not shown on the screen user anymore 
+currensies screen

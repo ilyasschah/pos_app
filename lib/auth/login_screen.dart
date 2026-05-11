@@ -2,13 +2,11 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/auth/auth_storage.dart';
 import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/auth/master_login_screen.dart';
 import 'package:pos_app/company/company_provider.dart';
-import 'package:pos_app/company/company_model.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/navigation/main_layout.dart';
@@ -31,23 +29,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
       if (selectedCo == null) {
         final fallbackId = defaultCoId ?? 2;
-        try {
-          final dio = createDio();
-          final res = await dio.get(
-            '/Company/GetById',
-            queryParameters: {'id': fallbackId},
-          );
-          if (mounted) {
-            final company = Company.fromJson(res.data as Map<String, dynamic>);
-            ref.read(selectedCompanyProvider.notifier).update(company);
-          }
-        } catch (_) {
-          if (mounted) {
-            ref
-                .read(selectedCompanyProvider.notifier)
-                .update(Company(id: fallbackId, name: 'Branch #$fallbackId'));
-          }
-        }
+        // ✨ Cleanly delegated to the Auth Provider!
+        await ref.read(authServiceProvider).loadFallbackCompany(fallbackId);
       }
     });
   }
@@ -148,10 +131,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ),
                   data: (users) {
-                    if (users.isEmpty)
+                    if (users.isEmpty) {
                       return const Center(
                         child: Text("No enabled users found."),
                       );
+                    }
                     return GridView.builder(
                       gridDelegate:
                           const SliverGridDelegateWithMaxCrossAxisExtent(
@@ -278,19 +262,14 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
   Future<void> _setNewPin() async {
     setState(() => _isLoading = true);
     try {
-      final storage = ref.read(authStorageProvider);
-      final deviceId = await storage.getOrCreateDeviceId();
-      final dio = createDio();
-
-      await dio.post(
-        '/Auth/SetDevicePin',
-        data: {
-          'userId': widget.user.id,
-          'companyId': widget.user.companyId,
-          'deviceId': deviceId,
-          'pin': _pin,
-        },
-      );
+      // ✨ Cleanly delegated to the Auth Provider!
+      await ref
+          .read(authServiceProvider)
+          .setDevicePin(
+            userId: widget.user.id,
+            companyId: widget.user.companyId,
+            pin: _pin,
+          );
 
       _loginUser();
     } catch (e) {

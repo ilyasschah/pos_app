@@ -60,10 +60,6 @@ final activePromotionsProvider = Provider<List<PromotionDto>>((ref) {
     }
     return true;
   }).toList();
-
-  print(
-    "Total Active Promotions evaluated by frontend: ${activePromotions.length}",
-  );
   return activePromotions;
 });
 

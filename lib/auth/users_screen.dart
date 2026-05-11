@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
-import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
-import 'package:pos_app/auth/auth_storage.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/security/security_key_model.dart';
@@ -73,13 +71,11 @@ class _SecurityKeysTab extends ConsumerWidget {
 
   String _getFriendlyName(String key) {
     final names = {
-      // General
       'Management': 'Management',
       'Settings': 'Settings',
       'BusinessDay.Close': 'End of day',
       'UserProfile': 'User profile',
       'FloorPlans.Design': 'Design floor plans',
-      // Sales
       'Order.All': 'View all open orders',
       'Order.Void': 'Void order',
       'Order.Item.Void': 'Void item',
@@ -96,7 +92,6 @@ class _SecurityKeysTab extends ConsumerWidget {
       'StartingCash': 'Starting cash',
       'CashDrawer.Open': 'Open cash drawer',
       'Stock.Control.NegativeQuantity': 'Zero stock quantity sale',
-      // Management
       'Management.Dashboard': 'Dashboard',
       'Management.Documents': 'Documents',
       'Management.Products': 'Products',
@@ -109,7 +104,6 @@ class _SecurityKeysTab extends ConsumerWidget {
       'Management.Countries': 'Countries',
       'Management.TaxRates': 'Tax rates',
       'Management.Company': 'My company',
-      // Stock
       'Management.Stock.QuickInventory': 'Quick inventory',
       'Management.Stock.ShowCostPrices': 'View cost prices',
     };
@@ -126,14 +120,11 @@ class _SecurityKeysTab extends ConsumerWidget {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text("Error loading security rules: $e")),
       data: (keys) {
-        if (company == null) {
+        if (company == null)
           return const Center(child: Text("No company selected."));
-        }
-        if (keys.isEmpty) {
+        if (keys.isEmpty)
           return const Center(child: Text("No security rules found."));
-        }
 
-        // Group the keys into our categories
         final groupedKeys = {
           'General': <SecurityKeyModel>[],
           'Sales': <SecurityKeyModel>[],
@@ -201,7 +192,7 @@ class _SecurityKeysTab extends ConsumerWidget {
                     );
                   }).toList(),
                 ),
-                const SizedBox(height: 24), // Spacing between groups
+                const SizedBox(height: 24),
               ],
             );
           }).toList(),
@@ -214,12 +205,10 @@ class _SecurityKeysTab extends ConsumerWidget {
 class _SecurityLevelDropdown extends ConsumerStatefulWidget {
   final SecurityKeyModel securityKey;
   final int companyId;
-
   const _SecurityLevelDropdown({
     required this.securityKey,
     required this.companyId,
   });
-
   @override
   ConsumerState<_SecurityLevelDropdown> createState() =>
       _SecurityLevelDropdownState();
@@ -232,26 +221,30 @@ class _SecurityLevelDropdownState
   Future<void> _updateLevel(int newLevel) async {
     setState(() => _isLoading = true);
     try {
-      final dio = createDio();
-      await dio.patch(
-        '/SecurityKeys/Update',
-        queryParameters: {'companyId': widget.companyId},
-        data: {'name': widget.securityKey.name, 'level': newLevel},
-      );
+      await ref
+          .read(userManagementProvider)
+          .updateSecurityKey(
+            widget.companyId,
+            widget.securityKey.name,
+            newLevel,
+          );
       ref.invalidate(allSecurityKeysProvider);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("${widget.securityKey.name} updated."),
-          backgroundColor: Colors.green,
-        ),
-      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("${widget.securityKey.name} updated."),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } on DioException catch (e) {
-      if (!mounted) return;
-      final errorMsg = e.response?.data?['message'] ?? "Update failed";
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        final errorMsg = e.response?.data?['message'] ?? "Update failed";
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -269,7 +262,6 @@ class _SecurityLevelDropdownState
         ),
       );
     }
-
     return DropdownButton<int>(
       value: widget.securityKey.level,
       underline: const SizedBox(),
@@ -279,9 +271,7 @@ class _SecurityLevelDropdownState
         DropdownMenuItem(value: 1, child: Text("Admin")),
       ],
       onChanged: (val) {
-        if (val != null && val != widget.securityKey.level) {
-          _updateLevel(val);
-        }
+        if (val != null && val != widget.securityKey.level) _updateLevel(val);
       },
     );
   }
@@ -300,10 +290,10 @@ class _UsersListTab extends ConsumerWidget {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text("Error loading users: $e")),
       data: (users) {
-        if (company == null) {
+        if (company == null)
           return const Center(child: Text("No company selected."));
-        }
         final int companyId = company.id;
+
         if (users.isEmpty) {
           return Center(
             child: Column(
@@ -351,7 +341,6 @@ class _UsersListTab extends ConsumerWidget {
                 "${user.accessLevel == 0 ? 'Admin' : 'Cashier'}"
                 "${user.email != null && user.email!.isNotEmpty ? ' · ${user.email}' : ''}",
               ),
-              // ✨ THIS IS THE FIX: All trailing buttons grouped into one Row
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -433,34 +422,34 @@ class _UsersListTab extends ConsumerWidget {
                           ],
                         ),
                       );
+
                       if (confirm == true) {
                         try {
-                          final dio = createDio();
-                          await dio.delete(
-                            '/Users/Delete',
-                            queryParameters: {
-                              'id': user.id,
-                              'companyId': companyId,
-                            },
-                          );
+                          // ✨ Clean Delegation
+                          await ref
+                              .read(userManagementProvider)
+                              .deleteUser(companyId, user.id);
                           ref.invalidate(allUsersProvider);
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text("User deleted successfully."),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
+
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text("User deleted successfully."),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          }
                         } on DioException catch (e) {
-                          if (!context.mounted) return;
-                          final errorMsg =
-                              e.response?.data?['message'] ?? "Delete failed";
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(errorMsg),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
+                          if (context.mounted) {
+                            final errorMsg =
+                                e.response?.data?['message'] ?? "Delete failed";
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(errorMsg),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
                         }
                       }
                     },
@@ -489,19 +478,21 @@ class _EnableToggleState extends ConsumerState<_EnableToggle> {
   Future<void> _toggle() async {
     setState(() => _loading = true);
     try {
-      final dio = createDio();
-      await dio.patch(
-        '/Users/UpdateUser',
-        queryParameters: {'companyId': widget.companyId},
-        data: {'id': widget.user.id, 'isEnabled': !widget.user.isEnabled},
-      );
+      await ref
+          .read(userManagementProvider)
+          .toggleUserStatus(
+            widget.companyId,
+            widget.user.id,
+            !widget.user.isEnabled,
+          );
       ref.invalidate(allUsersProvider);
     } on DioException catch (e) {
-      if (!mounted) return;
-      final errorMsg = e.response?.data?['message'] ?? "Update failed";
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
-      );
+      if (mounted) {
+        final errorMsg = e.response?.data?['message'] ?? "Update failed";
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
+        );
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -509,13 +500,12 @@ class _EnableToggleState extends ConsumerState<_EnableToggle> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
+    if (_loading)
       return const SizedBox(
         width: 24,
         height: 24,
         child: CircularProgressIndicator(strokeWidth: 2),
       );
-    }
     return Switch(
       value: widget.user.isEnabled,
       onChanged: (_) => _toggle(),
@@ -559,22 +549,17 @@ class _AddUserDialogState extends ConsumerState<_AddUserDialog> {
       _errorMessage = null;
     });
     try {
-      final dio = createDio();
-      await dio.post(
-        '/Users/Add',
-        queryParameters: {'companyId': widget.companyId},
-        data: {
-          'firstName': _firstNameCtrl.text.trim(),
-          'lastName': _lastNameCtrl.text.trim(),
-          'username': _usernameCtrl.text.trim(),
-          'email': _emailCtrl.text.trim(),
-          'accessLevel': _accessLevel,
-          'isEnabled': true,
-          'password': _passwordCtrl.text.trim(),
-        },
-      );
-      if (!mounted) return;
-      Navigator.of(context).pop();
+      // ✨ Clean Delegation
+      await ref.read(userManagementProvider).addUser(widget.companyId, {
+        'firstName': _firstNameCtrl.text.trim(),
+        'lastName': _lastNameCtrl.text.trim(),
+        'username': _usernameCtrl.text.trim(),
+        'email': _emailCtrl.text.trim(),
+        'accessLevel': _accessLevel,
+        'isEnabled': true,
+        'password': _passwordCtrl.text.trim(),
+      });
+      if (mounted) Navigator.of(context).pop();
     } on DioException catch (e) {
       setState(() {
         _errorMessage =
@@ -592,7 +577,6 @@ class _AddUserDialogState extends ConsumerState<_AddUserDialog> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return AlertDialog(
       title: const Text("Add New User"),
       content: SizedBox(
@@ -740,21 +724,16 @@ class _EditUserDialogState extends ConsumerState<_EditUserDialog> {
       _errorMessage = null;
     });
     try {
-      final dio = createDio();
-      await dio.patch(
-        '/Users/UpdateUser',
-        queryParameters: {'companyId': widget.companyId},
-        data: {
-          'id': widget.user.id,
-          'accessLevel': _accessLevel,
-          'firstName': _firstNameCtrl.text.trim(),
-          'lastName': _lastNameCtrl.text.trim(),
-          'username': _usernameCtrl.text.trim(),
-          'email': _emailCtrl.text.trim(),
-        },
-      );
-      if (!mounted) return;
-      Navigator.of(context).pop();
+      // ✨ Clean Delegation
+      await ref.read(userManagementProvider).updateUser(widget.companyId, {
+        'id': widget.user.id,
+        'accessLevel': _accessLevel,
+        'firstName': _firstNameCtrl.text.trim(),
+        'lastName': _lastNameCtrl.text.trim(),
+        'username': _usernameCtrl.text.trim(),
+        'email': _emailCtrl.text.trim(),
+      });
+      if (mounted) Navigator.of(context).pop();
     } on DioException catch (e) {
       setState(() {
         _errorMessage =
@@ -772,7 +751,6 @@ class _EditUserDialogState extends ConsumerState<_EditUserDialog> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return AlertDialog(
       title: Text("Edit ${widget.user.displayName}"),
       content: SizedBox(
@@ -892,15 +870,15 @@ Future<void> _adminResetPassword(
                     if (passwordCtrl.text.isEmpty) return;
                     setStateDialog(() => isSaving = true);
                     try {
-                      final dio = createDio();
-                      await dio.patch(
-                        '/Users/AdminResetPassword',
-                        queryParameters: {'companyId': user.companyId},
-                        data: {
-                          'userId': user.id,
-                          'newPassword': passwordCtrl.text,
-                        },
-                      );
+                      // ✨ Clean Delegation
+                      await ref
+                          .read(userManagementProvider)
+                          .adminResetPassword(
+                            user.companyId,
+                            user.id,
+                            passwordCtrl.text,
+                          );
+
                       if (context.mounted) {
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -971,19 +949,15 @@ Future<void> _adminResetPin(
                     if (pinCtrl.text.length < 4) return;
                     setStateDialog(() => isSaving = true);
                     try {
-                      final storage = ref.read(authStorageProvider);
-                      final deviceId = await storage.getOrCreateDeviceId();
-                      final dio = createDio();
+                      // ✨ Clean Delegation: We reuse the exact same method from authServiceProvider!
+                      await ref
+                          .read(authServiceProvider)
+                          .setDevicePin(
+                            userId: user.id,
+                            companyId: user.companyId,
+                            pin: pinCtrl.text,
+                          );
 
-                      await dio.post(
-                        '/Auth/SetDevicePin',
-                        data: {
-                          'userId': user.id,
-                          'companyId': user.companyId,
-                          'deviceId': deviceId,
-                          'pin': pinCtrl.text,
-                        },
-                      );
                       if (context.mounted) {
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
