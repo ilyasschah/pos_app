@@ -14,6 +14,8 @@ import 'package:pos_app/navigation/power_modal.dart';
 import 'package:pos_app/settings/settings_screen.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:pos_app/auth/user_info_screen.dart';
+import 'package:pos_app/auth/auth_provider.dart';
+import 'package:pos_app/auth/login_screen.dart';
 
 class MainLayout extends ConsumerStatefulWidget {
   final int initialIndex;
@@ -164,7 +166,21 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     NavItem(
                       icon: Icons.logout,
                       label: "Sign out",
-                      onTap: () {},
+                      onTap: () {
+                        ref.read(currentUserProvider.notifier).logout();
+                        ref.invalidate(allUsersProvider);
+
+                        if (!isDesktop && Scaffold.of(context).hasDrawer) {
+                          Navigator.pop(context);
+                        }
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const LoginScreen(),
+                          ),
+                          (route) => false,
+                        );
+                      },
                     ),
                     NavItem(
                       icon: Icons.campaign,

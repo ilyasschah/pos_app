@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
+import 'package:pos_app/auth/auth_storage.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/security/security_key_model.dart';
 import 'package:pos_app/security/security_key_provider.dart';
+import 'package:pos_app/utils/api_error_parser.dart';
 
 class UsersScreen extends ConsumerWidget {
   const UsersScreen({super.key});
@@ -53,16 +55,19 @@ class _SecurityKeysTab extends ConsumerWidget {
 
   String _getCategory(String key) {
     if (key == 'Management.Stock.QuickInventory' ||
-        key == 'Management.Stock.ShowCostPrices')
+        key == 'Management.Stock.ShowCostPrices') {
       return 'Stock';
-    if (key.startsWith('Management.') && key != 'Management')
+    }
+    if (key.startsWith('Management.') && key != 'Management') {
       return 'Management';
+    }
     if (key == 'Management' ||
         key == 'Settings' ||
         key == 'BusinessDay.Close' ||
         key == 'UserProfile' ||
-        key == 'FloorPlans.Design')
+        key == 'FloorPlans.Design') {
       return 'General';
+    }
     return 'Sales';
   }
 
@@ -121,10 +126,12 @@ class _SecurityKeysTab extends ConsumerWidget {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, _) => Center(child: Text("Error loading security rules: $e")),
       data: (keys) {
-        if (company == null)
+        if (company == null) {
           return const Center(child: Text("No company selected."));
-        if (keys.isEmpty)
+        }
+        if (keys.isEmpty) {
           return const Center(child: Text("No security rules found."));
+        }
 
         // Group the keys into our categories
         final groupedKeys = {
@@ -344,9 +351,39 @@ class _UsersListTab extends ConsumerWidget {
                 "${user.accessLevel == 0 ? 'Admin' : 'Cashier'}"
                 "${user.email != null && user.email!.isNotEmpty ? ' · ${user.email}' : ''}",
               ),
+              // ✨ THIS IS THE FIX: All trailing buttons grouped into one Row
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.security, color: Colors.redAccent),
+                    tooltip: "Security Actions",
+                    onSelected: (value) {
+                      if (value == 'reset_password') {
+                        _adminResetPassword(context, user, ref);
+                      } else if (value == 'reset_pin') {
+                        _adminResetPin(context, user, ref);
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'reset_password',
+                        child: ListTile(
+                          leading: Icon(Icons.password, color: Colors.red),
+                          title: Text("Admin: Reset Password"),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'reset_pin',
+                        child: ListTile(
+                          leading: Icon(Icons.pin, color: Colors.red),
+                          title: Text("Admin: Reset iPad PIN"),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
+                    ],
+                  ),
                   IconButton(
                     icon: Icon(
                       Icons.edit,
@@ -472,12 +509,13 @@ class _EnableToggleState extends ConsumerState<_EnableToggle> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading)
+    if (_loading) {
       return const SizedBox(
         width: 24,
         height: 24,
         child: CircularProgressIndicator(strokeWidth: 2),
       );
+    }
     return Switch(
       value: widget.user.isEnabled,
       onChanged: (_) => _toggle(),
@@ -819,4 +857,164 @@ class _EditUserDialogState extends ConsumerState<_EditUserDialog> {
       ],
     );
   }
+}
+
+Future<void> _adminResetPassword(
+  BuildContext context,
+  User user,
+  WidgetRef ref,
+) async {
+  final passwordCtrl = TextEditingController();
+  bool isSaving = false;
+
+  await showDialog(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (context, setStateDialog) => AlertDialog(
+        title: Text("Force Reset Password: ${user.displayName}"),
+        content: TextField(
+          controller: passwordCtrl,
+          decoration: const InputDecoration(
+            labelText: "New Password",
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: isSaving
+                ? null
+                : () async {
+                    if (passwordCtrl.text.isEmpty) return;
+                    setStateDialog(() => isSaving = true);
+                    try {
+                      final dio = createDio();
+                      await dio.patch(
+                        '/Users/AdminResetPassword',
+                        queryParameters: {'companyId': user.companyId},
+                        data: {
+                          'userId': user.id,
+                          'newPassword': passwordCtrl.text,
+                        },
+                      );
+                      if (context.mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text("Password forcibly reset!"),
+                          ),
+                        );
+                      }
+                    } on DioException catch (e, st) {
+                      rethrowApiError(e, st);
+                    } finally {
+                      setStateDialog(() => isSaving = false);
+                    }
+                  },
+            child: isSaving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Text(
+                    "Force Reset",
+                    style: TextStyle(color: Colors.white),
+                  ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+Future<void> _adminResetPin(
+  BuildContext context,
+  User user,
+  WidgetRef ref,
+) async {
+  final pinCtrl = TextEditingController();
+  bool isSaving = false;
+
+  await showDialog(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (context, setStateDialog) => AlertDialog(
+        title: Text("Force Reset PIN: ${user.displayName}"),
+        content: TextField(
+          controller: pinCtrl,
+          keyboardType: TextInputType.number,
+          maxLength: 4,
+          decoration: const InputDecoration(
+            labelText: "New 4-Digit PIN",
+            border: OutlineInputBorder(),
+            counterText: "",
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: isSaving
+                ? null
+                : () async {
+                    if (pinCtrl.text.length < 4) return;
+                    setStateDialog(() => isSaving = true);
+                    try {
+                      final storage = ref.read(authStorageProvider);
+                      final deviceId = await storage.getOrCreateDeviceId();
+                      final dio = createDio();
+
+                      await dio.post(
+                        '/Auth/SetDevicePin',
+                        data: {
+                          'userId': user.id,
+                          'companyId': user.companyId,
+                          'deviceId': deviceId,
+                          'pin': pinCtrl.text,
+                        },
+                      );
+                      if (context.mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text("PIN forcibly reset for this iPad!"),
+                          ),
+                        );
+                        ref.invalidate(allUsersProvider);
+                      }
+                    } on DioException catch (e, st) {
+                      rethrowApiError(e, st);
+                    } finally {
+                      setStateDialog(() => isSaving = false);
+                    }
+                  },
+            child: isSaving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Text(
+                    "Force Reset",
+                    style: TextStyle(color: Colors.white),
+                  ),
+          ),
+        ],
+      ),
+    ),
+  );
 }

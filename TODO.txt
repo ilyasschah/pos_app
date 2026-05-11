@@ -2,3 +2,4 @@ TODO : check the settigns if they realy work and effect the application
 TODO : Make a realy login with a token generator 
 TODO : report page 
 TODO  inventory page 
+hover ov  er product to show its details in menu screen 

@@ -1,16 +1,282 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
-import 'package:pos_app/currency/currencies_provider.dart';
+import 'package:pos_app/auth/auth_storage.dart';
+import 'package:pos_app/utils/api_error_parser.dart';
 
-class UserInfoScreen extends ConsumerWidget {
+class UserInfoScreen extends ConsumerStatefulWidget {
   const UserInfoScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<UserInfoScreen> createState() => _UserInfoScreenState();
+}
+
+class _UserInfoScreenState extends ConsumerState<UserInfoScreen> {
+  List<dynamic> _activeDevices = [];
+  bool _isLoadingDevices = false;
+  String _currentDeviceId = "";
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitialData();
+  }
+
+  Future<void> _loadInitialData() async {
+    final storage = ref.read(authStorageProvider);
+    _currentDeviceId = await storage.getOrCreateDeviceId();
+    _fetchDevices();
+  }
+
+  Future<void> _fetchDevices() async {
+    final user = ref.read(currentUserProvider);
+    if (user == null) return;
+
+    setState(() => _isLoadingDevices = true);
+    try {
+      final dio = createDio();
+      final response = await dio.get(
+        '/Auth/GetActiveDevices',
+        queryParameters: {'userId': user.id, 'companyId': user.companyId},
+      );
+      if (mounted) {
+        setState(() {
+          _activeDevices = response.data as List<dynamic>;
+        });
+      }
+    } on DioException catch (e, st) {
+      if (mounted) rethrowApiError(e, st);
+    } finally {
+      if (mounted) setState(() => _isLoadingDevices = false);
+    }
+  }
+
+  Future<void> _revokeDevice(String deviceId) async {
+    final user = ref.read(currentUserProvider);
+    if (user == null) return;
+
+    try {
+      final dio = createDio();
+      await dio.delete(
+        '/Auth/RevokeDevice',
+        queryParameters: {
+          'userId': user.id,
+          'deviceId': deviceId,
+          'companyId': user.companyId,
+        },
+      );
+      _fetchDevices();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Device revoked successfully')),
+        );
+      }
+    } on DioException catch (e, st) {
+      if (mounted) rethrowApiError(e, st);
+    }
+  }
+
+  void _showChangePasswordDialog() {
+    final oldPasswordCtrl = TextEditingController();
+    final newPasswordCtrl = TextEditingController();
+    final confirmPasswordCtrl = TextEditingController();
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setStateDialog) {
+          return AlertDialog(
+            title: const Text("Change Password"),
+            content: SizedBox(
+              width: 400,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: oldPasswordCtrl,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: "Old Password",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: newPasswordCtrl,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: "New Password",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: confirmPasswordCtrl,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: "Confirm New Password",
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSaving ? null : () => Navigator.pop(ctx),
+                child: const Text("Cancel"),
+              ),
+              ElevatedButton(
+                onPressed: isSaving
+                    ? null
+                    : () async {
+                        if (newPasswordCtrl.text != confirmPasswordCtrl.text) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("New passwords do not match"),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+
+                        setStateDialog(() => isSaving = true);
+                        try {
+                          final user = ref.read(currentUserProvider);
+                          final dio = createDio();
+                          await dio.patch(
+                            '/Users/ChangePassword',
+                            queryParameters: {'companyId': user!.companyId},
+                            data: {
+                              'userId': user.id,
+                              'oldPassword': oldPasswordCtrl.text,
+                              'newPassword': newPasswordCtrl.text,
+                            },
+                          );
+                          if (mounted) {
+                            Navigator.pop(ctx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text("Password updated successfully"),
+                              ),
+                            );
+                          }
+                        } on DioException catch (e, st) {
+                          rethrowApiError(e, st);
+                        } finally {
+                          if (mounted) setStateDialog(() => isSaving = false);
+                        }
+                      },
+                child: isSaving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text("Save"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showChangePinDialog() {
+    final pinCtrl = TextEditingController();
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setStateDialog) {
+          return AlertDialog(
+            title: const Text("Update PIN for this Device"),
+            content: SizedBox(
+              width: 300,
+              child: TextField(
+                controller: pinCtrl,
+                obscureText: true,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                decoration: const InputDecoration(
+                  labelText: "New 4-Digit PIN",
+                  border: OutlineInputBorder(),
+                  counterText: "",
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSaving ? null : () => Navigator.pop(ctx),
+                child: const Text("Cancel"),
+              ),
+              ElevatedButton(
+                onPressed: isSaving
+                    ? null
+                    : () async {
+                        if (pinCtrl.text.length < 4) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("PIN must be 4 digits"),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+
+                        setStateDialog(() => isSaving = true);
+                        try {
+                          final user = ref.read(currentUserProvider);
+                          final dio = createDio();
+                          await dio.post(
+                            '/Auth/SetDevicePin',
+                            data: {
+                              'userId': user!.id,
+                              'companyId': user.companyId,
+                              'deviceId': _currentDeviceId,
+                              'pin': pinCtrl.text,
+                            },
+                          );
+                          if (mounted) {
+                            Navigator.pop(ctx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text("PIN updated successfully"),
+                              ),
+                            );
+                            ref.invalidate(allUsersProvider);
+                          }
+                        } on DioException catch (e, st) {
+                          rethrowApiError(e, st);
+                        } finally {
+                          if (mounted) setStateDialog(() => isSaving = false);
+                        }
+                      },
+                child: isSaving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text("Save PIN"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final currentUser = ref.watch(currentUserProvider);
-    final sym = ref.watch(currencySymbolProvider);
 
     if (currentUser == null) {
       return Scaffold(
@@ -20,10 +286,10 @@ class UserInfoScreen extends ConsumerWidget {
     }
 
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor, // ✨ FIXED BACKGROUND
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        automaticallyImplyLeading: false, // ✨ PREVENTS BACK ARROW
-        title: const Text("User Info"),
+        automaticallyImplyLeading: false,
+        title: const Text("User Info & Security"),
         backgroundColor: theme.colorScheme.surface,
         elevation: 1,
       ),
@@ -35,267 +301,192 @@ class UserInfoScreen extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // --- PROFILE SECTION ---
-                Text(
-                  "PROFILE",
-                  style: TextStyle(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 12),
                 Card(
-                  elevation: 0,
+                  elevation: 2,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: theme.colorScheme.outlineVariant),
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(24),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Column(
                       children: [
                         CircleAvatar(
                           radius: 40,
-                          backgroundColor: theme.colorScheme.primaryContainer,
+                          backgroundColor: currentUser.accessLevel == 0
+                              ? Colors.orange
+                              : theme.colorScheme.primary,
+                          child: const Icon(
+                            Icons.person,
+                            size: 40,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          currentUser.displayName,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: currentUser.accessLevel == 0
+                                ? Colors.orange.withOpacity(0.1)
+                                : theme.colorScheme.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                           child: Text(
-                            currentUser.firstName?.isNotEmpty == true
-                                ? currentUser.firstName![0].toUpperCase()
-                                : currentUser.username?[0].toUpperCase() ?? 'U',
+                            currentUser.accessLevel == 0
+                                ? "Administrator"
+                                : "Cashier",
                             style: TextStyle(
-                              fontSize: 32,
+                              color: currentUser.accessLevel == 0
+                                  ? Colors.orange
+                                  : theme.colorScheme.primary,
                               fontWeight: FontWeight.bold,
-                              color: theme.colorScheme.onPrimaryContainer,
                             ),
                           ),
                         ),
-                        const SizedBox(width: 24),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                currentUser.displayName,
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  // ✨ EXACT ACCESS LEVEL LOGIC APPLIED
-                                  color: currentUser.accessLevel == 0
-                                      ? Colors.orange.withOpacity(0.2)
-                                      : Colors.blue.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  currentUser.accessLevel == 0
-                                      ? "Administrator"
-                                      : "Cashier",
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: currentUser.accessLevel == 0
-                                        ? Colors.orange[700]
-                                        : Colors.blue[700],
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-                              _buildInfoRow(
-                                context,
-                                Icons.badge_outlined,
-                                "Username",
-                                currentUser.username ?? "-",
-                              ),
-                              const SizedBox(height: 12),
-                              _buildInfoRow(
-                                context,
-                                Icons.email_outlined,
-                                "Email",
-                                currentUser.email?.isNotEmpty == true
-                                    ? currentUser.email!
-                                    : "-",
-                              ),
-                            ],
-                          ),
+                        const SizedBox(height: 32),
+                        _buildInfoRow(
+                          context,
+                          Icons.badge,
+                          "User ID",
+                          currentUser.id.toString(),
+                        ),
+                        const Divider(height: 32),
+                        _buildInfoRow(
+                          context,
+                          Icons.account_circle,
+                          "Username",
+                          currentUser.username ?? "N/A",
+                        ),
+                        const Divider(height: 32),
+                        _buildInfoRow(
+                          context,
+                          Icons.email,
+                          "Email",
+                          currentUser.email ?? "No email provided",
                         ),
                       ],
                     ),
                   ),
                 ),
-
-                const SizedBox(height: 32),
-
-                // --- USER REPORT SECTION ---
-                Text(
-                  "CURRENT SHIFT REPORT",
-                  style: TextStyle(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.2,
-                  ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                        ),
+                        icon: const Icon(Icons.password),
+                        label: const Text("Change Password"),
+                        onPressed: _showChangePasswordDialog,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                        ),
+                        icon: const Icon(Icons.pin),
+                        label: const Text("Update Device PIN"),
+                        onPressed: _showChangePinDialog,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 24),
                 Card(
-                  elevation: 0,
+                  elevation: 2,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
-                    side: BorderSide(color: theme.colorScheme.outlineVariant),
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(24),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // Expected in Drawer
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest
-                                .withOpacity(0.5),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: theme.colorScheme.outlineVariant,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    "Expected in drawer",
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: theme.colorScheme.onSurfaceVariant,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    "0.00 $sym", // Placeholder value
-                                    style: TextStyle(
-                                      fontSize: 28,
-                                      fontWeight: FontWeight.bold,
-                                      color: theme.colorScheme.onSurface,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              Icon(
-                                Icons.payments_outlined,
-                                size: 48,
-                                color: theme.colorScheme.primary.withOpacity(
-                                  0.5,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        // Cash In / Cash Out Buttons
                         Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => _showComingSoon(context),
-                                icon: const Icon(Icons.arrow_downward),
-                                label: const Text("Cash In"),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  foregroundColor: Colors.green,
-                                  side: const BorderSide(color: Colors.green),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
+                            const Text(
+                              "Active Devices",
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: () => _showComingSoon(context),
-                                icon: const Icon(Icons.arrow_upward),
-                                label: const Text("Cash Out"),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  foregroundColor: Colors.orange,
-                                  side: const BorderSide(color: Colors.orange),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                ),
-                              ),
+                            IconButton(
+                              icon: const Icon(Icons.refresh),
+                              onPressed: _fetchDevices,
                             ),
                           ],
                         ),
-
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 24),
-                          child: Divider(),
-                        ),
-
-                        // Reports & Close Shift
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: () => _showComingSoon(context),
-                                icon: const Icon(Icons.receipt_long),
-                                label: const Text("Print X Report"),
-                                style: ElevatedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  backgroundColor:
-                                      theme.colorScheme.secondaryContainer,
-                                  foregroundColor:
-                                      theme.colorScheme.onSecondaryContainer,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  elevation: 0,
-                                ),
-                              ),
+                        const Divider(),
+                        if (_isLoadingDevices)
+                          const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(24),
+                              child: CircularProgressIndicator(),
                             ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                onPressed: () => _showComingSoon(context),
-                                icon: const Icon(Icons.lock_clock),
-                                label: const Text("Close shift"),
-                                style: ElevatedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  backgroundColor:
-                                      theme.colorScheme.errorContainer,
-                                  foregroundColor:
-                                      theme.colorScheme.onErrorContainer,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  elevation: 0,
-                                ),
-                              ),
+                          )
+                        else if (_activeDevices.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Text(
+                              "No active devices found.",
+                              textAlign: TextAlign.center,
                             ),
-                          ],
-                        ),
+                          )
+                        else
+                          ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: _activeDevices.length,
+                            itemBuilder: (context, index) {
+                              final device = _activeDevices[index];
+                              final isCurrentDevice =
+                                  device['deviceId'] == _currentDeviceId;
+                              return ListTile(
+                                leading: Icon(
+                                  isCurrentDevice
+                                      ? Icons.tablet_mac
+                                      : Icons.devices,
+                                  color: isCurrentDevice
+                                      ? Colors.green
+                                      : Colors.grey,
+                                ),
+                                title: Text(device['deviceId']),
+                                subtitle: Text(
+                                  "Linked: ${DateTime.parse(device['createdAt']).toLocal().toString().split('.')[0]}",
+                                ),
+                                trailing: isCurrentDevice
+                                    ? const Chip(
+                                        label: Text(
+                                          "This Device",
+                                          style: TextStyle(fontSize: 10),
+                                        ),
+                                      )
+                                    : IconButton(
+                                        icon: const Icon(
+                                          Icons.delete_outline,
+                                          color: Colors.red,
+                                        ),
+                                        onPressed: () =>
+                                            _revokeDevice(device['deviceId']),
+                                      ),
+                              );
+                            },
+                          ),
                       ],
                     ),
                   ),
@@ -336,15 +527,6 @@ class UserInfoScreen extends ConsumerWidget {
           ],
         ),
       ],
-    );
-  }
-
-  void _showComingSoon(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("This feature is coming soon!"),
-        behavior: SnackBarBehavior.floating,
-      ),
     );
   }
 }

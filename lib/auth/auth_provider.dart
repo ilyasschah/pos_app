@@ -4,6 +4,7 @@ import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/utils/api_error_parser.dart';
+import 'package:pos_app/auth/auth_storage.dart';
 
 class CurrentUserNotifier extends Notifier<User?> {
   @override
@@ -13,18 +14,22 @@ class CurrentUserNotifier extends Notifier<User?> {
   void logout() => state = null;
 }
 
-final currentUserProvider =
-    NotifierProvider<CurrentUserNotifier, User?>(() => CurrentUserNotifier());
+final currentUserProvider = NotifierProvider<CurrentUserNotifier, User?>(
+  () => CurrentUserNotifier(),
+);
 
 final allUsersProvider = FutureProvider<List<User>>((ref) async {
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return [];
 
   try {
+    final storage = ref.read(authStorageProvider);
+    final deviceId = await storage.getOrCreateDeviceId();
+
     final dio = createDio();
     final response = await dio.get(
       '/Users/GetAllUsers',
-      queryParameters: {'companyId': company.id},
+      queryParameters: {'companyId': company.id, 'deviceId': deviceId},
     );
     return (response.data as List).map((json) => User.fromJson(json)).toList();
   } on DioException catch (e, st) {

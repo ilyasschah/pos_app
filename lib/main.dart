@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pos_app/navigation/main_layout.dart';
+import 'package:pos_app/auth/auth_storage.dart';
+import 'package:pos_app/auth/master_login_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pos_app/auth/login_screen.dart';
-import 'package:pos_app/company/company_selection_screen.dart';
 import 'package:pos_app/settings/settings_provider.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -20,11 +20,26 @@ void main() async {
   );
 }
 
-class MyApp extends ConsumerWidget {
+class MyApp extends ConsumerStatefulWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends ConsumerState<MyApp> {
+  late Future<bool> _deviceRegisteredFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _deviceRegisteredFuture = ref
+        .read(authStorageProvider)
+        .isDeviceRegistered();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final themeMode = ref.watch(themeModeProvider);
 
     return MaterialApp(
@@ -45,12 +60,20 @@ class MyApp extends ConsumerWidget {
         ),
         useMaterial3: true,
       ),
-      initialRoute: '/login',
-      routes: {
-        '/select-company': (context) => const CompanySelectionScreen(),
-        '/login': (context) => const LoginScreen(),
-        '/menu': (context) => const MainLayout(),
-      },
+      home: FutureBuilder<bool>(
+        future: _deviceRegisteredFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          final isRegistered = snapshot.data ?? false;
+
+          return isRegistered ? const LoginScreen() : const MasterLoginScreen();
+        },
+      ),
     );
   }
 }
