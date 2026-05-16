@@ -4,7 +4,7 @@ class ServiceStatusHelper {
   static Color getColor(int status) {
     switch (status) {
       case 0:
-        return const Color(0xFF10B981).withValues(alpha: 0.15); // Vibrant Green (Soft)
+        return const Color(0xFF10B981);
       case 1:
         return const Color(0xFF3B82F6); // Vibrant Blue
       case 2:
@@ -19,11 +19,8 @@ class ServiceStatusHelper {
   static LinearGradient getGradient(int status) {
     switch (status) {
       case 0:
-        return LinearGradient(
-          colors: [
-            const Color(0xFF10B981).withValues(alpha: 0.2),
-            const Color(0xFF10B981).withValues(alpha: 0.05),
-          ],
+        return const LinearGradient(
+          colors: [Color(0xFF10B981), Color(0xFF059669)],
         );
       case 1:
         return const LinearGradient(

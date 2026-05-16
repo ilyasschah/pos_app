@@ -910,6 +910,15 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
       );
       return;
     }
+    if (!_toDateTime(_endTime).isAfter(_toDateTime(_startTime))) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('End time must be after start time.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     setState(() => _saving = true);
 
     final companyId = ref.read(selectedCompanyProvider)?.id;
@@ -1014,9 +1023,11 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
     setState(() {
       _startTime = t;
       final endTotal = t.hour * 60 + t.minute + widget.defaultDurationMinutes;
+      // Cap at 23:59 to avoid midnight overflow making end ≤ start.
+      final clampedTotal = endTotal.clamp(0, 23 * 60 + 59);
       _endTime = TimeOfDay(
-        hour: (endTotal ~/ 60).clamp(0, 23),
-        minute: endTotal % 60,
+        hour: clampedTotal ~/ 60,
+        minute: clampedTotal % 60,
       );
     });
   }
@@ -1762,7 +1773,6 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
             label: const Text('Delete', style: TextStyle(color: Colors.red)),
             onPressed: _saving ? null : _delete,
           ),
-        const Spacer(),
         if (b.status != 4)
           TextButton.icon(
             icon: const Icon(Icons.edit),

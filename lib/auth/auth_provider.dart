@@ -39,6 +39,26 @@ final allUsersProvider = FutureProvider<List<User>>((ref) async {
   }
 });
 
+final allUsersAdminProvider = FutureProvider.autoDispose<List<User>>((ref) async {
+  final company = ref.watch(selectedCompanyProvider);
+  if (company == null) return [];
+
+  try {
+    final storage = ref.read(authStorageProvider);
+    final deviceId = await storage.getOrCreateDeviceId();
+
+    final dio = createDio();
+    final response = await dio.get(
+      '/Users/GetAllUsers',
+      queryParameters: {'companyId': company.id, 'deviceId': deviceId, 'includeDisabled': true},
+    );
+    return (response.data as List).map((json) => User.fromJson(json)).toList();
+  } on DioException catch (e, st) {
+    rethrowApiError(e, st);
+    return [];
+  }
+});
+
 final authServiceProvider = Provider((ref) => AuthService(ref));
 
 class AuthService {

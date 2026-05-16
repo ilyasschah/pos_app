@@ -7,6 +7,7 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/utils/status_helper.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:pos_app/navigation/main_layout.dart';
 
 class TableWidget extends ConsumerStatefulWidget {
   final FloorPlanTable table;
@@ -84,7 +85,7 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                       widget.warehouseId,
                     );
                 if (success && mounted) {
-                  Navigator.pushReplacementNamed(context, '/menu');
+                  Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)));
                 } else if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
@@ -197,7 +198,7 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                         widget.userId,
                         serviceType,
                       );
-                  if (mounted) Navigator.pushReplacementNamed(context, '/menu');
+                  if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)));
                 } else {
                   final int newOrderId = await apiClient.createPosOrder(
                     widget.companyId,
@@ -219,7 +220,7 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                     ref.read(cartProvider.notifier).state = ref
                         .read(cartProvider)
                         .copyWith(serviceType: 0);
-                    Navigator.pushReplacementNamed(context, '/menu');
+                    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)));
                   }
                 }
               }

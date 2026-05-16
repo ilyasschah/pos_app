@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:pos_app/floor_plan/floor_plan_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
@@ -25,8 +26,9 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
   @override
   void initState() {
     super.initState();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-      _refreshData(silent: true);
+    _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      ref.invalidate(allFloorPlansProvider);
+      ref.invalidate(tablesByFloorPlanProvider);
     });
   }
 
@@ -36,91 +38,87 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
     super.dispose();
   }
 
-  void _refreshData({bool silent = false}) {
-    ref.invalidate(allFloorPlansProvider);
-    ref.invalidate(tablesByFloorPlanProvider);
-  }
-
   @override
   Widget build(BuildContext context) {
     final plansAsync = ref.watch(allFloorPlansProvider);
     final tablesAsync = ref.watch(tablesByFloorPlanProvider);
     final fpState = ref.watch(floorPlanProvider);
+    final cs = Theme.of(context).colorScheme;
 
     final companyId = ref.watch(selectedCompanyProvider)?.id ?? 0;
     final userId = ref.watch(currentUserProvider)?.id ?? 0;
     final warehouseId = ref.watch(selectedWarehouseProvider)?.id ?? 1;
     final settings = ref.watch(appSettingsProvider);
     final isService = (settings[SettingKeys.industryMode] ?? 'FB') == 'Service';
-    final theme = Theme.of(context);
+    final bookingEnabled =
+        (settings[SettingKeys.featureBookingEnabled] ?? 'true') == 'true';
 
     return Scaffold(
-      backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(
-        alpha: 0.3,
-      ),
+      backgroundColor: cs.surface,
       endDrawer: SidePanel(isService: isService),
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        backgroundColor: theme.colorScheme.surface,
-        elevation: 1,
+        backgroundColor: cs.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Divider(height: 1, color: cs.outlineVariant),
+        ),
         title: plansAsync.when(
           loading: () => const SizedBox(
             width: 20,
             height: 20,
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
-          error: (err, stack) => Text(
-            isService ? "Error loading resources" : "Error loading rooms",
+          error: (_, __) => Text(
+            isService ? 'Error loading resources' : 'Error loading rooms',
+            style: TextStyle(color: cs.error),
           ),
           data: (plans) {
-            if (plans.isEmpty)
-              return Text(isService ? "No Resources" : "No Floor Plans");
-            if (fpState.activeFloorPlanId == null) {
-              Future.microtask(
-                () => ref
-                    .read(floorPlanProvider.notifier)
-                    .setActiveFloorPlan(plans.first.id),
+            if (plans.isEmpty) {
+              return Text(
+                isService ? 'No Resources' : 'No Floor Plans',
+                style: TextStyle(color: cs.onSurfaceVariant),
               );
+            }
+            if (fpState.activeFloorPlanId == null) {
+              Future.microtask(() => ref
+                  .read(floorPlanProvider.notifier)
+                  .setActiveFloorPlan(plans.first.id));
             }
             return SizedBox(
               height: 50,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
                 itemCount: plans.length,
-                itemBuilder: (context, index) {
-                  final plan = plans[index];
-                  final isActive = fpState.activeFloorPlanId == plan.id;
+                itemBuilder: (_, i) {
+                  final plan = plans[i];
+                  final active = fpState.activeFloorPlanId == plan.id;
                   return InkWell(
                     onTap: () => ref
                         .read(floorPlanProvider.notifier)
                         .setActiveFloorPlan(plan.id),
-                    child: Container(
+                    borderRadius: BorderRadius.circular(4),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 12,
-                      ),
+                          horizontal: 20, vertical: 12),
                       decoration: BoxDecoration(
                         border: Border(
                           bottom: BorderSide(
-                            color: isActive
-                                ? theme.colorScheme.primary
-                                : Colors.transparent,
-                            width: 3,
+                            color: active ? cs.primary : Colors.transparent,
+                            width: 2.5,
                           ),
                         ),
                       ),
-                      child: Center(
-                        child: Text(
-                          plan.name,
-                          style: TextStyle(
-                            color: isActive
-                                ? theme.colorScheme.primary
-                                : theme.colorScheme.onSurfaceVariant,
-                            fontSize: 15,
-                            fontWeight: isActive
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                          ),
+                      child: Text(
+                        plan.name,
+                        style: TextStyle(
+                          color: active ? cs.primary : cs.onSurfaceVariant,
+                          fontWeight:
+                              active ? FontWeight.w700 : FontWeight.normal,
+                          fontSize: 14,
                         ),
                       ),
                     ),
@@ -131,30 +129,32 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
           },
         ),
         actions: [
-          if ((settings[SettingKeys.featureBookingEnabled] ?? 'true') == 'true')
+          if (bookingEnabled)
             IconButton(
-              icon: const Icon(Icons.calendar_month),
-              color: theme.colorScheme.primary,
+              icon: PhosphorIcon(PhosphorIconsRegular.calendarBlank,
+                  color: cs.primary),
               tooltip: 'Bookings',
               onPressed: () => Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const MainLayout(initialIndex: 2),
-                ),
+                    builder: (_) => const MainLayout(initialIndex: 2)),
               ),
             ),
           IconButton(
-            icon: Icon(
-              Icons.refresh,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            onPressed: () => _refreshData(),
+            icon: PhosphorIcon(PhosphorIconsRegular.arrowClockwise,
+                color: cs.onSurfaceVariant),
+            tooltip: 'Refresh',
+            onPressed: () {
+              ref.invalidate(allFloorPlansProvider);
+              ref.invalidate(tablesByFloorPlanProvider);
+            },
           ),
           Builder(
-            builder: (context) => IconButton(
-              icon: Icon(Icons.tune, color: theme.colorScheme.onSurfaceVariant),
-              tooltip: "Floor Plan Settings",
-              onPressed: () => Scaffold.of(context).openEndDrawer(),
+            builder: (ctx) => IconButton(
+              icon: PhosphorIcon(PhosphorIconsRegular.slidersHorizontal,
+                  color: cs.onSurfaceVariant),
+              tooltip: 'Settings',
+              onPressed: () => Scaffold.of(ctx).openEndDrawer(),
             ),
           ),
         ],
@@ -163,34 +163,24 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
         onTap: () =>
             ref.read(floorPlanTableProvider.notifier).selectTable(null),
         child: CustomPaint(
-          painter: fpState.showGrid
-              ? _GridPainter(theme.dividerColor.withValues(alpha: 0.5))
-              : null,
-          child: Container(
-            width: double.infinity,
-            height: double.infinity,
-            color: Colors.transparent,
+          painter: fpState.showGrid ? _DotGridPainter(cs.outlineVariant) : null,
+          child: SizedBox.expand(
             child: tablesAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, stack) =>
-                  const Center(child: Text("Error loading tables")),
-              data: (tables) {
-                return Stack(
-                  children: [
-                    ...tables
-                        .map(
-                          (t) => TableWidget(
-                            key: ValueKey(t.id),
-                            table: t,
-                            companyId: companyId,
-                            userId: userId,
-                            warehouseId: warehouseId,
-                          ),
-                        )
-                        .toList(),
-                  ],
-                );
-              },
+              loading: () =>
+                  const Center(child: CircularProgressIndicator()),
+              error: (_, __) =>
+                  const Center(child: Text('Error loading tables')),
+              data: (tables) => Stack(
+                children: tables
+                    .map((t) => TableWidget(
+                          key: ValueKey(t.id),
+                          table: t,
+                          companyId: companyId,
+                          userId: userId,
+                          warehouseId: warehouseId,
+                        ))
+                    .toList(),
+              ),
             ),
           ),
         ),
@@ -199,23 +189,24 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
   }
 }
 
-// Draws a subtle grid background
-class _GridPainter extends CustomPainter {
+class _DotGridPainter extends CustomPainter {
   final Color color;
-  _GridPainter(this.color);
+  _DotGridPainter(this.color);
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = color
-      ..strokeWidth = 1;
-    const double step = 40;
-    for (double i = 0; i < size.width; i += step)
-      canvas.drawLine(Offset(i, 0), Offset(i, size.height), paint);
-    for (double i = 0; i < size.height; i += step)
-      canvas.drawLine(Offset(0, i), Offset(size.width, i), paint);
+      ..color = color.withValues(alpha: 0.35)
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 1.5;
+    const step = 32.0;
+    for (double x = step; x < size.width; x += step) {
+      for (double y = step; y < size.height; y += step) {
+        canvas.drawCircle(Offset(x, y), 1.0, paint);
+      }
+    }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _DotGridPainter old) => old.color != color;
 }

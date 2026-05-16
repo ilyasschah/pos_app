@@ -1,14 +1,18 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pos_app/auth/auth_provider.dart';
-import 'package:pos_app/auth/auth_storage.dart';
-import 'package:pos_app/auth/user_model.dart';
-import 'package:pos_app/auth/master_login_screen.dart';
-import 'package:pos_app/company/company_provider.dart';
+import 'package:gap/gap.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:pos_app/auth/auth_provider.dart';
+import 'package:pos_app/auth/auth_storage.dart';
+import 'package:pos_app/auth/master_login_screen.dart';
+import 'package:pos_app/auth/user_model.dart';
+import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/settings/settings_provider.dart';
 
@@ -26,16 +30,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final selectedCo = ref.read(selectedCompanyProvider);
       final defaultCoId = ref.read(defaultCompanyIdProvider);
-
       if (selectedCo == null) {
         final fallbackId = defaultCoId ?? 2;
-        // ✨ Cleanly delegated to the Auth Provider!
         await ref.read(authServiceProvider).loadFallbackCompany(fallbackId);
       }
     });
   }
 
   void _handleUnlinkDevice() {
+    final cs = Theme.of(context).colorScheme;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -46,8 +49,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             onPressed: () => Navigator.pop(ctx),
             child: const Text("Cancel"),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: cs.error,
+              foregroundColor: cs.onError,
+            ),
             onPressed: () async {
               await ref.read(authStorageProvider).unlinkDevice();
               if (mounted) {
@@ -74,9 +80,61 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
+  Widget _buildUserCard(BuildContext context, User user, int index) {
+    final cs = Theme.of(context).colorScheme;
+    final isAdmin = user.accessLevel == 0;
+    final avatarBg = isAdmin ? cs.primaryContainer : cs.secondaryContainer;
+    final avatarFg = isAdmin ? cs.onPrimaryContainer : cs.onSecondaryContainer;
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: InkWell(
+        onTap: () => _showPinPad(user),
+        borderRadius: BorderRadius.circular(16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircleAvatar(
+              radius: 32,
+              backgroundColor: avatarBg,
+              child: Icon(
+                PhosphorIcons.user(PhosphorIconsStyle.fill),
+                size: 32,
+                color: avatarFg,
+              ),
+            ),
+            const Gap(14),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                user.displayName,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: cs.onSurface,
+                ),
+              ),
+            ),
+            const Gap(4),
+            Text(
+              isAdmin ? "Admin" : "Cashier",
+              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    ).animate(delay: (index * 60).ms).fadeIn(duration: 280.ms).slideY(begin: 0.12);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     final selectedCo = ref.watch(selectedCompanyProvider);
+
     if (selectedCo == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
@@ -84,7 +142,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final asyncUsers = ref.watch(allUsersProvider);
 
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: cs.surface,
       appBar: AppBar(
         title: GestureDetector(
           onLongPress: _handleUnlinkDevice,
@@ -94,17 +152,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           IconButton(
             icon: Icon(
               ref.watch(themeModeProvider) == ThemeMode.dark
-                  ? Icons.light_mode
-                  : Icons.dark_mode,
+                  ? PhosphorIcons.sun()
+                  : PhosphorIcons.moon(),
             ),
-            onPressed: () {
-              ref.read(themeModeProvider.notifier).toggleTheme();
-            },
+            onPressed: () => ref.read(themeModeProvider.notifier).toggleTheme(),
           ),
-          TextButton.icon(
-            icon: const Icon(Icons.business),
-            label: Text(selectedCo.name),
-            onPressed: () => Navigator.pushNamed(context, '/select-company'),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.business, size: 18),
+                const SizedBox(width: 6),
+                Text(selectedCo.name),
+              ],
+            ),
           ),
         ],
       ),
@@ -115,38 +177,45 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text(
+              Text(
                 "Select User",
-                style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 40),
+                style: GoogleFonts.inter(
+                  fontSize: 32,
+                  fontWeight: FontWeight.bold,
+                  color: cs.onSurface,
+                ),
+              ).animate().fadeIn(duration: 300.ms),
+              const Gap(40),
               Expanded(
                 child: asyncUsers.when(
                   loading: () =>
                       const Center(child: CircularProgressIndicator()),
-                  error: (err, stack) => Center(
+                  error: (err, _) => Center(
                     child: Text(
                       "Error loading users: $err",
-                      style: const TextStyle(color: Colors.red),
+                      style: TextStyle(color: cs.error),
                     ),
                   ),
                   data: (users) {
                     if (users.isEmpty) {
-                      return const Center(
-                        child: Text("No enabled users found."),
+                      return Center(
+                        child: Text(
+                          "No enabled users found.",
+                          style: TextStyle(color: cs.onSurfaceVariant),
+                        ),
                       );
                     }
                     return GridView.builder(
                       gridDelegate:
                           const SliverGridDelegateWithMaxCrossAxisExtent(
-                            maxCrossAxisExtent: 200,
-                            childAspectRatio: 1.0,
-                            crossAxisSpacing: 20,
-                            mainAxisSpacing: 20,
-                          ),
+                        maxCrossAxisExtent: 200,
+                        childAspectRatio: 1.0,
+                        crossAxisSpacing: 20,
+                        mainAxisSpacing: 20,
+                      ),
                       itemCount: users.length,
                       itemBuilder: (context, index) =>
-                          _buildUserCard(context, users[index]),
+                          _buildUserCard(context, users[index], index),
                     );
                   },
                 ),
@@ -157,40 +226,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       ),
     );
   }
-
-  Widget _buildUserCard(BuildContext context, User user) {
-    return InkWell(
-      onTap: () => _showPinPad(user),
-      child: Card(
-        elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircleAvatar(
-              radius: 30,
-              backgroundColor: user.accessLevel == 0
-                  ? Colors.orange
-                  : Colors.blue,
-              child: const Icon(Icons.person, size: 35, color: Colors.white),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              user.displayName,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              user.accessLevel == 0 ? "Admin" : "Cashier",
-              style: const TextStyle(color: Colors.grey, fontSize: 12),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
+
+// ---------------------------------------------------------------------------
+// PIN Pad Bottom Sheet
+// ---------------------------------------------------------------------------
 
 class _PinPadModal extends ConsumerStatefulWidget {
   final User user;
@@ -209,9 +249,7 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
   void _onKeyPress(String value) {
     if (_pin.length < 4) {
       setState(() => _pin += value);
-      if (_pin.length == 4) {
-        _processCompletePin();
-      }
+      if (_pin.length == 4) _processCompletePin();
     }
   }
 
@@ -262,15 +300,11 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
   Future<void> _setNewPin() async {
     setState(() => _isLoading = true);
     try {
-      // ✨ Cleanly delegated to the Auth Provider!
-      await ref
-          .read(authServiceProvider)
-          .setDevicePin(
+      await ref.read(authServiceProvider).setDevicePin(
             userId: widget.user.id,
             companyId: widget.user.companyId,
             pin: _pin,
           );
-
       _loginUser();
     } catch (e) {
       _showError("Failed to save PIN.");
@@ -308,113 +342,141 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      backgroundColor: Theme.of(context).colorScheme.error,
+    ));
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final cs = Theme.of(context).colorScheme;
+    final isAdmin = widget.user.accessLevel == 0;
+    final avatarBg = isAdmin ? cs.primaryContainer : cs.secondaryContainer;
+    final avatarFg = isAdmin ? cs.onPrimaryContainer : cs.onSecondaryContainer;
     final title = !widget.user.hasPinForThisDevice
         ? (_isConfirming ? "Confirm New PIN" : "Create 4-Digit PIN")
         : "Enter PIN";
 
     return Container(
-      height: 550,
+      height: 560,
       decoration: BoxDecoration(
-        color: theme.scaffoldBackgroundColor,
+        color: cs.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircleAvatar(
-            radius: 30,
-            backgroundColor: widget.user.accessLevel == 0
-                ? Colors.orange
-                : Colors.blue,
-            child: const Icon(Icons.person, size: 35, color: Colors.white),
+          // Drag handle
+          Container(
+            width: 40,
+            height: 4,
+            margin: const EdgeInsets.only(bottom: 20),
+            decoration: BoxDecoration(
+              color: cs.outlineVariant,
+              borderRadius: BorderRadius.circular(2),
+            ),
           ),
-          const SizedBox(height: 12),
+
+          CircleAvatar(
+            radius: 32,
+            backgroundColor: avatarBg,
+            child: Icon(
+              PhosphorIcons.user(PhosphorIconsStyle.fill),
+              size: 32,
+              color: avatarFg,
+            ),
+          ),
+          const Gap(12),
           Text(
             widget.user.displayName,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            style: GoogleFonts.inter(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: cs.onSurface,
+            ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(color: theme.colorScheme.primary, fontSize: 16),
-          ),
-          const SizedBox(height: 24),
+          const Gap(4),
+          Text(title, style: TextStyle(color: cs.primary, fontSize: 15)),
+          const Gap(28),
 
+          // PIN dots
           if (_isLoading)
             const CircularProgressIndicator()
           else
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: List.generate(4, (index) {
-                return Container(
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
                   margin: const EdgeInsets.symmetric(horizontal: 8),
-                  width: 20,
-                  height: 20,
+                  width: 16,
+                  height: 16,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: index < _pin.length
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.surfaceContainerHighest,
+                        ? cs.primary
+                        : cs.surfaceContainerHighest,
                   ),
                 );
               }),
             ),
 
-          const SizedBox(height: 32),
+          const Gap(32),
 
+          // Number grid
           SizedBox(
-            width: 280,
+            width: 290,
             child: GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
-                childAspectRatio: 1.2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
+                childAspectRatio: 1.5,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
               ),
               itemCount: 12,
               itemBuilder: (context, index) {
+                // Empty slot below "7 8 9"
                 if (index == 9) return const SizedBox.shrink();
+
+                // Backspace
                 if (index == 11) {
-                  return IconButton(
+                  return FilledButton.tonal(
                     onPressed: _onBackspace,
-                    icon: const Icon(Icons.backspace, size: 28),
+                    style: FilledButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      padding: EdgeInsets.zero,
+                    ),
+                    child: Icon(PhosphorIcons.backspace(), size: 24),
                   );
                 }
+
                 final number = index == 10 ? "0" : "${index + 1}";
-                return InkWell(
-                  onTap: () => _onKeyPress(number),
-                  borderRadius: BorderRadius.circular(12),
-                  child: Container(
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest
-                          .withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      number,
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                      ),
+                return FilledButton.tonal(
+                  onPressed: () => _onKeyPress(number),
+                  style: FilledButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    padding: EdgeInsets.zero,
+                  ),
+                  child: Text(
+                    number,
+                    style: GoogleFonts.inter(
+                      fontSize: 26,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSecondaryContainer,
                     ),
                   ),
                 );
               },
             ),
           ),
+          const Gap(16),
         ],
       ),
-    );
+    ).animate().slideY(begin: 0.08, duration: 300.ms, curve: Curves.easeOut);
   }
 }

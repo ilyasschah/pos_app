@@ -37,7 +37,7 @@ class UsersScreen extends ConsumerWidget {
                         context: context,
                         builder: (_) => _AddUserDialog(companyId: company.id),
                       );
-                      ref.invalidate(allUsersProvider);
+                      ref.invalidate(allUsersAdminProvider);
                     },
             ),
           ],
@@ -282,7 +282,7 @@ class _UsersListTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final asyncUsers = ref.watch(allUsersProvider);
+    final asyncUsers = ref.watch(allUsersAdminProvider);
     final company = ref.watch(selectedCompanyProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -312,7 +312,7 @@ class _UsersListTab extends ConsumerWidget {
                       context: context,
                       builder: (_) => _AddUserDialog(companyId: companyId),
                     );
-                    ref.invalidate(allUsersProvider);
+                    ref.invalidate(allUsersAdminProvider);
                   },
                 ),
               ],
@@ -385,7 +385,7 @@ class _UsersListTab extends ConsumerWidget {
                         builder: (_) =>
                             _EditUserDialog(user: user, companyId: companyId),
                       );
-                      ref.invalidate(allUsersProvider);
+                      ref.invalidate(allUsersAdminProvider);
                     },
                   ),
                   IconButton(
@@ -429,7 +429,7 @@ class _UsersListTab extends ConsumerWidget {
                           await ref
                               .read(userManagementProvider)
                               .deleteUser(companyId, user.id);
-                          ref.invalidate(allUsersProvider);
+                          ref.invalidate(allUsersAdminProvider);
 
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -485,7 +485,7 @@ class _EnableToggleState extends ConsumerState<_EnableToggle> {
             widget.user.id,
             !widget.user.isEnabled,
           );
-      ref.invalidate(allUsersProvider);
+      ref.invalidate(allUsersAdminProvider);
     } on DioException catch (e) {
       if (mounted) {
         final errorMsg = e.response?.data?['message'] ?? "Update failed";
@@ -965,7 +965,7 @@ Future<void> _adminResetPin(
                             content: Text("PIN forcibly reset for this iPad!"),
                           ),
                         );
-                        ref.invalidate(allUsersProvider);
+                        ref.invalidate(allUsersAdminProvider);
                       }
                     } on DioException catch (e, st) {
                       rethrowApiError(e, st);

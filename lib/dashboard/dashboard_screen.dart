@@ -2,7 +2,6 @@ import 'dart:math' show max;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/dashboard/dashboard_model.dart';
@@ -44,13 +43,24 @@ TextStyle _mono({
   FontWeight weight = FontWeight.w600,
   Color? color,
 }) =>
-    GoogleFonts.jetBrainsMono(fontSize: size, fontWeight: weight, color: color);
+    TextStyle(
+      fontFamily: 'Roboto Mono',
+      fontSize: size,
+      fontWeight: weight,
+      color: color,
+    );
 
 TextStyle _sans({
   double size = 13,
   FontWeight weight = FontWeight.w500,
   Color? color,
-}) => GoogleFonts.dmSans(fontSize: size, fontWeight: weight, color: color);
+}) =>
+    TextStyle(
+      fontFamily: 'Roboto',
+      fontSize: size,
+      fontWeight: weight,
+      color: color,
+    );
 
 // ── Screen ────────────────────────────────────────────────────────────────────
 

@@ -1,9 +1,13 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gap/gap.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_storage.dart';
 import 'package:pos_app/auth/login_screen.dart';
-import 'package:dio/dio.dart';
 import 'package:pos_app/utils/api_error_parser.dart';
 
 class MasterLoginScreen extends ConsumerStatefulWidget {
@@ -17,6 +21,14 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _obscurePassword = true;
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
   Future<void> _registerDevice() async {
     setState(() => _isLoading = true);
@@ -36,10 +48,7 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
 
       final data = response.data;
       if (data['success'] == true) {
-        final token = data['token'];
-
-        await storage.saveMasterSession(token, 1);
-
+        await storage.saveMasterSession(data['token'], 1);
         if (mounted) {
           Navigator.pushReplacement(
             context,
@@ -47,77 +56,162 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
           );
         }
       }
-    } on DioException catch (e, st) {
+    } on DioException catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        rethrowApiError(e, st);
+        _showError(parseApiError(e));
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Registration Failed: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showError('Registration failed: $e');
       }
     }
   }
 
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      backgroundColor: Theme.of(context).colorScheme.error,
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Scaffold(
       body: Center(
-        child: Container(
-          width: 400,
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                "Device Registration",
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 40),
-              TextField(
-                controller: _usernameController,
-                decoration: const InputDecoration(
-                  labelText: "Admin Username",
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.person),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _passwordController,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: "Password",
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.lock),
-                ),
-              ),
-              const SizedBox(height: 32),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                ),
-                onPressed: _isLoading ? null : _registerDevice,
-                child: _isLoading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text(
-                        "LINK DEVICE",
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Container(
+            width: 420,
+            padding: const EdgeInsets.all(40),
+            decoration: BoxDecoration(
+              color: cs.surface,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: cs.outlineVariant),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // --- Icon ---
+                Center(
+                  child: Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: cs.primaryContainer,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      PhosphorIcons.deviceMobile(),
+                      color: cs.onPrimaryContainer,
+                      size: 36,
+                    ),
+                  ),
+                ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack),
+
+                const Gap(24),
+
+                Text(
+                  "Device Registration",
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                    color: cs.onSurface,
+                  ),
+                ).animate().fadeIn(delay: 80.ms, duration: 300.ms),
+
+                const Gap(8),
+
+                Text(
+                  "Link this terminal to your POS account",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: cs.onSurfaceVariant, fontSize: 14),
+                ).animate().fadeIn(delay: 130.ms, duration: 300.ms),
+
+                const Gap(40),
+
+                // --- Username ---
+                TextField(
+                  controller: _usernameController,
+                  keyboardType: TextInputType.text,
+                  textInputAction: TextInputAction.next,
+                  decoration: InputDecoration(
+                    labelText: "Admin Username",
+                    filled: true,
+                    fillColor: cs.surfaceContainerHighest,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    prefixIcon: Icon(PhosphorIcons.user(), color: cs.onSurfaceVariant),
+                  ),
+                ).animate().fadeIn(delay: 180.ms).slideY(begin: 0.15, duration: 300.ms),
+
+                const Gap(16),
+
+                // --- Password ---
+                TextField(
+                  controller: _passwordController,
+                  obscureText: _obscurePassword,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _isLoading ? null : _registerDevice(),
+                  decoration: InputDecoration(
+                    labelText: "Password",
+                    filled: true,
+                    fillColor: cs.surfaceContainerHighest,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    prefixIcon: Icon(PhosphorIcons.lock(), color: cs.onSurfaceVariant),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePassword ? PhosphorIcons.eye() : PhosphorIcons.eyeSlash(),
+                        color: cs.onSurfaceVariant,
                       ),
-              ),
-            ],
-          ),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
+                    ),
+                  ),
+                ).animate().fadeIn(delay: 230.ms).slideY(begin: 0.15, duration: 300.ms),
+
+                const Gap(32),
+
+                // --- Submit ---
+                FilledButton(
+                  onPressed: _isLoading ? null : _registerDevice,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: _isLoading
+                      ? SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: cs.onPrimary,
+                          ),
+                        )
+                      : Text(
+                          "LINK DEVICE",
+                          style: GoogleFonts.inter(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                ).animate().fadeIn(delay: 280.ms, duration: 300.ms),
+              ],
+            ),
+          ).animate().fadeIn(duration: 350.ms).slideY(begin: 0.06, duration: 350.ms),
         ),
       ),
     );

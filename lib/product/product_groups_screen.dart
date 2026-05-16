@@ -1,28 +1,12 @@
-// ignore_for_file: deprecated_member_use
-
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/product/product_group_model.dart';
 import 'package:pos_app/product/product_group_provider.dart';
-
-// --- HELPER: CLEAN ERROR PARSER ---
-String _parseApiError(dynamic e) {
-  if (e is DioException && e.response?.data != null) {
-    final data = e.response!.data;
-    if (data is Map) {
-      if (data.containsKey('message')) return data['message'].toString();
-      if (data.containsKey('title')) return data['title'].toString();
-    }
-    if (data is String && !data.contains('<html') && data.length < 150)
-      return data;
-  }
-  return "A server error occurred. Please check your inputs.";
-}
+import 'package:pos_app/product/product_group_service.dart';
+import 'package:pos_app/utils/api_error_parser.dart';
 
 // --- MAIN SCREEN ---
 class ProductGroupsScreen extends ConsumerWidget {
@@ -36,33 +20,21 @@ class ProductGroupsScreen extends ConsumerWidget {
         builder: (_) => const Center(child: CircularProgressIndicator()));
 
     try {
-      final dio = createDio();
-      List children = [];
-      List products = [];
+      final service = ref.read(productGroupServiceProvider);
+      List<dynamic> children = [];
+      List<dynamic> products = [];
 
       try {
-        final childRes = await dio.get('/ProductGroups/GetChildren',
-            queryParameters: {
-              'parentId': group.id,
-              'companyId': group.companyId
-            });
-        children = childRes.data as List;
+        children = await service.getChildren(group.id, group.companyId);
       } catch (_) {}
 
       try {
-        final prodRes = await dio.get('/Products/GetByProductGroup',
-            queryParameters: {
-              'productGroupId': group.id,
-              'companyId': group.companyId
-            });
-        products = prodRes.data as List;
+        products = await service.getProductsByGroup(group.id, group.companyId);
       } catch (_) {}
 
       if (context.mounted) Navigator.pop(context);
 
       if (children.isNotEmpty || products.isNotEmpty) {
-        String msg =
-            "This group has products or sub-groups, it can't be deleted.";
         if (context.mounted) {
           showDialog(
             context: context,
@@ -74,7 +46,10 @@ class ProductGroupsScreen extends ConsumerWidget {
                 SizedBox(width: 8),
                 Text("Cannot Delete")
               ]),
-              content: Text(msg, style: const TextStyle(fontSize: 16)),
+              content: const Text(
+                "This group has products or sub-groups, it can't be deleted.",
+                style: TextStyle(fontSize: 16),
+              ),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(ctx),
@@ -97,17 +72,18 @@ class ProductGroupsScreen extends ConsumerWidget {
                   onPressed: () => Navigator.pop(ctx, false),
                   child: const Text("Cancel")),
               ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(ctx).colorScheme.error,
+                    foregroundColor: Theme.of(ctx).colorScheme.onError,
+                  ),
                   onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text("Delete",
-                      style: TextStyle(color: Colors.white))),
+                  child: const Text("Delete")),
             ],
           ),
         );
 
         if (confirm == true && context.mounted) {
-          await dio.delete('/ProductGroups/Delete',
-              queryParameters: {'id': group.id, 'companyId': group.companyId});
+          await service.delete(group.id, group.companyId);
           ref.invalidate(allProductGroupsProvider);
           if (context.mounted)
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -119,7 +95,7 @@ class ProductGroupsScreen extends ConsumerWidget {
       if (context.mounted) Navigator.pop(context);
       if (context.mounted)
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(_parseApiError(e)), backgroundColor: Colors.red));
+            content: Text(parseApiError(e)), backgroundColor: Colors.red));
     }
   }
 
@@ -128,161 +104,374 @@ class ProductGroupsScreen extends ConsumerWidget {
     final asyncGroups = ref.watch(allProductGroupsProvider);
 
     return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text("Product Groups"),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        elevation: 0,
       ),
       floatingActionButton: FloatingActionButton.extended(
-        icon: const Icon(Icons.create_new_folder),
-        label: const Text("New Group"),
         onPressed: () => showDialog(
                 context: context, builder: (_) => const _GroupEditorDialog())
             .then((_) => ref.invalidate(allProductGroupsProvider)),
+        icon: const Icon(Icons.add),
+        label: const Text("New Group"),
+        tooltip: "Create a new product group",
       ),
       body: asyncGroups.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(
-            child: Text("Error: ${_parseApiError(e)}",
-                style: const TextStyle(color: Colors.red))),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline,
+                  size: 64,
+                  color: Theme.of(context).colorScheme.error.withAlpha(128)),
+              const SizedBox(height: 16),
+              Text(
+                "Error loading groups",
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                parseApiError(e),
+                textAlign: TextAlign.center,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: Theme.of(context).colorScheme.error),
+              ),
+            ],
+          ),
+        ),
         data: (groups) {
           if (groups.isEmpty) {
-            return const Center(
-                child: Text("No product groups found. Create one!",
-                    style: TextStyle(color: Colors.grey, fontSize: 16)));
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.folder_open,
+                      size: 80,
+                      color: Theme.of(context).colorScheme.primary.withAlpha(64)),
+                  const SizedBox(height: 24),
+                  Text(
+                    "No product groups yet",
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Create one to organize your products",
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurface.withAlpha(128)),
+                  ),
+                  const SizedBox(height: 32),
+                  ElevatedButton.icon(
+                    onPressed: () => showDialog(
+                            context: context,
+                            builder: (_) => const _GroupEditorDialog())
+                        .then((_) =>
+                            ref.invalidate(allProductGroupsProvider)),
+                    icon: const Icon(Icons.add),
+                    label: const Text("Create Group"),
+                  ),
+                ],
+              ),
+            );
           }
 
-          return GridView.builder(
-            padding: const EdgeInsets.all(16),
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 260,
-              childAspectRatio: 0.85,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-            ),
-            itemCount: groups.length,
-            itemBuilder: (context, index) {
-              final group = groups[index];
-              return Card(
-                clipBehavior: Clip.antiAlias,
-                elevation: 3,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // --- TOP HALF: Updated to show Name inside the Box ---
-                    Expanded(
-                      flex: 3,
-                      child: Container(
-                        color: group.imageBytes == null
-                            ? group.flutterColor.withValues(alpha: 0.15)
-                            : Colors.grey[200],
-                        child: group.imageBytes != null
-                            ? Image.memory(group.imageBytes!, fit: BoxFit.cover)
-                            : Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                      group.parentGroupId == null
-                                          ? Icons.folder
-                                          : Icons.subdirectory_arrow_right,
-                                      size: 45,
-                                      color: group.flutterColor),
-                                  const SizedBox(height: 8),
-                                  Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 8.0),
-                                    child: Text(
-                                      group.name,
-                                      textAlign: TextAlign.center,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.bold,
-                                        color: group.flutterColor
-                                            .withValues(alpha: 0.9),
+          return LayoutBuilder(builder: (context, constraints) {
+            final screenWidth = constraints.maxWidth;
+            final isMobile = screenWidth < 600;
+            final isTablet = screenWidth < 1200;
+
+            int crossAxisCount;
+            if (isMobile) {
+              crossAxisCount = 1;
+            } else if (isTablet) {
+              crossAxisCount = 2;
+            } else {
+              crossAxisCount = 3;
+            }
+
+            return SingleChildScrollView(
+              padding: EdgeInsets.all(isMobile ? 12 : 20),
+              child: GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: crossAxisCount,
+                  childAspectRatio: 0.95,
+                  crossAxisSpacing: isMobile ? 8 : 16,
+                  mainAxisSpacing: isMobile ? 8 : 16,
+                ),
+                itemCount: groups.length,
+                itemBuilder: (context, index) {
+                  final group = groups[index];
+                  return _ProductGroupCard(
+                    group: group,
+                    onEdit: () => showDialog(
+                            context: context,
+                            builder: (_) =>
+                                _GroupEditorDialog(existingGroup: group))
+                        .then((_) =>
+                            ref.invalidate(allProductGroupsProvider)),
+                    onDelete: () => _attemptDeleteGroup(context, ref, group),
+                  );
+                },
+              ),
+            );
+          });
+        },
+      ),
+    );
+  }
+}
+
+// --- PRODUCT GROUP CARD ---
+class _ProductGroupCard extends StatefulWidget {
+  final ProductGroup group;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _ProductGroupCard({
+    required this.group,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  State<_ProductGroupCard> createState() => _ProductGroupCardState();
+}
+
+class _ProductGroupCardState extends State<_ProductGroupCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _hoverController;
+  bool _isHovered = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hoverController = AnimationController(
+      duration: const Duration(milliseconds: 120),
+      vsync: this,
+    );
+  }
+
+  @override
+  void dispose() {
+    _hoverController.dispose();
+    super.dispose();
+  }
+
+  void _setHovered(bool hovered) {
+    setState(() => _isHovered = hovered);
+    if (hovered) {
+      _hoverController.forward();
+    } else {
+      _hoverController.reverse();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+    final surfaceVariant = Theme.of(context).colorScheme.surfaceContainer;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => _setHovered(true),
+      onExit: (_) => _setHovered(false),
+      child: GestureDetector(
+        onTap: widget.onEdit,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 1.0, end: 1.02).animate(
+            CurvedAnimation(parent: _hoverController, curve: Curves.easeOut),
+          ),
+          child: Card(
+            elevation: _isHovered ? 8 : 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                border: _isHovered
+                    ? Border.all(color: primary.withAlpha(100), width: 2)
+                    : null,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // --- IMAGE/ICON SECTION ---
+                  Expanded(
+                    flex: 3,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: widget.group.imageBytes == null
+                            ? widget.group.flutterColor.withValues(alpha: 0.12)
+                            : surfaceVariant,
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(16),
+                          topRight: Radius.circular(16),
+                        ),
+                      ),
+                      child: widget.group.imageBytes != null
+                          ? ClipRRect(
+                              borderRadius: const BorderRadius.only(
+                                topLeft: Radius.circular(16),
+                                topRight: Radius.circular(16),
+                              ),
+                              child: Image.memory(
+                                widget.group.imageBytes!,
+                                fit: BoxFit.cover,
+                              ),
+                            )
+                          : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  widget.group.parentGroupId == null
+                                      ? Icons.folder
+                                      : Icons.subdirectory_arrow_right,
+                                  size: 56,
+                                  color: widget.group.flutterColor,
+                                ),
+                                const SizedBox(height: 12),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  child: Text(
+                                    widget.group.name,
+                                    textAlign: TextAlign.center,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium
+                                        ?.copyWith(
+                                          color: widget.group.flutterColor,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+
+                  // --- INFO & ACTIONS SECTION ---
+                  Expanded(
+                    flex: 2,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Group name
+                          Text(
+                            widget.group.name,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 6),
+
+                          // Rank badge and parent
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: primary.withAlpha(30),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: primary.withAlpha(60)),
+                                ),
+                                child: Text(
+                                  "Rank: ${widget.group.rank}",
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        color: primary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                              ),
+                              if (widget.group.parentGroupName != null) ...[
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    "• ${widget.group.parentGroupName}",
+                                    style: Theme.of(context).textTheme.labelSmall
+                                        ?.copyWith(
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .onSurface
+                                              .withAlpha(128),
+                                        ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ]
+                            ],
+                          ),
+
+                          const Spacer(),
+
+                          // --- ACTION BUTTONS ---
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              // Edit button
+                              Tooltip(
+                                message: "Edit group",
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: widget.onEdit,
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(8),
+                                      child: Icon(
+                                        Icons.edit,
+                                        color: primary,
+                                        size: 24,
                                       ),
                                     ),
                                   ),
-                                ],
+                                ),
                               ),
+                              const SizedBox(width: 4),
+                              // Delete button
+                              Tooltip(
+                                message: "Delete group",
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: widget.onDelete,
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(8),
+                                      child: Icon(
+                                        Icons.delete,
+                                        color: Theme.of(context).colorScheme.error,
+                                        size: 24,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          )
+                        ],
                       ),
                     ),
-                    // BOTTOM HALF: Details & Actions
-                    Expanded(
-                      flex: 2,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(group.name,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold, fontSize: 16),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis),
-                            const SizedBox(height: 4),
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                      color: Colors.blueGrey[50],
-                                      borderRadius: BorderRadius.circular(4)),
-                                  child: Text("Rank: ${group.rank}",
-                                      style: const TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.black87)),
-                                ),
-                                if (group.parentGroupName != null) ...[
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                      child: Text("• ${group.parentGroupName}",
-                                          style: const TextStyle(
-                                              color: Colors.grey, fontSize: 12),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis)),
-                                ]
-                              ],
-                            ),
-                            const Spacer(),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.edit,
-                                      color: Colors.blueGrey, size: 20),
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: () => showDialog(
-                                      context: context,
-                                      builder: (_) => _GroupEditorDialog(
-                                          existingGroup: group)).then((_) =>
-                                      ref.invalidate(allProductGroupsProvider)),
-                                ),
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  icon: const Icon(Icons.delete,
-                                      color: Colors.redAccent, size: 20),
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: () =>
-                                      _attemptDeleteGroup(context, ref, group),
-                                ),
-                              ],
-                            )
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          );
-        },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -291,10 +480,7 @@ class ProductGroupsScreen extends ConsumerWidget {
 // --- ADD/EDIT DIALOG ---
 class _GroupEditorDialog extends ConsumerStatefulWidget {
   final ProductGroup? existingGroup;
-  const _GroupEditorDialog(
-      {
-      // super.key,
-      this.existingGroup});
+  const _GroupEditorDialog({this.existingGroup});
 
   @override
   ConsumerState<_GroupEditorDialog> createState() => _GroupEditorDialogState();
@@ -336,7 +522,7 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
   ];
 
   String _colorToHex(Color color) =>
-      '#${color.value.toRadixString(16).substring(2).toUpperCase()}';
+      '#${color.toARGB32().toRadixString(16).substring(2).toUpperCase()}';
 
   @override
   void initState() {
@@ -384,29 +570,26 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
     });
 
     try {
-      final dio = createDio();
-      final payload = {
+      final service = ref.read(productGroupServiceProvider);
+      final Map<String, dynamic> payload = {
         'name': _nameCtrl.text.trim(),
         'parentGroupId': _selectedParentId,
         'color': _selectedHexColor,
-        // CRITICAL FIX: If image is null, send an empty string ("") to clear it in the database
         'image': _selectedImageBase64 ?? "",
         'rank': int.tryParse(_rankCtrl.text.trim()) ?? 0,
       };
 
       if (_isEditing) {
         payload['id'] = widget.existingGroup!.id;
-        await dio.patch('/ProductGroups/Update',
-            queryParameters: {'companyId': company.id}, data: payload);
+        await service.update(company.id, payload);
       } else {
-        await dio.post('/ProductGroups/Add',
-            queryParameters: {'companyId': company.id}, data: payload);
+        await service.add(company.id, payload);
       }
 
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       setState(() {
-        _errorMessage = _parseApiError(e);
+        _errorMessage = parseApiError(e);
         _isLoading = false;
       });
     }
@@ -415,204 +598,418 @@ class _GroupEditorDialogState extends ConsumerState<_GroupEditorDialog> {
   @override
   Widget build(BuildContext context) {
     final allGroupsAsync = ref.watch(allProductGroupsProvider);
+    final primary = Theme.of(context).colorScheme.primary;
+    final surface = Theme.of(context).colorScheme.surface;
+    final isMobile = MediaQuery.of(context).size.width < 600;
 
-    return AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      title: Text(_isEditing ? "Edit Group" : "New Product Group",
-          style: const TextStyle(fontWeight: FontWeight.bold)),
-      content: SizedBox(
-        width: 450,
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextFormField(
-                  controller: _nameCtrl,
-                  decoration: const InputDecoration(
-                      labelText: "Folder Name *", border: OutlineInputBorder()),
-                  validator: (v) =>
-                      v == null || v.trim().isEmpty ? "Required" : null,
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: isMobile ? double.infinity : 500,
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
+        ),
+        decoration: BoxDecoration(
+          color: surface,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // --- HEADER ---
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainer,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
                 ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: allGroupsAsync.when(
-                          loading: () => const LinearProgressIndicator(),
-                          error: (_, __) =>
-                              const Text("Failed to load parents"),
-                          data: (groups) {
-                            final validParents = groups
-                                .where((g) =>
-                                    !_isEditing ||
-                                    g.id != widget.existingGroup!.id)
-                                .toList();
-                            return DropdownButtonFormField<int?>(
-                              initialValue: _selectedParentId,
-                              decoration: const InputDecoration(
-                                  labelText: "Parent Folder",
-                                  border: OutlineInputBorder()),
-                              items: [
-                                const DropdownMenuItem(
-                                    value: null,
-                                    child: Text("None (Root Folder)")),
-                                ...validParents.map((g) => DropdownMenuItem(
-                                    value: g.id, child: Text(g.name))),
-                              ],
-                              onChanged: (v) =>
-                                  setState(() => _selectedParentId = v),
-                            );
-                          }),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 1,
-                      child: TextFormField(
-                        controller: _rankCtrl,
-                        decoration: const InputDecoration(
-                            labelText: "Rank", border: OutlineInputBorder()),
-                        keyboardType: TextInputType.number,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                const Text("Group Image",
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, color: Colors.grey)),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[200],
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.grey[400]!),
-                      ),
-                      child: _selectedImageBase64 != null &&
-                              _selectedImageBase64!.isNotEmpty
-                          ? ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.memory(
-                                  base64Decode(_selectedImageBase64!),
-                                  fit: BoxFit.cover),
-                            )
-                          : const Icon(Icons.image,
-                              color: Colors.grey, size: 30),
-                    ),
-                    const SizedBox(width: 16),
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.upload),
-                      label: const Text("Choose Image"),
-                      onPressed: _pickImage,
-                    ),
-                    if (_selectedImageBase64 != null &&
-                        _selectedImageBase64!.isNotEmpty) ...[
-                      const SizedBox(width: 8),
-                      TextButton(
-                        onPressed: () =>
-                            setState(() => _selectedImageBase64 = null),
-                        child: const Text("Remove",
-                            style: TextStyle(color: Colors.red)),
-                      ),
-                    ]
-                  ],
-                ),
-                const SizedBox(height: 20),
-                const Text("Fallback Folder Color",
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold, color: Colors.grey)),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: _colorPalette.map((color) {
-                    final hex = _colorToHex(color);
-                    final isSelected =
-                        _selectedHexColor.toUpperCase() == hex.toUpperCase();
-
-                    return InkWell(
-                      onTap: () => setState(() => _selectedHexColor = hex),
-                      borderRadius: BorderRadius.circular(20),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                            color: color,
-                            shape: BoxShape.circle,
-                            border: isSelected
-                                ? Border.all(
-                                    color:
-                                        Theme.of(context).colorScheme.primary,
-                                    width: 3)
-                                : null,
-                            boxShadow: [
-                              if (isSelected)
-                                BoxShadow(
-                                    color: color.withValues(alpha: 0.4),
-                                    blurRadius: 8,
-                                    spreadRadius: 2)
-                            ]),
-                        child: isSelected
-                            ? const Icon(Icons.check,
-                                color: Colors.white, size: 20)
-                            : null,
-                      ),
-                    );
-                  }).toList(),
-                ),
-                if (_errorMessage != null) ...[
-                  const SizedBox(height: 20),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                        color: Colors.red[50],
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.red.shade300)),
-                    child: Row(
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _isEditing ? Icons.edit : Icons.add,
+                    color: primary,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.error_outline,
-                            color: Colors.red, size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                            child: Text(_errorMessage!,
-                                style: const TextStyle(
-                                    color: Colors.red, fontSize: 13))),
+                        Text(
+                          _isEditing ? "Edit Product Group" : "New Product Group",
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _isEditing
+                              ? "Update group details"
+                              : "Create a new product group",
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurface
+                                    .withAlpha(128),
+                              ),
+                        ),
                       ],
                     ),
-                  )
-                ]
-              ],
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
             ),
-          ),
+
+            // --- FORM CONTENT ---
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.all(isMobile ? 16 : 20),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // --- GROUP NAME ---
+                      Text(
+                        "Group Name",
+                        style: Theme.of(context).textTheme.labelLarge
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _nameCtrl,
+                        decoration: InputDecoration(
+                          hintText: "e.g., Beverages, Desserts",
+                          filled: true,
+                          fillColor: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                        ),
+                        validator: (v) =>
+                            v == null || v.trim().isEmpty ? "Required" : null,
+                      ),
+                      const SizedBox(height: 24),
+
+                      // --- PARENT GROUP ---
+                      Text(
+                        "Parent Folder",
+                        style: Theme.of(context).textTheme.labelLarge
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      allGroupsAsync.when(
+                        loading: () => const LinearProgressIndicator(),
+                        error: (_, __) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          child: Text(
+                            "Failed to load parent groups",
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                              color:
+                                  Theme.of(context).colorScheme.error,
+                            ),
+                          ),
+                        ),
+                        data: (groups) {
+                          final validParents = groups
+                              .where((g) =>
+                                  !_isEditing ||
+                                  g.id != widget.existingGroup!.id)
+                              .toList();
+                          return DropdownButtonFormField<int?>(
+                            initialValue: _selectedParentId,
+                            decoration: InputDecoration(
+                              filled: true,
+                              fillColor: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 14,
+                              ),
+                            ),
+                            items: [
+                              const DropdownMenuItem(
+                                value: null,
+                                child: Text("None (Root Folder)"),
+                              ),
+                              ...validParents.map((g) => DropdownMenuItem(
+                                    value: g.id,
+                                    child: Text(g.name),
+                                  )),
+                            ],
+                            onChanged: (v) =>
+                                setState(() => _selectedParentId = v),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 24),
+
+                      // --- RANK ---
+                      Text(
+                        "Display Order (Rank)",
+                        style: Theme.of(context).textTheme.labelLarge
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _rankCtrl,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          hintText: "0",
+                          filled: true,
+                          fillColor: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // --- IMAGE SECTION ---
+                      Text(
+                        "Folder Image",
+                        style: Theme.of(context).textTheme.labelLarge
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Container(
+                            width: 100,
+                            height: 100,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: primary.withAlpha(60),
+                                width: 2,
+                              ),
+                            ),
+                            child: _selectedImageBase64 != null &&
+                                    _selectedImageBase64!.isNotEmpty
+                                ? ClipRRect(
+                                    borderRadius: BorderRadius.circular(10),
+                                    child: Image.memory(
+                                      base64Decode(_selectedImageBase64!),
+                                      fit: BoxFit.cover,
+                                    ),
+                                  )
+                                : Icon(
+                                    Icons.image,
+                                    color: primary.withAlpha(100),
+                                    size: 40,
+                                  ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                ElevatedButton.icon(
+                                  onPressed: _pickImage,
+                                  icon: const Icon(Icons.upload),
+                                  label: const Text("Choose Image"),
+                                  style: ElevatedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 12,
+                                    ),
+                                  ),
+                                ),
+                                if (_selectedImageBase64 != null &&
+                                    _selectedImageBase64!.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  TextButton.icon(
+                                    onPressed: () => setState(
+                                        () => _selectedImageBase64 = null),
+                                    icon: const Icon(Icons.close),
+                                    label: const Text("Remove"),
+                                    style: TextButton.styleFrom(
+                                      foregroundColor: Theme.of(context)
+                                          .colorScheme
+                                          .error,
+                                    ),
+                                  ),
+                                ]
+                              ],
+                            ),
+                          )
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+
+                      // --- COLOR PALETTE ---
+                      Text(
+                        "Fallback Folder Color",
+                        style: Theme.of(context).textTheme.labelLarge
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: _colorPalette.map((color) {
+                          final hex = _colorToHex(color);
+                          final isSelected = _selectedHexColor.toUpperCase() ==
+                              hex.toUpperCase();
+
+                          return InkWell(
+                            onTap: () =>
+                                setState(() => _selectedHexColor = hex),
+                            borderRadius: BorderRadius.circular(24),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 120),
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: color,
+                                shape: BoxShape.circle,
+                                border: isSelected
+                                    ? Border.all(color: primary, width: 3)
+                                    : Border.all(
+                                        color: primary.withAlpha(40),
+                                        width: 1,
+                                      ),
+                                boxShadow: isSelected
+                                    ? [
+                                        BoxShadow(
+                                          color: color.withAlpha(100),
+                                          blurRadius: 8,
+                                          spreadRadius: 1,
+                                        )
+                                      ]
+                                    : null,
+                              ),
+                              child: isSelected
+                                  ? Icon(
+                                      Icons.check,
+                                      size: 24,
+                                      color: color.computeLuminance() > 0.4
+                                          ? const Color(0xFF1A1A1A)
+                                          : const Color(0xFFFAFAFA),
+                                    )
+                                  : null,
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // --- ERROR MESSAGE ---
+                      if (_errorMessage != null) ...[
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color:
+                                Theme.of(context).colorScheme.error.withAlpha(20),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .error
+                                  .withAlpha(60),
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.error_outline,
+                                  color: Theme.of(context).colorScheme.error,
+                                  size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _errorMessage!,
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // --- ACTIONS ---
+            Container(
+              padding: EdgeInsets.all(isMobile ? 12 : 16),
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text("Cancel"),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    onPressed: _isLoading ? null : _submit,
+                    icon: _isLoading
+                        ? SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Theme.of(context).colorScheme.onPrimary,
+                              ),
+                            ),
+                          )
+                        : Icon(_isEditing ? Icons.save : Icons.add),
+                    label: Text(_isEditing ? "Update" : "Create"),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel")),
-        if (_isLoading)
-          const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2)))
-        else
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.indigo, foregroundColor: Colors.white),
-            onPressed: _submit,
-            child: Text(_isEditing ? "Update" : "Create"),
-          ),
-      ],
     );
   }
 }

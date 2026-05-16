@@ -1,7 +1,8 @@
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gap/gap.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:pos_app/menu/open_orders_screen.dart';
 import 'package:pos_app/navigation/main_layout.dart';
@@ -15,7 +16,6 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/menu/discount_dialog.dart';
 import 'package:pos_app/product/product_group_model.dart';
 import 'package:pos_app/product/product_group_provider.dart';
-import 'package:pos_app/floor_plan/floor_plan_screen.dart';
 import 'package:pos_app/cart/checkout_models.dart';
 import 'package:pos_app/cart/checkout_dialog.dart';
 import 'package:pos_app/api/api_client.dart';
@@ -25,7 +25,6 @@ import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/promotions/promotions_list_screen.dart';
-import 'package:pos_app/bookings/bookings_screen.dart';
 import 'package:pos_app/bookings/bookings_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table.dart';
 import 'package:pos_app/auth/user_model.dart';
@@ -33,6 +32,7 @@ import 'package:pos_app/product/product_comment_model.dart';
 import 'package:pos_app/product/product_comment_provider.dart';
 // import 'package:pos_app/menu/open_orders_screen.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
+import 'package:pos_app/printer/printer_provider.dart';
 
 final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
 final searchQueryProvider = StateProvider<String>((ref) => "");
@@ -40,7 +40,14 @@ final cartWidthProvider = StateProvider<double>((ref) => 350.0);
 
 // --- MAIN SCREEN ---
 class MenuScreen extends ConsumerStatefulWidget {
-  const MenuScreen({super.key});
+  final bool showAppBarNavigation;
+  final VoidCallback? onToggleSidebar;
+
+  const MenuScreen({
+    super.key,
+    this.showAppBarNavigation = false,
+    this.onToggleSidebar,
+  });
 
   @override
   ConsumerState<MenuScreen> createState() => _MenuScreenState();
@@ -112,10 +119,33 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        toolbarHeight: 62,
+        automaticallyImplyLeading: false,
+        leading: widget.showAppBarNavigation
+            ? IconButton(
+                icon: Icon(
+                  Icons.menu,
+                  size: 26,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+                onPressed: widget.onToggleSidebar,
+              )
+            : null,
+        title: widget.showAppBarNavigation
+            ? Text(
+                ref.watch(selectedCompanyProvider)?.name ?? 'Branch',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+                overflow: TextOverflow.ellipsis,
+              )
+            : null,
         actions: [
           // --- Order Controls ---
           SizedBox(
-            height: kToolbarHeight - 16,
+            height: 46,
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -132,6 +162,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                       return Padding(
                         padding: const EdgeInsets.only(right: 6),
                         child: IconButton(
+                          iconSize: 26,
                           icon: const Icon(Icons.person),
                           tooltip: currentCustomer?.name ?? "Select Customer",
                           onPressed: () => showDialog(
@@ -487,6 +518,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                       ),
                     ),
                   IconButton(
+                    iconSize: 26,
                     icon: const Icon(Icons.percent),
                     tooltip: "Discount",
                     onPressed: () => showDialog(
@@ -495,6 +527,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                     ),
                   ),
                   IconButton(
+                    iconSize: 26,
                     icon: const Icon(Icons.receipt),
                     tooltip: "Tax",
                     onPressed: () {
@@ -518,6 +551,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                     },
                   ),
                   IconButton(
+                    iconSize: 26,
                     icon: const Icon(Icons.swap_horiz),
                     tooltip: "Transfer",
                     onPressed: cartState.activePosOrderId == null
@@ -530,55 +564,92 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                   ),
 
                   IconButton(
-                    icon: const Icon(Icons.print),
-                    tooltip: "Print Cart Receipt",
+                    iconSize: 26,
+                    icon: const Icon(Icons.soup_kitchen),
+                    tooltip: "Send to Kitchen",
                     onPressed: cartState.items.isEmpty
                         ? null
                         : () async {
-                            final company = ref.read(selectedCompanyProvider);
-                            final cashier = ref.read(currentUserProvider);
+                            try {
+                              // 1. Await the future directly so the data is
+                              //    guaranteed to be loaded (never reads a
+                              //    synchronous / stale AsyncValue snapshot).
+                              final selections = await ref.read(
+                                allPrinterSelectionsProvider.future,
+                              );
 
-                            if (company == null || cashier == null) return;
+                              // 2. Find the kitchen printer selection.
+                              final kitchenSelection = selections
+                                  .where((s) => s.key == 'kitchen_printer')
+                                  .firstOrNull;
 
-                            final cartNotifier = ref.read(
-                              cartProvider.notifier,
-                            );
-                            final cartItems = ref.read(cartProvider).items;
-                            final subtotal = cartNotifier.subtotal;
-                            final taxTotal = cartNotifier.taxTotal;
-                            final grandTotal = cartNotifier.grandTotal;
-                            final sym = ref.read(currencySymbolProvider);
+                              if (kitchenSelection == null ||
+                                  !kitchenSelection.isEnabled) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Kitchen printer is not configured or disabled.',
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return;
+                              }
 
-                            final totalDiscount =
-                                cartNotifier.discountTotal +
-                                cartNotifier.manualCartDiscountAmount +
-                                cartNotifier.customerDiscountAmount +
-                                cartNotifier.promotionalDiscountTotal;
+                              // 3. Await the layout settings for that selection.
+                              final settings = await ref.read(
+                                printerSelectionSettingsByIdProvider(
+                                  kitchenSelection.id,
+                                ).future,
+                              );
 
-                            Uint8List? logoBytes;
-                            final logoBase64 = company.logo;
-                            if (logoBase64 != null && logoBase64.isNotEmpty) {
-                              try {
-                                logoBytes = base64Decode(logoBase64);
-                              } catch (_) {}
+                              if (settings == null) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Kitchen printer layout settings not found.',
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return;
+                              }
+
+                              // 4. Gather order context and print.
+                              final cashier = ref.read(currentUserProvider);
+                              final cartItems = ref.read(cartProvider).items;
+                              final serviceLabel =
+                                  switch (cartState.serviceType) {
+                                    0 => 'Dine In',
+                                    1 => 'Takeaway',
+                                    _ => 'Order',
+                                  };
+                              final roundNum = cartItems.isNotEmpty
+                                  ? cartItems.first.roundNumber
+                                  : 1;
+
+                              await ReceiptPrinterService().printKitchenTicket(
+                                orderNumber: cartState.orderNumber ?? 'WALK-IN',
+                                cashierName: cashier?.displayName ?? 'Unknown',
+                                serviceType: serviceLabel,
+                                roundNumber: roundNum,
+                                printTime: DateTime.now(),
+                                items: cartItems,
+                                printerSelection: kitchenSelection,
+                                settings: settings,
+                              );
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('Kitchen print error: $e'),
+                                    backgroundColor: Colors.red,
+                                  ),
+                                );
+                              }
                             }
-
-                            final printer = ReceiptPrinterService();
-                            await printer.printCartReceipt(
-                              company: company,
-                              cashier: cashier,
-                              printTime: DateTime.now(),
-                              orderNumber: cartState.orderNumber ?? "WALK-IN",
-                              items: cartItems,
-                              subtotal: subtotal,
-                              totalDiscount: totalDiscount,
-                              totalTax: taxTotal,
-                              grandTotal: grandTotal,
-                              currencySymbol: sym,
-                              logoBytes: logoBytes,
-                              roleSettings: ref.read(appSettingsProvider),
-                              isGuestCheck: true,
-                            );
                           },
                   ),
                 ],
@@ -634,6 +705,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                 padding: const EdgeInsets.only(right: 8.0),
                 child: PopupMenuButton<int>(
                   tooltip: selectedWarehouse?.name ?? "Select Warehouse",
+                  iconSize: 26,
                   icon: const Icon(Icons.warehouse),
                   onSelected: (id) {
                     warehouses.whenData((list) {
@@ -668,7 +740,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                   (route) => false,
                 );
               },
-              icon: const Icon(Icons.calendar_month),
+              icon: const Icon(Icons.calendar_month, size: 22),
               label: const Text(
                 'Bookings',
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
@@ -723,13 +795,13 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                   Navigator.pushAndRemoveUntil(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => const MainLayout(initialIndex: 3),
+                      builder: (_) => const MainLayout(initialIndex: 4),
                     ),
                     (route) => false,
                   );
                 }
               },
-              icon: const Icon(Icons.grid_view),
+              icon: const Icon(Icons.grid_view, size: 22),
               label: Text(
                 settings[SettingKeys.tablesButtonLabel] ?? 'Tables',
                 style: const TextStyle(
@@ -814,7 +886,6 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
     final searchQuery = ref.watch(searchQueryProvider);
     final selectedCompany = ref.watch(selectedCompanyProvider);
     final settings = ref.watch(appSettingsProvider);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     if (selectedCompany == null)
       return const Center(
@@ -859,45 +930,49 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
     final pageEnd = (pageStart + itemsPerPage).clamp(0, itemsToDisplay.length);
     final pageItems = itemsToDisplay.sublist(pageStart, pageEnd);
 
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
     return Column(
       children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          color: Theme.of(context).scaffoldBackgroundColor,
+        // ── Search bar ──────────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
           child: TextField(
             decoration: InputDecoration(
-              hintText: "Search products...",
-              prefixIcon: const Icon(Icons.search),
-              fillColor: Theme.of(context).cardColor,
+              hintText: 'Search products...',
+              prefixIcon: const PhosphorIcon(
+                  PhosphorIconsRegular.magnifyingGlass, size: 20),
+              fillColor: cs.surfaceContainer,
               filled: true,
               suffixIcon: searchQuery.isNotEmpty
                   ? IconButton(
-                      icon: const Icon(Icons.clear),
+                      icon: const PhosphorIcon(PhosphorIconsRegular.x, size: 18),
                       onPressed: () =>
-                          ref.read(searchQueryProvider.notifier).state = "",
+                          ref.read(searchQueryProvider.notifier).state = '',
                     )
                   : null,
               border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide.none,
               ),
               contentPadding: const EdgeInsets.symmetric(
-                vertical: 0,
-                horizontal: 12,
-              ),
+                  vertical: 14, horizontal: 16),
             ),
-            onChanged: (value) =>
-                ref.read(searchQueryProvider.notifier).state = value,
+            onChanged: (v) => ref.read(searchQueryProvider.notifier).state = v,
           ),
         ),
+
+        // ── Breadcrumb ──────────────────────────────────────────────────────
         if (!isSearching && currentGroup != null)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: isDark ? Colors.grey[850] : Colors.grey[200],
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            color: cs.surfaceContainerHighest,
             child: Row(
               children: [
                 IconButton(
-                  icon: const Icon(Icons.arrow_back, size: 20),
+                  icon: const PhosphorIcon(
+                      PhosphorIconsRegular.arrowLeft, size: 20),
                   onPressed: () {
                     if (currentGroup.parentGroupId == null) {
                       ref.read(currentGroupProvider.notifier).state = null;
@@ -907,55 +982,96 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
                           (g) => g.id == currentGroup.parentGroupId,
                         );
                         ref.read(currentGroupProvider.notifier).state = parent;
-                      } catch (e) {
+                      } catch (_) {
                         ref.read(currentGroupProvider.notifier).state = null;
                       }
                     }
                   },
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  currentGroup.name,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                const Gap(4),
+                PhosphorIcon(PhosphorIconsRegular.folder,
+                    size: 18, color: cs.primary),
+                const Gap(8),
+                Expanded(
+                  child: Text(
+                    currentGroup.name,
+                    style: tt.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],
             ),
           ),
+
+        // ── Product / group grid ────────────────────────────────────────────
         Expanded(
           child: itemsToDisplay.isEmpty
               ? Center(
-                  child: Text(
-                    isSearching
-                        ? "No products found matching '$searchQuery'"
-                        : "Empty Folder",
-                    style: TextStyle(
-                      color: isDark ? Colors.grey[400] : Colors.grey[600],
-                      fontSize: 16,
-                    ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      PhosphorIcon(
+                        isSearching
+                            ? PhosphorIconsRegular.magnifyingGlass
+                            : PhosphorIconsRegular.tray,
+                        size: 56,
+                        color: cs.onSurface.withValues(alpha: 0.25),
+                      ),
+                      const Gap(12),
+                      Text(
+                        isSearching
+                            ? 'No products found for "$searchQuery"'
+                            : 'This folder is empty',
+                        style: tt.bodyLarge?.copyWith(
+                          color: cs.onSurface.withValues(alpha: 0.45),
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
                   ),
                 )
-              : GridView.builder(
-                  padding: const EdgeInsets.all(16),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: cols,
-                    childAspectRatio: 0.85,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                  ),
-                  itemCount: pageItems.length,
-                  itemBuilder: (context, index) {
-                    final item = pageItems[index];
-                    if (item is ProductGroup)
-                      return _buildGroupCard(context, ref, item);
-                    if (item is Product)
-                      return _buildProductCard(context, ref, item);
-                    return const SizedBox();
+              : LayoutBuilder(
+                  builder: (ctx, constraints) {
+                    final maxExtent =
+                        (constraints.maxWidth / cols).clamp(100.0, 240.0);
+                    return GridView.builder(
+                      padding: const EdgeInsets.all(12),
+                      gridDelegate:
+                          SliverGridDelegateWithMaxCrossAxisExtent(
+                        maxCrossAxisExtent: maxExtent,
+                        childAspectRatio: 0.82,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                      ),
+                      itemCount: pageItems.length,
+                      itemBuilder: (context, index) {
+                        final item = pageItems[index];
+                        Widget card;
+                        if (item is ProductGroup) {
+                          card = _buildGroupCard(context, ref, item);
+                        } else if (item is Product) {
+                          card = _buildProductCard(context, ref, item);
+                        } else {
+                          return const SizedBox();
+                        }
+                        return card
+                            .animate()
+                            .fadeIn(
+                                duration: 180.ms,
+                                delay: (index * 28).ms)
+                            .scale(
+                                begin: const Offset(0.94, 0.94),
+                                end: const Offset(1, 1),
+                                duration: 180.ms,
+                                delay: (index * 28).ms);
+                      },
+                    );
                   },
                 ),
         ),
+
         _PaginationBar(
           currentPage: safePage,
           totalPages: totalPages,
@@ -973,39 +1089,28 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
     WidgetRef ref,
     ProductGroup group,
   ) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final baseColor =
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final accent =
         (group.flutterColor == Colors.transparent ||
-            group.flutterColor == Colors.white)
-        ? Colors.blueGrey
-        : group.flutterColor;
-    final bgColor = isDark ? baseColor.withAlpha(51) : baseColor.withAlpha(38);
-    final borderColor = isDark
-        ? baseColor.withAlpha(128)
-        : baseColor.withAlpha(76);
+                group.flutterColor == Colors.white)
+            ? cs.primary
+            : group.flutterColor;
 
-    return InkWell(
-      onTap: () {
-        ref.read(currentGroupProvider.notifier).state = group;
-        ref.read(searchQueryProvider.notifier).state = "";
-      },
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: borderColor, width: 2),
-          boxShadow: [
-            BoxShadow(
-              color: isDark
-                  ? Colors.black45
-                  : Colors.black.withValues(alpha: 0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
+    return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: accent.withValues(alpha: 0.45), width: 1.5),
+      ),
+      color: cs.surface,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () {
+          ref.read(currentGroupProvider.notifier).state = group;
+          ref.read(searchQueryProvider.notifier).state = '';
+        },
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1014,47 +1119,28 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
               child: group.imageBytes != null
                   ? Image.memory(group.imageBytes!, fit: BoxFit.cover)
                   : Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            baseColor.withValues(alpha: 0.4),
-                            baseColor.withValues(alpha: 0.1),
-                          ],
+                      color: accent.withValues(alpha: 0.1),
+                      child: Center(
+                        child: PhosphorIcon(
+                          PhosphorIconsRegular.folder,
+                          size: 52,
+                          color: accent.withValues(alpha: 0.75),
                         ),
-                      ),
-                      child: Icon(
-                        Icons.folder_rounded,
-                        size: 58,
-                        color: isDark
-                            ? baseColor.withValues(alpha: 0.9)
-                            : baseColor,
                       ),
                     ),
             ),
-            Expanded(
-              flex: 2,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8.0,
-                  vertical: 4.0,
-                ),
-                decoration: BoxDecoration(
-                  color: isDark ? Colors.black26 : Colors.white54,
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  group.name,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                    color: isDark ? Colors.white : Colors.blueGrey[900],
-                    letterSpacing: -0.5,
-                  ),
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+              color: accent.withValues(alpha: 0.1),
+              child: Text(
+                group.name,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: tt.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: cs.onSurface,
                 ),
               ),
             ),
@@ -1069,8 +1155,10 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
     WidgetRef ref,
     Product product,
   ) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
     final sym = ref.watch(currencySymbolProvider);
+    final hasPromo = getActivePromotionCountForProduct(ref, product.id) > 0;
 
     return InkWell(
       onTap: () async {
@@ -1199,96 +1287,79 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
           );
         }
       },
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isDark ? Colors.grey[800]! : Colors.grey[200]!,
-            width: 1,
+      child: Card(
+          margin: EdgeInsets.zero,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(
+                color: cs.outlineVariant.withValues(alpha: 0.5), width: 1),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: isDark
-                  ? Colors.black45
-                  : Colors.black.withValues(alpha: 0.08),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              flex: 3,
-              child: product.imageBytes != null
-                  ? Image.memory(product.imageBytes!, fit: BoxFit.cover)
-                  : Container(
-                      color: isDark ? Colors.grey[850] : Colors.grey[50],
-                      child: Icon(
-                        Icons.restaurant_rounded,
-                        size: 48,
-                        color: isDark
-                            ? Colors.blueGrey[700]
-                            : Colors.blueGrey[100],
-                      ),
-                    ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10.0,
-                  vertical: 6.0,
-                ),
-                decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1A1A1A) : Colors.white,
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // --- ⭐ PROMOTION STAR PLACED ABOVE THE TEXT ---
-                    if (getActivePromotionCountForProduct(ref, product.id) > 0)
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 2),
-                        child: Icon(Icons.star, color: Colors.amber, size: 16),
-                      ),
-                    Flexible(
-                      child: Text(
-                        product.name,
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
+          color: cs.surfaceContainer,
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                flex: 3,
+                child: product.imageBytes != null
+                    ? Image.memory(product.imageBytes!, fit: BoxFit.cover)
+                    : Container(
+                        color: cs.surfaceContainerHighest,
+                        child: Center(
+                          child: PhosphorIcon(
+                            PhosphorIconsRegular.forkKnife,
+                            size: 44,
+                            color: cs.onSurface.withValues(alpha: 0.2),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      "${product.price.toStringAsFixed(2)} $sym",
-                      style: TextStyle(
-                        color: isDark
-                            ? Colors.greenAccent[400]
-                            : Colors.green[800],
-                        fontWeight: FontWeight.w900,
-                        fontSize: 15,
+              ),
+              Container(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                color: cs.surface,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (hasPromo)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: PhosphorIcon(
+                          PhosphorIconsFill.star,
+                          size: 14,
+                          color: cs.tertiary,
+                        ),
                       ),
+                    Text(
+                      product.name,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: tt.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    const Gap(4),
+                    Text(
+                      '${product.price.toStringAsFixed(2)} $sym',
+                      style: tt.labelMedium?.copyWith(
+                        color: cs.primary,
+                        fontWeight: FontWeight.w900,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
     );
   }
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PAGINATION BAR
@@ -1313,49 +1384,56 @@ class _PaginationBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final cs = Theme.of(context).colorScheme;
     final isFirst = currentPage == 0;
     final isLast = currentPage >= totalPages - 1;
 
     return Container(
-      height: 48,
+      height: 52,
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        color: cs.surfaceContainerHighest,
         border: Border(
-          top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2)),
-        ),
+            top: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.3))),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           _NavButton(
-            label: '<<',
+            icon: PhosphorIconsRegular.skipBack,
             tooltip: 'First',
             onTap: isFirst ? null : onFirst,
           ),
           _NavButton(
-            label: '<',
+            icon: PhosphorIconsRegular.caretLeft,
             tooltip: 'Previous',
             onTap: isFirst ? null : onPrevious,
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+          const Gap(12),
+          Container(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            decoration: BoxDecoration(
+              color: cs.surface,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                  color: cs.outlineVariant.withValues(alpha: 0.5)),
+            ),
             child: Text(
-              'Page ${currentPage + 1} of $totalPages',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: theme.colorScheme.onSurface,
-              ),
+              '${currentPage + 1} / $totalPages',
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: cs.onSurface,
+                  ),
             ),
           ),
+          const Gap(12),
           _NavButton(
-            label: '>',
+            icon: PhosphorIconsRegular.caretRight,
             tooltip: 'Next',
             onTap: isLast ? null : onNext,
           ),
           _NavButton(
-            label: '>>',
+            icon: PhosphorIconsRegular.skipForward,
             tooltip: 'Last',
             onTap: isLast ? null : onLast,
           ),
@@ -1366,35 +1444,32 @@ class _PaginationBar extends StatelessWidget {
 }
 
 class _NavButton extends StatelessWidget {
-  final String label;
+  final IconData icon;
   final String tooltip;
   final VoidCallback? onTap;
 
   const _NavButton({
-    required this.label,
+    required this.icon,
     required this.tooltip,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final cs = Theme.of(context).colorScheme;
     final enabled = onTap != null;
 
     return Tooltip(
       message: tooltip,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(8),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: enabled ? theme.colorScheme.primary : theme.disabledColor,
-            ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          child: PhosphorIcon(
+            icon,
+            size: 18,
+            color: enabled ? cs.primary : cs.onSurface.withValues(alpha: 0.25),
           ),
         ),
       ),
@@ -1503,7 +1578,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
-              builder: (_) => const MainLayout(initialIndex: 3),
+              builder: (_) => const MainLayout(initialIndex: 4),
             ),
             (route) => false,
           );
@@ -1519,7 +1594,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
-              builder: (_) => const MainLayout(initialIndex: 3),
+              builder: (_) => const MainLayout(initialIndex: 4),
             ),
             (route) => false,
           );
@@ -2179,20 +2254,23 @@ class _CartSectionState extends ConsumerState<CartSection> {
                               settings[SettingKeys.featureFloorPlanEnabled]
                                   ?.toLowerCase() ==
                               'true';
-                          Widget? voidNext;
+                          int? voidIndex;
                           if (wasBookingOrder && bookingEnabled) {
-                            voidNext = const BookingsScreen();
+                            voidIndex = 2;
                           } else if (wasTableOrder && floorPlanEnabled) {
-                            voidNext = const FloorPlanScreen();
+                            voidIndex = 4;
                           } else if (bookingEnabled) {
-                            voidNext = const BookingsScreen();
+                            voidIndex = 2;
                           } else if (floorPlanEnabled) {
-                            voidNext = const FloorPlanScreen();
+                            voidIndex = 4;
                           }
-                          if (voidNext != null) {
+                          if (voidIndex != null) {
                             Navigator.pushAndRemoveUntil(
                               context,
-                              MaterialPageRoute(builder: (_) => voidNext!),
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    MainLayout(initialIndex: voidIndex!),
+                              ),
                               (route) => false,
                             );
                           }

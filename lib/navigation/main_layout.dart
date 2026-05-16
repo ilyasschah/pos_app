@@ -6,6 +6,7 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/menu/menu_screen.dart';
 import 'package:pos_app/menu/open_orders_screen.dart';
 import 'package:pos_app/bookings/bookings_screen.dart';
+import 'package:pos_app/bookings/booking_history_screen.dart';
 import 'package:pos_app/floor_plan/floor_plan_screen.dart';
 import 'package:pos_app/reports/z_report_screen.dart';
 import 'package:pos_app/navigation/nav_widgets.dart';
@@ -28,7 +29,8 @@ class MainLayout extends ConsumerStatefulWidget {
 
 class _MainLayoutState extends ConsumerState<MainLayout> {
   late int _selectedIndex;
-  bool _isSidebarVisible = true; // ✨ NEW: Desktop Sidebar Toggle State
+  bool _isSidebarVisible = true;
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
@@ -52,16 +54,18 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     final companyName = company?.name ?? "Default Branch";
 
     final List<Widget> screens = [
-      const MenuScreen(), // Index 0
-      const OpenOrdersScreen(), // Index 1
-      bookingEnabled
-          ? const BookingsScreen()
-          : const SizedBox.shrink(), // Index 2
-      floorPlanEnabled
-          ? const FloorPlanScreen()
-          : const SizedBox.shrink(), // Index 3
-      const EndOfDayScreen(), // Index 4
-      const UserInfoScreen(), // Index 5
+      MenuScreen(
+        showAppBarNavigation: !showPermanentSidebar,
+        onToggleSidebar: isDesktop
+            ? () => setState(() => _isSidebarVisible = true)
+            : () => _scaffoldKey.currentState?.openDrawer(),
+      ),
+      const OpenOrdersScreen(),
+      bookingEnabled ? const BookingsScreen() : const SizedBox.shrink(),
+      bookingEnabled ? const BookingHistoryScreen() : const SizedBox.shrink(),
+      floorPlanEnabled ? const FloorPlanScreen() : const SizedBox.shrink(),
+      const EndOfDayScreen(),
+      const UserInfoScreen(),
     ];
 
     void handleNavTap(int index) {
@@ -131,13 +135,20 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         isActive: _selectedIndex == 2,
                         onTap: () => handleNavTap(2),
                       ),
+                    if (bookingEnabled)
+                      NavItem(
+                        icon: Icons.history,
+                        label: "Booking History",
+                        isActive: _selectedIndex == 3,
+                        onTap: () => handleNavTap(3),
+                      ),
                     if (floorPlanEnabled)
                       NavItem(
                         icon: Icons.grid_view,
                         label:
                             settings[SettingKeys.tablesButtonLabel] ?? "Tables",
-                        isActive: _selectedIndex == 3,
-                        onTap: () => handleNavTap(3),
+                        isActive: _selectedIndex == 4,
+                        onTap: () => handleNavTap(4),
                       ),
                     NavItem(
                       icon: Icons.download,
@@ -152,16 +163,16 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     NavItem(
                       icon: Icons.directions_run,
                       label: "End of day",
-                      isActive: _selectedIndex == 4,
-                      onTap: () => handleNavTap(4),
+                      isActive: _selectedIndex == 5,
+                      onTap: () => handleNavTap(5),
                     ),
 
                     const NavSectionLabel("User"),
                     NavItem(
                       icon: Icons.person_outline,
                       label: "User info",
-                      isActive: _selectedIndex == 5,
-                      onTap: () => handleNavTap(5),
+                      isActive: _selectedIndex == 6,
+                      onTap: () => handleNavTap(6),
                     ),
                     NavItem(
                       icon: Icons.logout,
@@ -248,60 +259,17 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     );
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: kNavBg,
       drawer: isDesktop
           ? null
           : Drawer(backgroundColor: kNavSidebar, child: sidebar),
       body: Row(
         children: [
-          // ✨ Conditionally show sidebar based on our new variable
           if (showPermanentSidebar) sidebar,
-
           Expanded(
             child: ClipRect(
-              child: Column(
-                children: [
-                  // ✨ Show the Top Bar if the sidebar is hidden (Mobile OR Desktop)
-                  if (!showPermanentSidebar)
-                    Container(
-                      height: kToolbarHeight,
-                      color: kNavSidebar,
-                      child: Row(
-                        children: [
-                          Builder(
-                            builder: (ctx) => IconButton(
-                              icon: const Icon(Icons.menu, color: Colors.white),
-                              onPressed: () {
-                                if (isDesktop) {
-                                  // Restore Desktop Sidebar
-                                  setState(() => _isSidebarVisible = true);
-                                } else {
-                                  // Open Mobile Drawer
-                                  Scaffold.of(ctx).openDrawer();
-                                }
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              companyName,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                  // Active Screen
-                  Expanded(child: screens[_selectedIndex]),
-                ],
-              ),
+              child: screens[_selectedIndex],
             ),
           ),
         ],

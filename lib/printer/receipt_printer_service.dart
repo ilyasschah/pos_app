@@ -4,6 +4,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/cart/checkout_models.dart';
 import 'package:pos_app/company/company_model.dart';
+import 'package:pos_app/printer/printer_selection_model.dart';
+import 'package:pos_app/printer/printer_selection_settings_model.dart';
 import 'package:pos_app/reports/z_report_model.dart';
 import 'package:printing/printing.dart';
 
@@ -32,7 +34,7 @@ class ReceiptPrinterService {
   static double _fontScale(Map<String, String> s, String role) =>
       (double.tryParse(s['$role.FontSize'] ?? '100') ?? 100) / 100;
 
-  static pw.Font? _font(Map<String, String> s, String role) {
+  static Future<pw.Font> _font(Map<String, String> s, String role) async {
     switch (s['$role.FontFamily'] ?? '(None)') {
       case 'Courier':
       case 'Monospace':
@@ -41,11 +43,11 @@ class ReceiptPrinterService {
       case 'Times':
         return pw.Font.times();
       default:
-        return null;
+        return await PdfGoogleFonts.notoSansRegular();
     }
   }
 
-  static pw.Font? _fontBold(Map<String, String> s, String role) {
+  static Future<pw.Font> _fontBold(Map<String, String> s, String role) async {
     switch (s['$role.FontFamily'] ?? '(None)') {
       case 'Courier':
       case 'Monospace':
@@ -54,7 +56,7 @@ class ReceiptPrinterService {
       case 'Times':
         return pw.Font.timesBold();
       default:
-        return null;
+        return await PdfGoogleFonts.notoSansBold();
     }
   }
 
@@ -151,8 +153,8 @@ class ReceiptPrinterService {
     final margins = _margins(roleSettings, role);
     final copies = _copies(roleSettings, role);
     final fontScale = _fontScale(roleSettings, role);
-    final font = _font(roleSettings, role);
-    final boldFont = _fontBold(roleSettings, role);
+    final font = await _font(roleSettings, role);
+    final boldFont = await _fontBold(roleSettings, role);
     final rtl = _flag(roleSettings, '$role.RightToLeft');
     final logoFull = _flag(roleSettings, '$role.LogoFullWidth');
     final showBarcode = _flag(roleSettings, '$role.PrintBarcode');
@@ -167,7 +169,7 @@ class ReceiptPrinterService {
         : (isGuestCheck ? '' : 'Thank you for your visit!');
 
     pw.TextStyle ts(double size, {bool bold = false}) => pw.TextStyle(
-      font: bold ? (boldFont ?? font) : font,
+      font: bold ? boldFont : font,
       fontWeight: bold ? pw.FontWeight.bold : null,
       fontSize: size * fontScale,
     );
@@ -364,38 +366,58 @@ class ReceiptPrinterService {
 
   Future<void> printKitchenTicket({
     required String orderNumber,
-    String? tableInfo,
-    String? serverName,
+    required String cashierName,
+    required String serviceType,
+    int roundNumber = 1,
     required DateTime printTime,
     required List<CartItem> items,
-    Map<String, String> roleSettings = const {},
+    List<List<String>> itemComments = const [],
+    required PrinterSelectionModel printerSelection,
+    required PrinterSelectionSettingsModel settings,
   }) async {
-    const role = 'Kitchen';
-    final fmt = _paperFmt(roleSettings['$role.PaperSize']);
-    final margins = _margins(roleSettings, role);
-    final copies = _copies(roleSettings, role);
-    final fontScale = _fontScale(roleSettings, role);
-    final font = _font(roleSettings, role);
-    final boldFont = _fontBold(roleSettings, role);
-    final rtl = _flag(roleSettings, '$role.RightToLeft');
-    final printerName = roleSettings['$role.PrinterName'];
+    final fmt =
+        settings.paperWidth == 58 ? PdfPageFormat.roll57 : PdfPageFormat.roll80;
+    final margins = pw.EdgeInsets.only(
+      top: settings.topMargin * PdfPageFormat.mm,
+      bottom: settings.bottomMargin * PdfPageFormat.mm,
+      left: settings.leftMargin * PdfPageFormat.mm,
+      right: settings.rightMargin * PdfPageFormat.mm,
+    );
+    final copies = settings.numberOfCopies < 1 ? 1 : settings.numberOfCopies;
+    final fontScale = settings.fontSizePercent / 100;
+    final printerName = printerSelection.printerName;
 
-    pw.TextStyle ts(double size, {bool bold = false}) => pw.TextStyle(
-      font: bold ? (boldFont ?? font) : font,
+    pw.Font font;
+    pw.Font boldFont;
+    switch (settings.fontName) {
+      case 'Courier':
+      case 'Monospace':
+        font = pw.Font.courier();
+        boldFont = pw.Font.courierBold();
+      case 'Times New Roman':
+      case 'Times':
+        font = pw.Font.times();
+        boldFont = pw.Font.timesBold();
+      default:
+        font = await PdfGoogleFonts.notoSansRegular();
+        boldFont = await PdfGoogleFonts.notoSansBold();
+    }
+
+    pw.TextStyle ts(
+      double size, {
+      bool bold = false,
+      bool italic = false,
+    }) => pw.TextStyle(
+      font: bold ? boldFont : font,
       fontWeight: bold ? pw.FontWeight.bold : null,
+      fontStyle: italic ? pw.FontStyle.italic : null,
       fontSize: size * fontScale,
     );
-    final dir = rtl ? pw.TextDirection.rtl : pw.TextDirection.ltr;
 
-    pw.Widget rowW(String l, String v, {double fontSize = 10}) => _row(
-      l,
-      v,
-      fontSize: fontSize,
-      fontScale: fontScale,
-      font: font,
-      boldFont: boldFont,
-      rtl: rtl,
-    );
+    // Show just the counter portion (e.g. "005") large at the top.
+    final ticketNum = orderNumber.contains('#')
+        ? orderNumber.split('#').last.trim()
+        : orderNumber;
 
     final pdf = pw.Document();
     pdf.addPage(
@@ -403,77 +425,67 @@ class ReceiptPrinterService {
         pageFormat: fmt,
         margin: margins,
         build: (_) => pw.Column(
-          crossAxisAlignment: rtl
-              ? pw.CrossAxisAlignment.end
-              : pw.CrossAxisAlignment.start,
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
           mainAxisSize: pw.MainAxisSize.min,
           children: [
-            pw.Center(
-              child: pw.Text(
-                'KITCHEN',
-                style: ts(22, bold: true),
-                textDirection: dir,
-              ),
-            ),
-            pw.Divider(thickness: 2),
+            // ── Big order number ──────────────────────────────────────
+            pw.Center(child: pw.Text(ticketNum, style: ts(40, bold: true))),
             pw.SizedBox(height: 4),
-            rowW('Order:', orderNumber, fontSize: 12),
-            if (tableInfo?.isNotEmpty == true)
-              rowW('Table:', tableInfo!, fontSize: 12),
-            if (serverName?.isNotEmpty == true)
-              rowW('Server:', serverName!, fontSize: 12),
-            rowW('Time:', _fmtDateTime(printTime), fontSize: 12),
+            pw.Divider(borderStyle: pw.BorderStyle.dashed),
+            pw.SizedBox(height: 4),
+
+            // ── Meta info ─────────────────────────────────────────────
+            pw.Text('User: $cashierName', style: ts(10)),
+            pw.Text(
+              'Order: $orderNumber   Round: $roundNumber',
+              style: ts(10),
+            ),
+            pw.Text('Time: ${_fmtDateTime(printTime)}', style: ts(10)),
+            pw.SizedBox(height: 6),
+
+            // ── Service type ──────────────────────────────────────────
+            pw.Center(child: pw.Text(serviceType, style: ts(13, bold: true))),
+            pw.SizedBox(height: 6),
+            pw.Divider(borderStyle: pw.BorderStyle.dashed),
             pw.SizedBox(height: 8),
-            pw.Divider(thickness: 2),
-            pw.SizedBox(height: 8),
-            ...items.map((item) {
+
+            // ── Items ─────────────────────────────────────────────────
+            ...List.generate(items.length, (i) {
+              final item = items[i];
               final qty = item.quantity % 1 == 0
                   ? item.quantity.toInt().toString()
                   : item.quantity.toStringAsFixed(2);
-              final qtyW = pw.SizedBox(
-                width: 38,
-                child: pw.Text(
-                  qty,
-                  style: ts(20, bold: true),
-                  textDirection: dir,
-                ),
-              );
-              final nameW = pw.Expanded(
-                child: pw.Text(
-                  item.productName,
-                  style: ts(18, bold: true),
-                  textDirection: dir,
-                ),
-              );
+
+              // Gather all comment lines for this item:
+              // 1. CartItem.comment split by newline (supports multi-line selections)
+              // 2. Extra structured comments from the caller's itemComments list
+              final commentLines = <String>[
+                if (item.comment?.isNotEmpty == true)
+                  ...item.comment!
+                      .split('\n')
+                      .where((l) => l.trim().isNotEmpty),
+                if (i < itemComments.length) ...itemComments[i],
+              ];
+
               return pw.Padding(
-                padding: const pw.EdgeInsets.only(bottom: 8),
-                child: pw.Row(
+                padding: const pw.EdgeInsets.only(bottom: 10),
+                child: pw.Column(
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: rtl ? [nameW, qtyW] : [qtyW, nameW],
+                  children: [
+                    pw.Text(
+                      '$qty x ${item.productName}',
+                      style: ts(16, bold: true),
+                    ),
+                    ...commentLines.map(
+                      (c) => pw.Padding(
+                        padding: const pw.EdgeInsets.only(left: 12, top: 2),
+                        child: pw.Text(c, style: ts(10, italic: true)),
+                      ),
+                    ),
+                  ],
                 ),
               );
             }),
-            if (items.any((i) => i.comment?.isNotEmpty == true)) ...[
-              pw.SizedBox(height: 4),
-              pw.Divider(borderStyle: pw.BorderStyle.dashed),
-              pw.SizedBox(height: 4),
-              ...items
-                  .where((i) => i.comment?.isNotEmpty == true)
-                  .map(
-                    (i) => pw.Padding(
-                      padding: const pw.EdgeInsets.only(bottom: 2),
-                      child: pw.Text(
-                        '* ${i.productName}: ${i.comment}',
-                        style: pw.TextStyle(
-                          fontStyle: pw.FontStyle.italic,
-                          fontSize: 10 * fontScale,
-                          font: font,
-                        ),
-                        textDirection: dir,
-                      ),
-                    ),
-                  ),
-            ],
           ],
         ),
       ),
@@ -489,110 +501,87 @@ class ReceiptPrinterService {
     String currencySymbol, {
     required Map<String, String> roleSettings,
   }) async {
+    final font = await PdfGoogleFonts.notoSansRegular();
+    final boldFont = await PdfGoogleFonts.notoSansBold();
     final pdf = pw.Document();
 
     // Standard 80mm thermal receipt format
     final format = PdfPageFormat.roll80;
 
+    pw.TextStyle ts(double size, {bool bold = false}) => pw.TextStyle(
+          font: bold ? boldFont : font,
+          fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal,
+          fontSize: size,
+        );
+
     pdf.addPage(
       pw.Page(
         pageFormat: format,
-        margin: const pw.EdgeInsets.all(
-          10,
-        ), // Small margin for thermal printers
+        margin: const pw.EdgeInsets.all(10),
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             mainAxisSize: pw.MainAxisSize.min,
             children: [
-              // --- Header ---
-              pw.Text(
-                'Z-REPORT',
-                textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
+              pw.Text('Z-REPORT',
+                  textAlign: pw.TextAlign.center, style: ts(16, bold: true)),
               pw.SizedBox(height: 8),
+              pw.Text('Report #${report.number}',
+                  textAlign: pw.TextAlign.center, style: ts(12)),
               pw.Text(
-                'Report #${report.number}',
+                'Date: ${report.dateCreated.toIso8601String().split('T').first}'
+                '  Time: ${report.dateCreated.toIso8601String().split('T').last.split('.').first}',
                 textAlign: pw.TextAlign.center,
-                style: const pw.TextStyle(fontSize: 12),
-              ),
-              pw.Text(
-                'Date: ${report.dateCreated.toIso8601String().split('T').first}  Time: ${report.dateCreated.toIso8601String().split('T').last.split('.').first}',
-                textAlign: pw.TextAlign.center,
-                style: const pw.TextStyle(fontSize: 10),
+                style: ts(10),
               ),
               pw.SizedBox(height: 8),
               pw.Divider(borderStyle: pw.BorderStyle.dashed),
               pw.SizedBox(height: 8),
 
-              // --- Shift Summary ---
-              pw.Text(
-                'SHIFT SUMMARY',
-                textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
+              pw.Text('SHIFT SUMMARY',
+                  textAlign: pw.TextAlign.center, style: ts(12, bold: true)),
               pw.SizedBox(height: 8),
-              _buildReceiptRow(
-                'Documents:',
-                '#${report.fromDocumentId} to #${report.toDocumentId}',
-              ),
+              _buildReceiptRow('Documents:',
+                  '#${report.fromDocumentId} to #${report.toDocumentId}',
+                  font: font, boldFont: boldFont),
               pw.SizedBox(height: 4),
-              _buildReceiptRow(
-                'Total Sales:',
-                '${report.totalSales.toStringAsFixed(2)} $currencySymbol',
-              ),
-              _buildReceiptRow(
-                'Total Returns:',
-                '${report.totalReturns.toStringAsFixed(2)} $currencySymbol',
-              ),
-              _buildReceiptRow(
-                'Discounts:',
-                '${report.discountsGranted.toStringAsFixed(2)} $currencySymbol',
-              ),
-              _buildReceiptRow(
-                'Taxable Total:',
-                '${report.taxableTotal.toStringAsFixed(2)} $currencySymbol',
-              ),
-              _buildReceiptRow(
-                'Total Tax:',
-                '${report.totalTax.toStringAsFixed(2)} $currencySymbol',
-              ),
+              _buildReceiptRow('Total Sales:',
+                  '${report.totalSales.toStringAsFixed(2)} $currencySymbol',
+                  font: font, boldFont: boldFont),
+              _buildReceiptRow('Total Returns:',
+                  '${report.totalReturns.toStringAsFixed(2)} $currencySymbol',
+                  font: font, boldFont: boldFont),
+              _buildReceiptRow('Discounts:',
+                  '${report.discountsGranted.toStringAsFixed(2)} $currencySymbol',
+                  font: font, boldFont: boldFont),
+              _buildReceiptRow('Taxable Total:',
+                  '${report.taxableTotal.toStringAsFixed(2)} $currencySymbol',
+                  font: font, boldFont: boldFont),
+              _buildReceiptRow('Total Tax:',
+                  '${report.totalTax.toStringAsFixed(2)} $currencySymbol',
+                  font: font, boldFont: boldFont),
 
               pw.SizedBox(height: 8),
               pw.Divider(borderStyle: pw.BorderStyle.dashed),
               pw.SizedBox(height: 8),
 
-              // --- Tender Types ---
-              pw.Text(
-                'TENDER TYPES',
-                textAlign: pw.TextAlign.center,
-                style: pw.TextStyle(
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
+              pw.Text('TENDER TYPES',
+                  textAlign: pw.TextAlign.center, style: ts(12, bold: true)),
               pw.SizedBox(height: 8),
               if (report.paymentSummaries.isEmpty)
-                pw.Text(
-                  'No payments recorded.',
-                  textAlign: pw.TextAlign.center,
-                  style: pw.TextStyle(
-                    fontStyle: pw.FontStyle.italic,
-                    fontSize: 10,
-                  ),
-                )
+                pw.Text('No payments recorded.',
+                    textAlign: pw.TextAlign.center,
+                    style: pw.TextStyle(
+                        font: font,
+                        fontStyle: pw.FontStyle.italic,
+                        fontSize: 10))
               else
                 ...report.paymentSummaries.map(
                   (p) => _buildReceiptRow(
                     p.paymentTypeName ?? 'Unknown',
                     '${p.totalAmount.toStringAsFixed(2)} $currencySymbol',
+                    font: font,
+                    boldFont: boldFont,
                   ),
                 ),
 
@@ -600,59 +589,50 @@ class ReceiptPrinterService {
               pw.Divider(borderStyle: pw.BorderStyle.dashed),
               pw.SizedBox(height: 8),
 
-              // --- Grand Total ---
               _buildReceiptRow(
                 'GRAND TOTAL:',
                 '${report.grandTotal.toStringAsFixed(2)} $currencySymbol',
                 isBold: true,
                 size: 14,
+                font: font,
+                boldFont: boldFont,
               ),
 
               pw.SizedBox(height: 24),
-              pw.Text(
-                '*** END OF REPORT ***',
-                textAlign: pw.TextAlign.center,
-                style: const pw.TextStyle(fontSize: 10),
-              ),
+              pw.Text('*** END OF REPORT ***',
+                  textAlign: pw.TextAlign.center, style: ts(10)),
             ],
           );
         },
       ),
     );
 
-    // This opens the native print dialog!
     await Printing.layoutPdf(
       onLayout: (PdfPageFormat format) async => pdf.save(),
       name: 'Z_Report_${report.number}',
     );
   }
 
-  // Helper widget to keep the rows clean and aligned
   pw.Widget _buildReceiptRow(
     String label,
     String value, {
     bool isBold = false,
     double size = 10,
+    required pw.Font font,
+    required pw.Font boldFont,
   }) {
+    final style = pw.TextStyle(
+      font: isBold ? boldFont : font,
+      fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+      fontSize: size,
+    );
     return pw.Padding(
       padding: const pw.EdgeInsets.symmetric(vertical: 2),
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
-          pw.Text(
-            label,
-            style: pw.TextStyle(
-              fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
-              fontSize: size,
-            ),
-          ),
-          pw.Text(
-            value,
-            style: pw.TextStyle(
-              fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
-              fontSize: size,
-            ),
-          ),
+          pw.Text(label, style: style),
+          pw.Text(value, style: style),
         ],
       ),
     );

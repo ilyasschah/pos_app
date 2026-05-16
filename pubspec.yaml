@@ -34,6 +34,12 @@ dependencies:
   flutter_secure_storage: ^10.1.0
   uuid: ^4.5.3
 
+  # UI & Design
+  flutter_animate: ^4.5.0
+  gap: ^3.0.1
+  skeletonizer: ^1.4.2
+  phosphor_flutter: ^2.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

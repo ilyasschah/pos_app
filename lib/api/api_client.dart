@@ -665,6 +665,74 @@ class ApiClient {
     }
   }
 
+  // --- Stock Controls ---
+  Future<void> createStockControl(
+    int companyId, {
+    required int productId,
+    int? customerId,
+    double reorderPoint = 0,
+    double preferredQuantity = 0,
+    bool isLowStockWarningEnabled = true,
+    double lowStockWarningQuantity = 0,
+  }) async {
+    try {
+      await _dio.post(
+        '/StockControls/Add',
+        queryParameters: {'companyId': companyId},
+        data: {
+          'productId': productId,
+          if (customerId != null) 'customerId': customerId,
+          'reorderPoint': reorderPoint,
+          'preferredQuantity': preferredQuantity,
+          'isLowStockWarningEnabled': isLowStockWarningEnabled,
+          'lowStockWarningQuantity': lowStockWarningQuantity,
+        },
+      );
+    } catch (e) {
+      throw Exception('Failed to create stock control: $e');
+    }
+  }
+
+  Future<void> updateStockControl(
+    int companyId, {
+    required int id,
+    int? customerId,
+    double? reorderPoint,
+    double? preferredQuantity,
+    bool? isLowStockWarningEnabled,
+    double? lowStockWarningQuantity,
+  }) async {
+    try {
+      await _dio.patch(
+        '/StockControls/Update',
+        queryParameters: {'companyId': companyId},
+        data: {
+          'id': id,
+          if (customerId != null) 'customerId': customerId,
+          if (reorderPoint != null) 'reorderPoint': reorderPoint,
+          if (preferredQuantity != null) 'preferredQuantity': preferredQuantity,
+          if (isLowStockWarningEnabled != null)
+            'isLowStockWarningEnabled': isLowStockWarningEnabled,
+          if (lowStockWarningQuantity != null)
+            'lowStockWarningQuantity': lowStockWarningQuantity,
+        },
+      );
+    } catch (e) {
+      throw Exception('Failed to update stock control: $e');
+    }
+  }
+
+  Future<void> deleteStockControl(int companyId, int id) async {
+    try {
+      await _dio.delete(
+        '/StockControls/Delete',
+        queryParameters: {'id': id, 'companyId': companyId},
+      );
+    } catch (e) {
+      throw Exception('Failed to delete stock control: $e');
+    }
+  }
+
   // --- Customer Discounts ---
   Future<CustomerDiscountDto?> getCustomerDiscount(
     int companyId,

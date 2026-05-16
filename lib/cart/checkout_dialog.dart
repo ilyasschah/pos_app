@@ -7,12 +7,10 @@ import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/cart/payment_type_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
-import 'package:pos_app/floor_plan/floor_plan_screen.dart';
-import 'package:pos_app/bookings/bookings_screen.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
-import 'package:pos_app/menu/menu_screen.dart';
+import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
 
 class CheckoutDialog extends ConsumerStatefulWidget {
@@ -118,21 +116,22 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
         final settings = ref.read(appSettingsProvider);
         final bookingEnabled   = settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
         final floorPlanEnabled = settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
-        final Widget nextScreen;
+        final int nextIndex;
         if (wasBookingOrder && bookingEnabled) {
-          nextScreen = const BookingsScreen();
+          nextIndex = 2;
         } else if (wasTableOrder && floorPlanEnabled) {
-          nextScreen = const FloorPlanScreen();
+          nextIndex = 3;
         } else if (bookingEnabled) {
-          nextScreen = const BookingsScreen();
+          nextIndex = 2;
         } else if (floorPlanEnabled) {
-          nextScreen = const FloorPlanScreen();
+          nextIndex = 3;
         } else {
-          nextScreen = const MenuScreen();
+          nextIndex = 0;
         }
         Navigator.pushAndRemoveUntil(
             context,
-            MaterialPageRoute(builder: (_) => nextScreen),
+            MaterialPageRoute(
+                builder: (_) => MainLayout(initialIndex: nextIndex)),
             (route) => false);
       }
     } catch (e) {
