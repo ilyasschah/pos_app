@@ -10,6 +10,7 @@ import 'package:pos_app/product/products_screen.dart';
 import 'package:pos_app/product/product_groups_screen.dart';
 import 'package:pos_app/stock/stock_screen.dart';
 import 'package:pos_app/promotions/promotions_list_screen.dart';
+import 'package:pos_app/reports/reports_screen.dart';
 import 'package:pos_app/tax/tax_rates_screen.dart';
 
 class ManagementLayout extends StatefulWidget {
@@ -36,7 +37,7 @@ class _ManagementLayoutState extends State<ManagementLayout> {
       const ProductsScreen(), // Index 2
       const ProductGroupsScreen(), // Index 3
       const StockScreen(), // Index 4
-      const PlaceholderScreen(title: "Reporting"), // Index 5
+      const ReportsScreen(), // Index 5
       const CustomersScreen(), // Index 6
       const PromotionsListScreen(), // Index 7
       const UsersScreen(), // Index 8

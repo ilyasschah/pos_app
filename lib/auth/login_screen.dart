@@ -329,7 +329,7 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
     if (bookingEnabled) {
       startingIndex = 2;
     } else if (floorPlanEnabled) {
-      startingIndex = 3;
+      startingIndex = 4;
     }
 
     Navigator.pushAndRemoveUntil(
