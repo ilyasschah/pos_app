@@ -260,4 +260,203 @@ class SalesItemListRow {
       );
 }
 
+class RefundItemListRow {
+  final String? customerCode;
+  final String customerName;
+  final String documentNumber;
+  final String? refNumber;
+  final DateTime date;
+  final DateTime dateCreated;
+  final String? orderNumber;
+  final String? productCode;
+  final String productName;
+  final double quantity;
+  final String uom;
+  final double totalBeforeTax;
+  final double totalTax;
+  final double total;
+
+  const RefundItemListRow({
+    required this.customerCode,
+    required this.customerName,
+    required this.documentNumber,
+    required this.refNumber,
+    required this.date,
+    required this.dateCreated,
+    required this.orderNumber,
+    required this.productCode,
+    required this.productName,
+    required this.quantity,
+    required this.uom,
+    required this.totalBeforeTax,
+    required this.totalTax,
+    required this.total,
+  });
+
+  factory RefundItemListRow.fromJson(Map<String, dynamic> j) => RefundItemListRow(
+        customerCode:   j['customerCode'] as String?,
+        customerName:   j['customerName'] as String? ?? '',
+        documentNumber: j['documentNumber'] as String? ?? '',
+        refNumber:      j['refNumber'] as String?,
+        date:           DateTime.parse(j['date'] as String),
+        dateCreated:    DateTime.parse(j['dateCreated'] as String),
+        orderNumber:    j['orderNumber'] as String?,
+        productCode:    j['productCode'] as String?,
+        productName:    j['productName'] as String? ?? '',
+        quantity:       (j['quantity'] as num).toDouble(),
+        uom:            j['uom'] as String? ?? '',
+        totalBeforeTax: (j['totalBeforeTax'] as num).toDouble(),
+        totalTax:       (j['totalTax'] as num).toDouble(),
+        total:          (j['total'] as num).toDouble(),
+      );
+}
+
+class ProfitRow {
+  final String? productCode;
+  final String productName;
+  final double quantity;
+  final double cost;
+  final double total;
+
+  const ProfitRow({
+    required this.productCode,
+    required this.productName,
+    required this.quantity,
+    required this.cost,
+    required this.total,
+  });
+
+  double get profit => total - cost;
+  double get margin => total > 0 ? profit / total * 100 : 0.0;
+
+  factory ProfitRow.fromJson(Map<String, dynamic> j) => ProfitRow(
+        productCode: j['productCode'] as String?,
+        productName: j['productName'] as String? ?? '',
+        quantity:    (j['quantity'] as num).toDouble(),
+        cost:        (j['cost'] as num).toDouble(),
+        total:       (j['total'] as num).toDouble(),
+      );
+}
+
+class UnpaidSalesRow {
+  final String documentNumber;
+  final DateTime date;
+  final DateTime? dueDate;
+  final String customerName;
+  final double documentTotal;
+  final double totalPaid;
+  final double totalUnpaid;
+
+  const UnpaidSalesRow({
+    required this.documentNumber,
+    required this.date,
+    required this.dueDate,
+    required this.customerName,
+    required this.documentTotal,
+    required this.totalPaid,
+    required this.totalUnpaid,
+  });
+
+  factory UnpaidSalesRow.fromJson(Map<String, dynamic> j) => UnpaidSalesRow(
+        documentNumber: j['documentNumber'] as String? ?? '',
+        date:           DateTime.parse(j['date'] as String),
+        dueDate:        j['dueDate'] != null ? DateTime.parse(j['dueDate'] as String) : null,
+        customerName:   j['customerName'] as String? ?? '',
+        documentTotal:  (j['documentTotal'] as num).toDouble(),
+        totalPaid:      (j['totalPaid'] as num).toDouble(),
+        totalUnpaid:    (j['totalUnpaid'] as num).toDouble(),
+      );
+}
+
+class HourlySalesByGroupRow {
+  final String productGroup;
+  final int hour;
+  final double total;
+
+  const HourlySalesByGroupRow({
+    required this.productGroup,
+    required this.hour,
+    required this.total,
+  });
+
+  factory HourlySalesByGroupRow.fromJson(Map<String, dynamic> j) =>
+      HourlySalesByGroupRow(
+        productGroup: j['productGroup'] as String? ?? '',
+        hour:         j['hour'] as int,
+        total:        (j['total'] as num).toDouble(),
+      );
+}
+
+class SalesByTableRow {
+  final String orderNumber;
+  final int numberOfSales;
+  final double total;
+
+  const SalesByTableRow({
+    required this.orderNumber,
+    required this.numberOfSales,
+    required this.total,
+  });
+
+  factory SalesByTableRow.fromJson(Map<String, dynamic> j) => SalesByTableRow(
+        orderNumber:   j['orderNumber'] as String? ?? '',
+        numberOfSales: j['numberOfSales'] as int,
+        total:         (j['total'] as num).toDouble(),
+      );
+}
+
+class HourlySalesRow {
+  final int hour;
+  final double totalSales;
+  final int salesCount;
+
+  const HourlySalesRow({
+    required this.hour,
+    required this.totalSales,
+    required this.salesCount,
+  });
+
+  factory HourlySalesRow.fromJson(Map<String, dynamic> j) => HourlySalesRow(
+        hour:       j['hour'] as int,
+        totalSales: (j['totalSales'] as num).toDouble(),
+        salesCount: j['salesCount'] as int,
+      );
+}
+
+class DailySalesRow {
+  final DateTime date;
+  final double total;
+
+  const DailySalesRow({required this.date, required this.total});
+
+  factory DailySalesRow.fromJson(Map<String, dynamic> j) => DailySalesRow(
+        date:  DateTime.parse(j['date'] as String),
+        total: (j['total'] as num).toDouble(),
+      );
+}
+
+class InvoiceListRow {
+  final DateTime date;
+  final String documentNumber;
+  final String customerName;
+  final String paymentMethodName;
+  final double total;
+
+  const InvoiceListRow({
+    required this.date,
+    required this.documentNumber,
+    required this.customerName,
+    required this.paymentMethodName,
+    required this.total,
+  });
+
+  factory InvoiceListRow.fromJson(Map<String, dynamic> j) => InvoiceListRow(
+        date:              DateTime.parse(j['date'] as String),
+        documentNumber:    j['documentNumber'] as String? ?? '',
+        customerName:      j['customerName'] as String? ?? '',
+        paymentMethodName: j['paymentMethodName'] as String? ?? '',
+        total:             (j['total'] as num).toDouble(),
+      );
+}
+
 const Object _sentinel = Object();

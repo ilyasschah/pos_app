@@ -12,6 +12,7 @@ import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
+import 'package:pos_app/document/document_type_constants.dart';
 
 class CheckoutDialog extends ConsumerStatefulWidget {
   const CheckoutDialog({Key? key}) : super(key: key);
@@ -68,7 +69,7 @@ class _CheckoutDialogState extends ConsumerState<CheckoutDialog> {
         userId: user.id,
         paymentTypeId: selectedPaymentTypeId!,
         amountPaid: grandTotal,
-        documentTypeId: 4,
+        documentTypeId: DocumentTypes.sales,
       );
 
       if (success && mounted) {

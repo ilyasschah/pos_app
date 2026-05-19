@@ -6,6 +6,7 @@ import 'package:pos_app/cart/checkout_models.dart';
 import 'package:pos_app/api/promotion_models.dart';
 import 'package:pos_app/api/customer_discount_models.dart';
 import 'package:pos_app/company/company_model.dart';
+import 'package:pos_app/document/document_type_constants.dart';
 
 Dio createDio() {
   final dio = Dio();
@@ -287,7 +288,7 @@ class ApiClient {
     int companyId,
     int posOrderId,
     int warehouseId, {
-    int documentTypeId = 4,
+    int documentTypeId = DocumentTypes.sales,
   }) async {
     try {
       final response = await _dio.post(

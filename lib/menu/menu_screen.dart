@@ -33,6 +33,7 @@ import 'package:pos_app/product/product_comment_provider.dart';
 // import 'package:pos_app/menu/open_orders_screen.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
 import 'package:pos_app/printer/printer_provider.dart';
+import 'package:pos_app/refund/refund_dialog.dart';
 
 final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
 final searchQueryProvider = StateProvider<String>((ref) => "");
@@ -561,6 +562,15 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                             builder: (_) =>
                                 _TransferDialog(cartState: cartState),
                           ),
+                  ),
+                  IconButton(
+                    iconSize: 26,
+                    icon: const Icon(Icons.undo),
+                    tooltip: "Refund",
+                    onPressed: () => showDialog(
+                      context: context,
+                      builder: (_) => const RefundDialog(),
+                    ),
                   ),
 
                   IconButton(

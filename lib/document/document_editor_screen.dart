@@ -117,6 +117,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
   int _discountType = 0;
   bool _discountApplyRule = true;
   int _serviceType = 0;
+  int _paidStatus = 0;
 
   bool _isLoading = false;
   String? _errorMessage;
@@ -148,6 +149,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
       _discountType = d.discountType;
       _discountApplyRule = d.discountApplyRule;
       _serviceType = d.serviceType;
+      _paidStatus = d.paidStatus;
 
       try {
         _date = DateTime.parse(d.date);
@@ -211,6 +213,23 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
       ref.invalidate(allDocumentsProvider);
     } catch (e) {
       debugPrint("Sync failed: $e");
+    }
+  }
+
+  Future<void> _updatePaidStatus(int newStatus) async {
+    if (_savedDocumentId == null) return;
+    final companyId = ref.read(selectedCompanyProvider)?.id ?? 0;
+    try {
+      final dio = createDio();
+      await dio.patch(
+        '/Document/Update',
+        queryParameters: {'companyId': companyId},
+        data: {'id': _savedDocumentId, 'paidStatus': newStatus},
+      );
+      setState(() => _paidStatus = newStatus);
+      ref.invalidate(allDocumentsProvider);
+    } catch (e) {
+      debugPrint("Failed to update paid status: $e");
     }
   }
 
@@ -482,10 +501,10 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
           child: _PaymentsView(
             documentId: _savedDocumentId!,
             companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
-            userId:
-                _selectedUserId ??
-                0, // Passed to assign the payment to the user
+            userId: _selectedUserId ?? 0,
             documentTotal: _savedDocument!.total,
+            paidStatus: _paidStatus,
+            onPaidStatusChanged: _updatePaidStatus,
           ),
         ),
       );
@@ -2173,17 +2192,47 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
   }
 }
 
+class _PaidStatusChip extends StatelessWidget {
+  final int paidStatus;
+  final void Function(int) onChanged;
+
+  const _PaidStatusChip({required this.paidStatus, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, icon, color) = switch (paidStatus) {
+      1 => ('Paid', Icons.check_circle, Colors.green),
+      2 => ('Partial', Icons.timelapse, Colors.orange),
+      _ => ('Unpaid', Icons.cancel, Colors.red),
+    };
+
+    final nextStatus = paidStatus == 1 ? 0 : 1;
+
+    return ActionChip(
+      avatar: Icon(icon, color: color, size: 16),
+      label: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+      side: BorderSide(color: color),
+      backgroundColor: color.withValues(alpha: 0.1),
+      onPressed: () => onChanged(nextStatus),
+    );
+  }
+}
+
 class _PaymentsView extends ConsumerWidget {
   final int documentId;
   final int companyId;
   final int userId;
   final double documentTotal;
+  final int paidStatus;
+  final void Function(int) onPaidStatusChanged;
 
   const _PaymentsView({
     required this.documentId,
     required this.companyId,
     required this.userId,
     required this.documentTotal,
+    required this.paidStatus,
+    required this.onPaidStatusChanged,
   });
 
   @override
@@ -2201,24 +2250,34 @@ class _PaymentsView extends ConsumerWidget {
               "Applied Payments",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.payment, size: 16),
-              label: const Text("Add Payment"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: theme.colorScheme.secondary,
-                foregroundColor: theme.colorScheme.onSecondary,
-              ),
-              onPressed: () async {
-                await showDialog(
-                  context: context,
-                  builder: (_) => _AddPaymentDialog(
-                    documentId: documentId,
-                    companyId: companyId,
-                    userId: userId,
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _PaidStatusChip(
+                  paidStatus: paidStatus,
+                  onChanged: onPaidStatusChanged,
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.payment, size: 16),
+                  label: const Text("Add Payment"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: theme.colorScheme.secondary,
+                    foregroundColor: theme.colorScheme.onSecondary,
                   ),
-                );
-                ref.invalidate(paymentsByDocumentIdProvider(documentId));
-              },
+                  onPressed: () async {
+                    await showDialog(
+                      context: context,
+                      builder: (_) => _AddPaymentDialog(
+                        documentId: documentId,
+                        companyId: companyId,
+                        userId: userId,
+                      ),
+                    );
+                    ref.invalidate(paymentsByDocumentIdProvider(documentId));
+                  },
+                ),
+              ],
             ),
           ],
         ),
