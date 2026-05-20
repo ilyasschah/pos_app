@@ -12,6 +12,7 @@ import 'package:pos_app/stock/stock_screen.dart';
 import 'package:pos_app/promotions/promotions_list_screen.dart';
 import 'package:pos_app/reports/reports_screen.dart';
 import 'package:pos_app/tax/tax_rates_screen.dart';
+import 'package:pos_app/void_reason/void_reason_screen.dart';
 
 class ManagementLayout extends StatefulWidget {
   const ManagementLayout({super.key});
@@ -45,6 +46,7 @@ class _ManagementLayoutState extends State<ManagementLayout> {
       const PlaceholderScreen(title: "Countries"), // Index 10
       const TaxRatesScreen(), // Index 11
       const MyCompanyScreen(), // Index 12
+      const VoidReasonsScreen(), // Index 13
     ];
 
     void handleNavTap(int index) {
@@ -177,6 +179,12 @@ class _ManagementLayoutState extends State<ManagementLayout> {
                       label: "My company",
                       isActive: _selectedIndex == 12,
                       onTap: () => handleNavTap(12),
+                    ),
+                    NavItem(
+                      icon: Icons.block,
+                      label: "Void reasons",
+                      isActive: _selectedIndex == 13,
+                      onTap: () => handleNavTap(13),
                     ),
                     const SizedBox(height: 16),
                   ],

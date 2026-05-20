@@ -459,4 +459,238 @@ class InvoiceListRow {
       );
 }
 
+class StartingCashRow {
+  final int id;
+  final int companyId;
+  final int userId;
+  final String? userName;
+  final double amount;
+  final String? description;
+  final int startingCashType;
+  final int? zReportNumber;
+  final DateTime dateCreated;
+
+  const StartingCashRow({
+    required this.id,
+    required this.companyId,
+    required this.userId,
+    this.userName,
+    required this.amount,
+    this.description,
+    required this.startingCashType,
+    this.zReportNumber,
+    required this.dateCreated,
+  });
+
+  bool get isCashOut => startingCashType == 1;
+  double get signedAmount => isCashOut ? -amount : amount;
+
+  factory StartingCashRow.fromJson(Map<String, dynamic> j) => StartingCashRow(
+        id:               j['id'] as int,
+        companyId:        j['companyId'] as int? ?? 0,
+        userId:           j['userId'] as int,
+        userName:         j['userName'] as String?,
+        amount:           (j['amount'] as num).toDouble(),
+        description:      j['description'] as String?,
+        startingCashType: j['startingCashType'] as int? ?? 0,
+        zReportNumber:    j['zReportNumber'] as int?,
+        dateCreated:      DateTime.parse(j['dateCreated'] as String),
+      );
+}
+
+class VoidedItemRow {
+  final int id;
+  final String orderNumber;
+  final String? voidedByName;
+  final String productName;
+  final double quantity;
+  final double price;
+  final double discount;
+  final int discountType;
+  final bool isConfirmed;
+  final String? reason;
+  final DateTime dateCreated;
+  final DateTime dateVoided;
+  final double total;
+
+  const VoidedItemRow({
+    required this.id,
+    required this.orderNumber,
+    this.voidedByName,
+    required this.productName,
+    required this.quantity,
+    required this.price,
+    required this.discount,
+    required this.discountType,
+    required this.isConfirmed,
+    this.reason,
+    required this.dateCreated,
+    required this.dateVoided,
+    required this.total,
+  });
+
+  String get discountDisplay => discountType == 1
+      ? discount.toStringAsFixed(2)
+      : '${discount.toStringAsFixed(0)}%';
+
+  factory VoidedItemRow.fromJson(Map<String, dynamic> j) => VoidedItemRow(
+        id:           j['id'] as int,
+        orderNumber:  j['orderNumber'] as String? ?? '',
+        voidedByName: j['voidedByName'] as String?,
+        productName:  j['productName'] as String? ?? '',
+        quantity:     (j['quantity'] as num).toDouble(),
+        price:        (j['price'] as num).toDouble(),
+        discount:     (j['discount'] as num?)?.toDouble() ?? 0.0,
+        discountType: j['discountType'] as int? ?? 0,
+        isConfirmed:  j['isConfirmed'] as bool? ?? false,
+        reason:       j['reason'] as String?,
+        dateCreated:  DateTime.parse(j['dateCreated'] as String),
+        dateVoided:   DateTime.parse(j['dateVoided'] as String),
+        total:        (j['total'] as num).toDouble(),
+      );
+}
+
+class StockMovementRow {
+  final String? productCode;
+  final String productName;
+  final double numSales;
+
+  const StockMovementRow({
+    this.productCode,
+    required this.productName,
+    required this.numSales,
+  });
+
+  factory StockMovementRow.fromJson(Map<String, dynamic> j) => StockMovementRow(
+        productCode: j['productCode'] as String?,
+        productName: j['productName'] as String? ?? '',
+        numSales:    (j['numSales'] as num).toDouble(),
+      );
+}
+
+class ItemsDiscountsRow {
+  final String? productCode;
+  final String productName;
+  final double totalDiscount;
+
+  const ItemsDiscountsRow({
+    this.productCode,
+    required this.productName,
+    required this.totalDiscount,
+  });
+
+  factory ItemsDiscountsRow.fromJson(Map<String, dynamic> j) => ItemsDiscountsRow(
+        productCode:   j['productCode'] as String?,
+        productName:   j['productName'] as String? ?? '',
+        totalDiscount: (j['totalDiscount'] as num).toDouble(),
+      );
+}
+
+class DiscountsGrantedRow {
+  final String customerName;
+  final String documentNumber;
+  final DateTime date;
+  final String userName;
+  final double totalBeforeDiscount;
+  final double totalAfterDiscount;
+  final double discountGranted;
+
+  const DiscountsGrantedRow({
+    required this.customerName,
+    required this.documentNumber,
+    required this.date,
+    required this.userName,
+    required this.totalBeforeDiscount,
+    required this.totalAfterDiscount,
+    required this.discountGranted,
+  });
+
+  factory DiscountsGrantedRow.fromJson(Map<String, dynamic> j) => DiscountsGrantedRow(
+        customerName:        j['customerName'] as String? ?? 'Unknown',
+        documentNumber:      j['documentNumber'] as String? ?? '',
+        date:                DateTime.parse(j['date'] as String),
+        userName:            j['userName'] as String? ?? '',
+        totalBeforeDiscount: (j['totalBeforeDiscount'] as num).toDouble(),
+        totalAfterDiscount:  (j['totalAfterDiscount'] as num).toDouble(),
+        discountGranted:     (j['discountGranted'] as num).toDouble(),
+      );
+}
+
+class PurchaseByProductRow {
+  final String? code;
+  final String product;
+  final double quantity;
+  final String uom;
+  final double totalBeforeTax;
+  final double total;
+
+  const PurchaseByProductRow({
+    required this.code,
+    required this.product,
+    required this.quantity,
+    required this.uom,
+    required this.totalBeforeTax,
+    required this.total,
+  });
+
+  factory PurchaseByProductRow.fromJson(Map<String, dynamic> j) =>
+      PurchaseByProductRow(
+        code:           j['code'] as String?,
+        product:        j['product'] as String? ?? '',
+        quantity:       (j['quantity'] as num).toDouble(),
+        uom:            j['uom'] as String? ?? '',
+        totalBeforeTax: (j['totalBeforeTax'] as num).toDouble(),
+        total:          (j['total'] as num).toDouble(),
+      );
+}
+
+class UnpaidPurchaseRow {
+  final String documentNumber;
+  final DateTime date;
+  final DateTime? dueDate;
+  final String supplierName;
+  final double documentTotal;
+  final double totalPaid;
+  final double totalUnpaid;
+
+  const UnpaidPurchaseRow({
+    required this.documentNumber,
+    required this.date,
+    required this.dueDate,
+    required this.supplierName,
+    required this.documentTotal,
+    required this.totalPaid,
+    required this.totalUnpaid,
+  });
+
+  factory UnpaidPurchaseRow.fromJson(Map<String, dynamic> j) => UnpaidPurchaseRow(
+        documentNumber: j['documentNumber'] as String? ?? '',
+        date:           DateTime.parse(j['date'] as String),
+        dueDate:        j['dueDate'] != null ? DateTime.parse(j['dueDate'] as String) : null,
+        supplierName:   j['supplierName'] as String? ?? '',
+        documentTotal:  (j['documentTotal'] as num).toDouble(),
+        totalPaid:      (j['totalPaid'] as num).toDouble(),
+        totalUnpaid:    (j['totalUnpaid'] as num).toDouble(),
+      );
+}
+
+class PurchaseBySupplierRow {
+  final String supplier;
+  final double totalBeforeTax;
+  final double total;
+
+  const PurchaseBySupplierRow({
+    required this.supplier,
+    required this.totalBeforeTax,
+    required this.total,
+  });
+
+  factory PurchaseBySupplierRow.fromJson(Map<String, dynamic> j) =>
+      PurchaseBySupplierRow(
+        supplier:       j['supplier'] as String? ?? 'Unknown',
+        totalBeforeTax: (j['totalBeforeTax'] as num).toDouble(),
+        total:          (j['total'] as num).toDouble(),
+      );
+}
+
 const Object _sentinel = Object();

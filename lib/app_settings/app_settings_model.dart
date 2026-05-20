@@ -100,9 +100,11 @@ class SettingKeys {
   static const industryMode = 'App.IndustryMode';
 
   // Features
-  static const featureFloorPlanEnabled = 'Feature_FloorPlan_Enabled';
-  static const featureBookingEnabled   = 'Feature_Booking_Enabled';
-  static const tablesButtonLabel       = 'Feature.TablesButtonLabel';
+  static const featureFloorPlanEnabled      = 'Feature_FloorPlan_Enabled';
+  static const featureBookingEnabled        = 'Feature_Booking_Enabled';
+  static const tablesButtonLabel            = 'Feature.TablesButtonLabel';
+  static const requireReasonOnVoid          = 'Void.RequireReason';
+  static const trackUnconfirmedVoidedItems  = 'Void.TrackUnconfirmed';
 
   // Industry Pack workflow
   static const featureServiceTypeEnabled   = 'Feature_ServiceType_Enabled';
@@ -242,6 +244,8 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.featureFloorPlanEnabled:     'true',
   SettingKeys.featureBookingEnabled:       'true',
   SettingKeys.tablesButtonLabel:           'Tables',
+  SettingKeys.requireReasonOnVoid:         'false',
+  SettingKeys.trackUnconfirmedVoidedItems: 'true',
   SettingKeys.featureServiceTypeEnabled:   'true',
   SettingKeys.appServiceTypePack:          'Restaurant',
   SettingKeys.featureServiceStatusEnabled: 'true',

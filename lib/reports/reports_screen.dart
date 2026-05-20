@@ -59,6 +59,17 @@ const _salesReports = [
   _ReportType('sales_stock_movement',     'Stock movement',                Icons.swap_horiz_outlined),
 ];
 
+const _purchaseReports = [
+  _ReportType('purchase_products',         'Products',                    Icons.local_offer_outlined),
+  _ReportType('purchase_suppliers',        'Suppliers',                   Icons.store_outlined),
+  _ReportType('purchase_unpaid',           'Unpaid purchase',             Icons.money_off_outlined),
+  _ReportType('purchase_discounts',        'Purchase discounts',          Icons.discount_outlined),
+  _ReportType('purchase_items_discounts',  'Purchased items discounts',   Icons.sell_outlined),
+  _ReportType('purchase_invoice_list',     'Purchase invoice list',       Icons.receipt_outlined),
+  _ReportType('purchase_tax',              'Tax rates',                   Icons.percent),
+  _ReportType('purchase_expiration',       'Expiration date',             Icons.event_outlined),
+];
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 class ReportsScreen extends ConsumerStatefulWidget {
@@ -318,6 +329,68 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         }
         buf.writeln('"","","","","","Total",${rows.fold(0.0, (s, r) => s + r.totalUnpaid)}');
         filename = 'UnpaidSales';
+      } else if (reportId == 'sales_starting_cash') {
+        final rows = await ref.read(startingCashReportProvider(filter).future);
+        final dateFmt = DateFormat('dd/MM/yyyy HH:mm');
+        buf.writeln('User,Type,Description,Date,Amount,Z-Report #');
+        for (final r in rows) {
+          buf.writeln(
+            '"${r.userName ?? ''}","${r.isCashOut ? 'Cash Out' : 'Cash In'}",'
+            '"${r.description ?? ''}","${dateFmt.format(r.dateCreated)}",'
+            '${r.signedAmount},${r.zReportNumber ?? ''}',
+          );
+        }
+        buf.writeln('"","","","Total",${rows.fold(0.0, (s, r) => s + r.signedAmount)},""');
+        filename = 'StartingCash';
+      } else if (reportId == 'sales_stock_movement') {
+        final rows = await ref.read(stockMovementReportProvider(filter).future);
+        final total   = rows.fold(0.0, (s, r) => s + r.numSales);
+        final average = rows.isEmpty ? 0.0 : total / rows.length;
+        buf.writeln('Category,Code,Product,Num. of sales');
+        for (final r in rows) {
+          final cat = r.numSales >= average ? 'Fast moving' : 'Slow moving';
+          buf.writeln('"$cat","${r.productCode ?? ''}","${r.productName}",${r.numSales}');
+        }
+        buf.writeln('"","","Total number of sales",$total');
+        buf.writeln('"","","Average number of sales per item",$average');
+        filename = 'StockMovement';
+      } else if (reportId == 'sales_item_discounts') {
+        final rows = await ref.read(itemsDiscountsReportProvider(filter).future);
+        buf.writeln('Code,Product,Total discount');
+        for (final r in rows) {
+          buf.writeln('"${r.productCode ?? ''}","${r.productName}",${r.totalDiscount}');
+        }
+        buf.writeln('"","Total",${rows.fold(0.0, (s, r) => s + r.totalDiscount)}');
+        filename = 'ItemsDiscounts';
+      } else if (reportId == 'sales_discounts') {
+        final rows = await ref.read(discountsGrantedReportProvider(filter).future);
+        final dateFmt = DateFormat('dd/MM/yyyy');
+        buf.writeln('Customer,Document,Date,User,Total before disc.,Total after disc.,Discount granted');
+        for (final r in rows) {
+          buf.writeln(
+            '"${r.customerName}","${r.documentNumber}",'
+            '"${dateFmt.format(r.date)}","${r.userName}",'
+            '${r.totalBeforeDiscount},${r.totalAfterDiscount},${r.discountGranted}',
+          );
+        }
+        buf.writeln('"","","","","","Total",${rows.fold(0.0, (s, r) => s + r.discountGranted)}');
+        filename = 'DiscountsGranted';
+      } else if (reportId == 'sales_voided') {
+        final rows = await ref.read(voidedItemsReportProvider(filter).future);
+        final dtFmt = DateFormat('dd/MM/yyyy HH:mm:ss');
+        buf.writeln('Product,Voided by,Qty.,Price,Discount,Status,Order #,Created,Voided,Total,Reason');
+        for (final r in rows) {
+          buf.writeln(
+            '"${r.productName}","${r.voidedByName ?? ''}",'
+            '${r.quantity},${r.price},"${r.discountDisplay}",'
+            '"${r.isConfirmed ? 'Confirmed' : 'Pending'}",'
+            '"${r.orderNumber}","${dtFmt.format(r.dateCreated)}",'
+            '"${dtFmt.format(r.dateVoided)}",${r.total},'
+            '"${r.reason ?? ''}"',
+          );
+        }
+        buf.writeln('"","","","","","","","","Total",${rows.fold(0.0, (s, r) => s + r.total)},""');
+        filename = 'VoidedItems';
       } else if (reportId == 'sales_item_list') {
         final rows = await ref.read(salesItemListProvider(filter).future);
         buf.writeln('Document type,Date,Create date,Document number,Ref. number,Customer code,Customer,Order number,Code,Product,Quantity,UOM,Total before tax,Total tax,Total');
@@ -347,6 +420,35 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         }
         buf.writeln('"Total",${rows.fold(0.0, (s, r) => s + r.totalBeforeTax)},${rows.fold(0.0, (s, r) => s + r.total)}');
         filename = 'SalesByUser';
+      } else if (reportId == 'purchase_unpaid') {
+        final rows = await ref.read(unpaidPurchaseProvider(filter).future);
+        final dateFmt = DateFormat('dd/MM/yyyy');
+        buf.writeln('Supplier,Document number,Date,Due date,Total,Total paid,Total unpaid');
+        for (final r in rows) {
+          buf.writeln(
+            '"${r.supplierName}","${r.documentNumber}",'
+            '"${dateFmt.format(r.date)}","${r.dueDate != null ? dateFmt.format(r.dueDate!) : ''}",'
+            '${r.documentTotal},${r.totalPaid},${r.totalUnpaid}',
+          );
+        }
+        buf.writeln('"","","","","","Total",${rows.fold(0.0, (s, r) => s + r.totalUnpaid)}');
+        filename = 'UnpaidPurchase';
+      } else if (reportId == 'purchase_suppliers') {
+        final rows = await ref.read(purchaseBySupplierProvider(filter).future);
+        buf.writeln('Supplier,Total before tax,Total');
+        for (final r in rows) {
+          buf.writeln('"${r.supplier}",${r.totalBeforeTax},${r.total}');
+        }
+        buf.writeln('"Total",${rows.fold(0.0, (s, r) => s + r.totalBeforeTax)},${rows.fold(0.0, (s, r) => s + r.total)}');
+        filename = 'PurchaseBySupplier';
+      } else if (reportId == 'purchase_products') {
+        final rows = await ref.read(purchaseByProductProvider(filter).future);
+        buf.writeln('Code,Product,Quantity,UOM,Total before tax,Total');
+        for (final r in rows) {
+          buf.writeln('"${r.code ?? ''}","${r.product}",${r.quantity},"${r.uom}",${r.totalBeforeTax},${r.total}');
+        }
+        buf.writeln('"","Total",${rows.fold(0.0, (s, r) => s + r.quantity)},"",${rows.fold(0.0, (s, r) => s + r.totalBeforeTax)},${rows.fold(0.0, (s, r) => s + r.total)}');
+        filename = 'PurchaseByProduct';
       } else {
         return;
       }
@@ -520,6 +622,39 @@ class _HomeView extends StatelessWidget {
     required this.onExportCsv,
   });
 
+  Widget _sectionLabel(ColorScheme cs, String text) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 6),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.2,
+            color: cs.onSurfaceVariant,
+          ),
+        ),
+      );
+
+  Widget _reportTile(ColorScheme cs, _ReportType r) {
+    final active = selected?.id == r.id;
+    return ListTile(
+      dense: true,
+      leading: Icon(r.icon, size: 18,
+          color: active ? cs.primary : cs.onSurfaceVariant),
+      title: Text(
+        r.label,
+        style: TextStyle(
+          fontSize: 14,
+          color: active ? cs.primary : cs.onSurface,
+          fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+        ),
+      ),
+      selected: active,
+      selectedTileColor: cs.primaryContainer.withValues(alpha: 0.35),
+      onTap: () => onSelectReport(r),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -542,50 +677,22 @@ class _HomeView extends StatelessWidget {
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 6),
-                child: Text(
-                  'Sales',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.2,
-                    color: cs.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              const Divider(height: 1),
               Expanded(
-                child: ListView.separated(
-                  itemCount: _salesReports.length,
-                  separatorBuilder: (_, __) =>
+                child: ListView(
+                  children: [
+                    _sectionLabel(cs, 'Sales'),
+                    const Divider(height: 1),
+                    for (final r in _salesReports) ...[
+                      _reportTile(cs, r),
                       Divider(height: 1, color: cs.outlineVariant),
-                  itemBuilder: (_, i) {
-                    final r = _salesReports[i];
-                    final active = selected?.id == r.id;
-                    return ListTile(
-                      dense: true,
-                      leading: Icon(
-                        r.icon,
-                        size: 18,
-                        color: active ? cs.primary : cs.onSurfaceVariant,
-                      ),
-                      title: Text(
-                        r.label,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: active ? cs.primary : cs.onSurface,
-                          fontWeight: active
-                              ? FontWeight.w600
-                              : FontWeight.normal,
-                        ),
-                      ),
-                      selected: active,
-                      selectedTileColor:
-                          cs.primaryContainer.withValues(alpha: 0.35),
-                      onTap: () => onSelectReport(r),
-                    );
-                  },
+                    ],
+                    _sectionLabel(cs, 'Purchase'),
+                    const Divider(height: 1),
+                    for (final r in _purchaseReports) ...[
+                      _reportTile(cs, r),
+                      Divider(height: 1, color: cs.outlineVariant),
+                    ],
+                  ],
                 ),
               ),
             ],
@@ -1018,6 +1125,126 @@ class _TabPdfView extends ConsumerWidget {
       );
     }
 
+    if (tab.reportType.id == 'sales_starting_cash') {
+      final async = ref.watch(startingCashReportProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'StartingCash.pdf',
+          initialPageFormat: PdfPageFormat.a4,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildStartingCashPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            userLabel: userLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'sales_stock_movement') {
+      final async = ref.watch(stockMovementReportProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'StockMovement.pdf',
+          initialPageFormat: PdfPageFormat.a4,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildStockMovementPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            userLabel: userLabel(),
+            productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'sales_item_discounts') {
+      final async = ref.watch(itemsDiscountsReportProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'ItemsDiscounts.pdf',
+          initialPageFormat: PdfPageFormat.a4,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildItemsDiscountsPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            customerLabel: customerLabel(),
+            userLabel: userLabel(),
+            productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'sales_discounts') {
+      final async = ref.watch(discountsGrantedReportProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'DiscountsGranted.pdf',
+          initialPageFormat: PdfPageFormat.a4,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildDiscountsGrantedPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            customerLabel: customerLabel(),
+            userLabel: userLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'sales_voided') {
+      final async = ref.watch(voidedItemsReportProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'VoidedItems.pdf',
+          initialPageFormat: PdfPageFormat.a4,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildVoidedItemsPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            userLabel: userLabel(),
+            productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
     if (tab.reportType.id == 'sales_item_list') {
       final async = ref.watch(salesItemListProvider(tab.filter));
       return async.when(
@@ -1061,6 +1288,80 @@ class _TabPdfView extends ConsumerWidget {
             companyName: company?.name,
             companyAddress: company?.address,
             customerLabel: customerLabel(),
+            userLabel: userLabel(),
+            productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'purchase_unpaid') {
+      final async = ref.watch(unpaidPurchaseProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'UnpaidPurchase.pdf',
+          initialPageFormat: PdfPageFormat.a4.landscape,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildUnpaidPurchasePdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            supplierLabel: customerLabel(),
+            userLabel: userLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'purchase_suppliers') {
+      final async = ref.watch(purchaseBySupplierProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'PurchaseBySupplier.pdf',
+          initialPageFormat: PdfPageFormat.a4.landscape,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildPurchaseBySupplierPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            supplierLabel: customerLabel(),
+            userLabel: userLabel(),
+            productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'purchase_products') {
+      final async = ref.watch(purchaseByProductProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'PurchaseByProduct.pdf',
+          initialPageFormat: PdfPageFormat.a4.landscape,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildPurchaseByProductPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            supplierLabel: customerLabel(),
             userLabel: userLabel(),
             productLabel: productLabel(),
           ),
@@ -1778,6 +2079,599 @@ Future<Uint8List> _buildProfitPdf({
           5: pw.FixedColumnWidth(60),
           6: pw.FixedColumnWidth(52),
         },
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildStockMovementPdf({
+  required List<StockMovementRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String userLabel,
+  required String productLabel,
+}) async {
+  final doc    = pw.Document();
+  final hdrFmt = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold    = await PdfGoogleFonts.notoSansBold();
+  final theme   = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  final total   = rows.fold(0.0, (s, r) => s + r.numSales);
+  final average = rows.isEmpty ? 0.0 : total / rows.length;
+
+  final fast = rows.where((r) => r.numSales >= average).toList()
+    ..sort((a, b) => b.numSales.compareTo(a.numSales));
+  final slow = rows.where((r) => r.numSales < average).toList()
+    ..sort((a, b) => b.numSales.compareTo(a.numSales));
+
+  pw.Widget hdrRow(String label, String value) => pw.RichText(
+      text: pw.TextSpan(children: [
+        pw.TextSpan(text: '$label  ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+        pw.TextSpan(text: value,      style: const pw.TextStyle(fontSize: 9)),
+      ]));
+
+  pw.Widget sectionTable(String title, List<StockMovementRow> items) =>
+      pw.Column(children: [
+        pw.TableHelper.fromTextArray(
+          headers: ['#', title, 'Num. of sales'],
+          headerStyle:      pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
+          cellStyle:        const pw.TextStyle(fontSize: 8),
+          headerDecoration: pw.BoxDecoration(color: title == 'Fast moving' ? PdfColors.red100 : PdfColors.grey200),
+          cellAlignments: {
+            0: pw.Alignment.centerRight,
+            2: pw.Alignment.centerRight,
+          },
+          columnWidths: const {
+            0: pw.FixedColumnWidth(24),
+            1: pw.FlexColumnWidth(1),
+            2: pw.FixedColumnWidth(80),
+          },
+          data: items.asMap().entries.map((e) => [
+            '${e.key + 1}',
+            e.value.productName,
+            e.value.numSales.toStringAsFixed(0),
+          ]).toList(),
+        ),
+        pw.SizedBox(height: 8),
+      ]);
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4,
+    theme: theme,
+    margin: const pw.EdgeInsets.all(24),
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.red)),
+        pw.Text('Page ${ctx.pageNumber}', style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('STOCK MOVEMENT',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              hdrRow('Period:',  '${hdrFmt.format(filter.startDate)} - ${hdrFmt.format(filter.endDate)}'),
+              hdrRow('User:',    userLabel),
+              hdrRow('Product:', productLabel),
+            ],
+          )),
+          pw.Expanded(child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              hdrRow('Company:', companyName ?? ''),
+              hdrRow('Address:', companyAddress ?? ''),
+            ],
+          )),
+        ],
+      ),
+      pw.SizedBox(height: 8),
+      pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.end,
+        children: [
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.Text('Total number of sales: ${total.toStringAsFixed(0)}',
+                  style: const pw.TextStyle(fontSize: 9)),
+              pw.Text('Average number of sales per item: ${average.toStringAsFixed(0)}',
+                  style: const pw.TextStyle(fontSize: 9)),
+            ],
+          ),
+        ],
+      ),
+      pw.SizedBox(height: 10),
+      if (fast.isNotEmpty) sectionTable('Fast moving', fast),
+      if (slow.isNotEmpty) sectionTable('Slow moving', slow),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildItemsDiscountsPdf({
+  required List<ItemsDiscountsRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String customerLabel,
+  required String userLabel,
+  required String productLabel,
+}) async {
+  final doc    = pw.Document();
+  final fmt    = NumberFormat('#,##0.00');
+  final hdrFmt = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold    = await PdfGoogleFonts.notoSansBold();
+  final theme   = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  final grandTotal = rows.fold(0.0, (s, r) => s + r.totalDiscount);
+
+  pw.Widget hdrRow(String label, String value) => pw.RichText(
+      text: pw.TextSpan(children: [
+        pw.TextSpan(text: '$label  ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+        pw.TextSpan(text: value,      style: const pw.TextStyle(fontSize: 9)),
+      ]));
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4,
+    theme: theme,
+    margin: const pw.EdgeInsets.all(24),
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.red)),
+        pw.Text('Page ${ctx.pageNumber}', style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('ITEMS DISCOUNTS',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              hdrRow('Period:',   '${hdrFmt.format(filter.startDate)} - ${hdrFmt.format(filter.endDate)}'),
+              hdrRow('Customer:', customerLabel),
+              hdrRow('User:',     userLabel),
+              hdrRow('Product:',  productLabel),
+            ],
+          )),
+          pw.Expanded(child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              hdrRow('Company:', companyName ?? ''),
+              hdrRow('Address:', companyAddress ?? ''),
+            ],
+          )),
+        ],
+      ),
+      pw.SizedBox(height: 12),
+      pw.TableHelper.fromTextArray(
+        headers: ['#', 'Code', 'Product', 'Total discount'],
+        headerStyle:      pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
+        cellStyle:        const pw.TextStyle(fontSize: 8),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        cellAlignments: {
+          0: pw.Alignment.centerRight,
+          3: pw.Alignment.centerRight,
+        },
+        columnWidths: const {
+          0: pw.FixedColumnWidth(24),
+          1: pw.FixedColumnWidth(50),
+          2: pw.FlexColumnWidth(1),
+          3: pw.FixedColumnWidth(80),
+        },
+        data: rows.asMap().entries.map((e) => [
+          '${e.key + 1}',
+          e.value.productCode ?? '',
+          e.value.productName,
+          fmt.format(e.value.totalDiscount),
+        ]).toList(),
+      ),
+      pw.SizedBox(height: 4),
+      pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.end,
+        children: [
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: pw.Text(
+              fmt.format(grandTotal),
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+            ),
+          ),
+        ],
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildDiscountsGrantedPdf({
+  required List<DiscountsGrantedRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String customerLabel,
+  required String userLabel,
+}) async {
+  final doc    = pw.Document();
+  final fmt    = NumberFormat('#,##0.00');
+  final dateFmt = DateFormat('dd/MM/yyyy');
+  final hdrFmt  = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold    = await PdfGoogleFonts.notoSansBold();
+  final theme   = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  // Group by customer (order preserved from backend: alphabetical)
+  final grouped = <String, List<DiscountsGrantedRow>>{};
+  for (final r in rows) {
+    grouped.putIfAbsent(r.customerName, () => []).add(r);
+  }
+
+  final grandTotal  = rows.fold(0.0, (s, r) => s + r.discountGranted);
+  final totalOrders = rows.length;
+
+  pw.Widget hdrRow(String label, String value) => pw.RichText(
+      text: pw.TextSpan(children: [
+        pw.TextSpan(text: '$label  ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+        pw.TextSpan(text: value,      style: const pw.TextStyle(fontSize: 9)),
+      ]));
+
+  const colWidths = {
+    0: pw.FlexColumnWidth(1.5),
+    1: pw.FixedColumnWidth(58),
+    2: pw.FixedColumnWidth(58),
+    3: pw.FixedColumnWidth(62),
+    4: pw.FixedColumnWidth(62),
+    5: pw.FixedColumnWidth(62),
+  };
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4,
+    theme: theme,
+    margin: const pw.EdgeInsets.all(24),
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.red)),
+        pw.Text('Page ${ctx.pageNumber}', style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('DISCOUNTS GRANTED (AFTER TAX)',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              hdrRow('Period:',   '${hdrFmt.format(filter.startDate)} - ${hdrFmt.format(filter.endDate)}'),
+              hdrRow('Customer:', customerLabel),
+              hdrRow('User:',     userLabel),
+            ],
+          )),
+          pw.Expanded(child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              hdrRow('Company:', companyName ?? ''),
+              hdrRow('Address:', companyAddress ?? ''),
+            ],
+          )),
+        ],
+      ),
+      pw.SizedBox(height: 12),
+      for (final entry in grouped.entries) ...[
+        pw.Container(
+          width: double.infinity,
+          padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+          child: pw.Text('Customer: ${entry.key}',
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+        ),
+        pw.TableHelper.fromTextArray(
+          headers: ['Document', 'Date', 'User', 'Total before disc.', 'Total after disc.', 'Discount granted'],
+          headerStyle:     pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7),
+          cellStyle:       const pw.TextStyle(fontSize: 7),
+          headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+          cellAlignments: {
+            3: pw.Alignment.centerRight,
+            4: pw.Alignment.centerRight,
+            5: pw.Alignment.centerRight,
+          },
+          columnWidths: colWidths,
+          data: [
+            ...entry.value.map((r) => [
+              r.documentNumber,
+              dateFmt.format(r.date),
+              r.userName,
+              fmt.format(r.totalBeforeDiscount),
+              fmt.format(r.totalAfterDiscount),
+              fmt.format(r.discountGranted),
+            ]),
+            // Customer subtotal row
+            ['', '', '', '', '',
+              fmt.format(entry.value.fold(0.0, (s, r) => s + r.discountGranted))],
+          ],
+        ),
+        pw.SizedBox(height: 6),
+      ],
+      pw.Divider(borderStyle: pw.BorderStyle.dashed),
+      pw.SizedBox(height: 4),
+      pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.end,
+        children: [
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.Text('Number of orders discounted:  $totalOrders',
+                  style: const pw.TextStyle(fontSize: 9)),
+              pw.SizedBox(height: 2),
+              pw.Text('Total discounted:  ${fmt.format(grandTotal)}',
+                  style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+            ],
+          ),
+        ],
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildVoidedItemsPdf({
+  required List<VoidedItemRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String userLabel,
+  required String productLabel,
+}) async {
+  final doc     = pw.Document();
+  final fmt     = NumberFormat('#,##0.00');
+  final dtFmt   = DateFormat('dd/MM/yyyy HH:mm:ss');
+  final hdrFmt  = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold    = await PdfGoogleFonts.notoSansBold();
+  final theme   = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  final grandTotal = rows.fold(0.0, (s, r) => s + r.total);
+
+  pw.Widget _hdrRow(String label, String value) => pw.RichText(
+      text: pw.TextSpan(children: [
+        pw.TextSpan(text: '$label  ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+        pw.TextSpan(text: value, style: const pw.TextStyle(fontSize: 9)),
+      ]));
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4,
+    theme: theme,
+    margin: const pw.EdgeInsets.all(24),
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.red)),
+        pw.Text('Page ${ctx.pageNumber}', style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('VOIDED ITEMS',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              _hdrRow('Period:', '${hdrFmt.format(filter.startDate)} - ${hdrFmt.format(filter.endDate)}'),
+              _hdrRow('User:', userLabel),
+              _hdrRow('Product:', productLabel),
+            ],
+          )),
+          pw.Expanded(child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              _hdrRow('Company:', companyName ?? ''),
+              _hdrRow('Address:', companyAddress ?? ''),
+            ],
+          )),
+        ],
+      ),
+      pw.SizedBox(height: 12),
+      pw.TableHelper.fromTextArray(
+        headers: ['Product', 'Voided by', 'Qty.', 'Price', 'Discount', 'Status', 'Order #', 'Created', 'Voided', 'Total', 'Reason'],
+        headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7),
+        cellStyle:   const pw.TextStyle(fontSize: 7),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        cellAlignments: {
+          2: pw.Alignment.centerRight,
+          3: pw.Alignment.centerRight,
+          4: pw.Alignment.centerRight,
+          9: pw.Alignment.centerRight,
+        },
+        data: [
+          ...rows.map((r) => [
+            r.productName,
+            r.voidedByName ?? '',
+            r.quantity.toStringAsFixed(0),
+            fmt.format(r.price),
+            r.discountDisplay,
+            r.isConfirmed ? 'Confirmed' : 'Pending',
+            r.orderNumber,
+            dtFmt.format(r.dateCreated),
+            dtFmt.format(r.dateVoided),
+            fmt.format(r.total),
+            r.reason ?? '',
+          ]),
+        ],
+        columnWidths: const {
+          0: pw.FlexColumnWidth(1.4),
+          1: pw.FixedColumnWidth(48),
+          2: pw.FixedColumnWidth(28),
+          3: pw.FixedColumnWidth(40),
+          4: pw.FixedColumnWidth(36),
+          5: pw.FixedColumnWidth(52),
+          6: pw.FixedColumnWidth(44),
+          7: pw.FixedColumnWidth(72),
+          8: pw.FixedColumnWidth(72),
+          9: pw.FixedColumnWidth(44),
+          10: pw.FlexColumnWidth(1.2),
+        },
+      ),
+      pw.SizedBox(height: 4),
+      pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.end,
+        children: [
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: pw.Text(
+              fmt.format(grandTotal),
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+            ),
+          ),
+        ],
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildStartingCashPdf({
+  required List<StartingCashRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String userLabel,
+}) async {
+  final doc     = pw.Document();
+  final fmt     = NumberFormat('#,##0.00');
+  final dateFmt = DateFormat('dd/MM/yyyy HH:mm');
+  final hdrFmt  = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold    = await PdfGoogleFonts.notoSansBold();
+  final theme   = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  final totalCashIn  = rows.where((r) => !r.isCashOut).fold(0.0, (s, r) => s + r.amount);
+  final totalCashOut = rows.where((r) =>  r.isCashOut).fold(0.0, (s, r) => s + r.amount);
+  final netTotal     = totalCashIn - totalCashOut;
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4,
+    theme: theme,
+    margin: const pw.EdgeInsets.all(24),
+    build: (ctx) => [
+      pw.Text('STARTING CASH ENTRIES',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.RichText(text: pw.TextSpan(children: [
+                pw.TextSpan(text: 'Period:  ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                pw.TextSpan(text: '${hdrFmt.format(filter.startDate)} – ${hdrFmt.format(filter.endDate)}', style: const pw.TextStyle(fontSize: 9)),
+              ])),
+              pw.RichText(text: pw.TextSpan(children: [
+                pw.TextSpan(text: 'User:    ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                pw.TextSpan(text: userLabel, style: const pw.TextStyle(fontSize: 9)),
+              ])),
+            ],
+          )),
+          pw.Expanded(child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.RichText(text: pw.TextSpan(children: [
+                pw.TextSpan(text: 'Company: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                pw.TextSpan(text: companyName ?? '', style: const pw.TextStyle(fontSize: 9)),
+              ])),
+              pw.RichText(text: pw.TextSpan(children: [
+                pw.TextSpan(text: 'Address: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                pw.TextSpan(text: companyAddress ?? '', style: const pw.TextStyle(fontSize: 9)),
+              ])),
+            ],
+          )),
+        ],
+      ),
+      pw.SizedBox(height: 12),
+      pw.TableHelper.fromTextArray(
+        headers: ['User', 'Type', 'Description', 'Date', 'Amount', 'Z-Report #'],
+        headerStyle:      pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
+        cellStyle:        const pw.TextStyle(fontSize: 8),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        cellAlignments: {4: pw.Alignment.centerRight},
+        data: [
+          ...rows.map((r) => [
+            r.userName ?? '',
+            r.isCashOut ? 'Cash Out' : 'Cash In',
+            r.description ?? '',
+            dateFmt.format(r.dateCreated),
+            r.isCashOut
+                ? '-${fmt.format(r.amount)}'
+                : fmt.format(r.amount),
+            r.zReportNumber?.toString() ?? '',
+          ]),
+        ],
+        columnWidths: const {
+          0: pw.FixedColumnWidth(80),
+          1: pw.FixedColumnWidth(55),
+          2: pw.FlexColumnWidth(),
+          3: pw.FixedColumnWidth(80),
+          4: pw.FixedColumnWidth(65),
+          5: pw.FixedColumnWidth(50),
+        },
+      ),
+      pw.SizedBox(height: 8),
+      pw.Divider(borderStyle: pw.BorderStyle.dashed, color: PdfColors.grey400),
+      pw.SizedBox(height: 4),
+      pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.end,
+        children: [
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.RichText(text: pw.TextSpan(children: [
+                pw.TextSpan(text: 'Cash In:   ', style: pw.TextStyle(fontSize: 9)),
+                pw.TextSpan(text: fmt.format(totalCashIn),  style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+              ])),
+              pw.RichText(text: pw.TextSpan(children: [
+                pw.TextSpan(text: 'Cash Out:  ', style: pw.TextStyle(fontSize: 9)),
+                pw.TextSpan(text: '-${fmt.format(totalCashOut)}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+              ])),
+              pw.RichText(text: pw.TextSpan(children: [
+                pw.TextSpan(text: 'Net Total: ', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                pw.TextSpan(text: fmt.format(netTotal), style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+              ])),
+            ],
+          ),
+        ],
       ),
     ],
   ));
@@ -2562,6 +3456,301 @@ Future<Uint8List> _buildUsersPdf({
   return doc.save();
 }
 
+Future<Uint8List> _buildUnpaidPurchasePdf({
+  required List<UnpaidPurchaseRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String supplierLabel,
+  required String userLabel,
+}) async {
+  final doc = pw.Document();
+  final fmt       = NumberFormat('#,##0.00');
+  final dateFmt   = DateFormat('dd/MM/yyyy');
+  final hdrDatFmt = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold    = await PdfGoogleFonts.notoSansBold();
+  final theme   = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  final bySupplier = <String, List<UnpaidPurchaseRow>>{};
+  for (final r in rows) {
+    bySupplier.putIfAbsent(r.supplierName, () => []).add(r);
+  }
+  final grandTotal = rows.fold(0.0, (s, r) => s + r.totalUnpaid);
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4.landscape,
+    theme: theme,
+    margin: const pw.EdgeInsets.all(20),
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8)),
+        pw.Text('Page ${ctx.pageNumber}',
+            style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) {
+      final widgets = <pw.Widget>[
+        pw.Text('UNPAID PURCHASE',
+            style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 8),
+        pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Expanded(child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.RichText(text: pw.TextSpan(children: [
+                  pw.TextSpan(text: 'Period:   ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                  pw.TextSpan(text: '${hdrDatFmt.format(filter.startDate)} - ${hdrDatFmt.format(filter.endDate)}', style: const pw.TextStyle(fontSize: 9)),
+                ])),
+                pw.RichText(text: pw.TextSpan(children: [
+                  pw.TextSpan(text: 'Supplier: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                  pw.TextSpan(text: supplierLabel, style: const pw.TextStyle(fontSize: 9)),
+                ])),
+                pw.RichText(text: pw.TextSpan(children: [
+                  pw.TextSpan(text: 'User:     ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                  pw.TextSpan(text: userLabel, style: const pw.TextStyle(fontSize: 9)),
+                ])),
+              ],
+            )),
+            pw.Expanded(child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.RichText(text: pw.TextSpan(children: [
+                  pw.TextSpan(text: 'Company: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                  pw.TextSpan(text: companyName ?? '', style: const pw.TextStyle(fontSize: 9)),
+                ])),
+                pw.RichText(text: pw.TextSpan(children: [
+                  pw.TextSpan(text: 'Address: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                  pw.TextSpan(text: companyAddress ?? '', style: const pw.TextStyle(fontSize: 9)),
+                ])),
+              ],
+            )),
+          ],
+        ),
+        pw.SizedBox(height: 12),
+      ];
+
+      for (final entry in bySupplier.entries) {
+        final supplierName = entry.key;
+        final docs = entry.value;
+        final supplierUnpaid = docs.fold(0.0, (s, r) => s + r.totalUnpaid);
+
+        widgets.add(pw.Container(
+          color: PdfColors.grey200,
+          padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+          child: pw.Text('Supplier: $supplierName',
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+        ));
+
+        widgets.add(pw.TableHelper.fromTextArray(
+          headers: ['Document number', 'Date', 'Due date', 'Total', 'Total paid', 'Total unpaid'],
+          headerStyle:      pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8),
+          cellStyle:        const pw.TextStyle(fontSize: 8),
+          headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+          cellAlignments: {
+            3: pw.Alignment.centerRight,
+            4: pw.Alignment.centerRight,
+            5: pw.Alignment.centerRight,
+          },
+          data: [
+            ...docs.map((r) => [
+                  r.documentNumber,
+                  dateFmt.format(r.date),
+                  r.dueDate != null ? dateFmt.format(r.dueDate!) : '',
+                  fmt.format(r.documentTotal),
+                  fmt.format(r.totalPaid),
+                  fmt.format(r.totalUnpaid),
+                ]),
+            ['', '', '', '', '', fmt.format(supplierUnpaid)],
+          ],
+          columnWidths: const {
+            0: pw.FixedColumnWidth(100),
+            1: pw.FixedColumnWidth(60),
+            2: pw.FixedColumnWidth(60),
+            3: pw.FixedColumnWidth(60),
+            4: pw.FixedColumnWidth(60),
+            5: pw.FixedColumnWidth(70),
+          },
+        ));
+
+        widgets.add(pw.SizedBox(height: 6));
+      }
+
+      widgets.addAll([
+        pw.Divider(borderStyle: pw.BorderStyle.dashed, color: PdfColors.grey400),
+        pw.SizedBox(height: 4),
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.end,
+          children: [
+            pw.Text('Total:  ',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+            pw.Text(fmt.format(grandTotal),
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+          ],
+        ),
+      ]);
+
+      return widgets;
+    },
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildPurchaseBySupplierPdf({
+  required List<PurchaseBySupplierRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String supplierLabel,
+  required String userLabel,
+  required String productLabel,
+}) async {
+  final doc = pw.Document();
+  final fmt = NumberFormat('#,##0.00');
+  final dateFmt = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold = await PdfGoogleFonts.notoSansBold();
+  final theme = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4.landscape,
+    theme: theme,
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8)),
+        pw.Text('Page ${ctx.pageNumber}',
+            style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('PURCHASE BY SUPPLIER',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      _pdfHeader(dateFmt, filter, companyName, companyAddress,
+          supplierLabel, userLabel, productLabel,
+          customerRowLabel: 'Supplier'),
+      pw.SizedBox(height: 12),
+      pw.TableHelper.fromTextArray(
+        headers: ['Supplier', 'Total before tax', 'Total'],
+        headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+        cellStyle: const pw.TextStyle(fontSize: 9),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        cellAlignments: {
+          1: pw.Alignment.centerRight,
+          2: pw.Alignment.centerRight,
+        },
+        data: [
+          ...rows.map((r) => [
+                r.supplier,
+                fmt.format(r.totalBeforeTax),
+                fmt.format(r.total),
+              ]),
+          [
+            'Total',
+            fmt.format(rows.fold(0.0, (s, r) => s + r.totalBeforeTax)),
+            fmt.format(rows.fold(0.0, (s, r) => s + r.total)),
+          ],
+        ],
+        columnWidths: const {
+          0: pw.FlexColumnWidth(3),
+          1: pw.FixedColumnWidth(110),
+          2: pw.FixedColumnWidth(110),
+        },
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildPurchaseByProductPdf({
+  required List<PurchaseByProductRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String supplierLabel,
+  required String userLabel,
+  required String productLabel,
+}) async {
+  final doc = pw.Document();
+  final fmt = NumberFormat('#,##0.00');
+  final dateFmt = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold = await PdfGoogleFonts.notoSansBold();
+  final theme = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4.landscape,
+    theme: theme,
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8)),
+        pw.Text('Page ${ctx.pageNumber}',
+            style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('PURCHASE BY PRODUCT',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      _pdfHeader(dateFmt, filter, companyName, companyAddress,
+          supplierLabel, userLabel, productLabel,
+          customerRowLabel: 'Supplier'),
+      pw.SizedBox(height: 12),
+      pw.TableHelper.fromTextArray(
+        headers: ['Code', 'Product', 'Quantity', 'UOM', 'Total before tax', 'Total'],
+        headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+        cellStyle: const pw.TextStyle(fontSize: 9),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        cellAlignments: {
+          2: pw.Alignment.centerRight,
+          4: pw.Alignment.centerRight,
+          5: pw.Alignment.centerRight,
+        },
+        data: [
+          ...rows.map((r) => [
+                r.code ?? '',
+                r.product,
+                fmt.format(r.quantity),
+                r.uom,
+                fmt.format(r.totalBeforeTax),
+                fmt.format(r.total),
+              ]),
+          [
+            '', 'Total',
+            fmt.format(rows.fold(0.0, (s, r) => s + r.quantity)),
+            '',
+            fmt.format(rows.fold(0.0, (s, r) => s + r.totalBeforeTax)),
+            fmt.format(rows.fold(0.0, (s, r) => s + r.total)),
+          ],
+        ],
+        columnWidths: const {
+          0: pw.FixedColumnWidth(60),
+          1: pw.FlexColumnWidth(3),
+          2: pw.FixedColumnWidth(70),
+          3: pw.FixedColumnWidth(50),
+          4: pw.FixedColumnWidth(90),
+          5: pw.FixedColumnWidth(90),
+        },
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
 pw.Widget _pdfHeader(
   DateFormat dateFmt,
   ReportFilter filter,
@@ -2569,8 +3758,9 @@ pw.Widget _pdfHeader(
   String? companyAddress,
   String customerLabel,
   String userLabel,
-  String productLabel,
-) {
+  String productLabel, {
+  String customerRowLabel = 'Customer',
+}) {
   final ts = const pw.TextStyle(fontSize: 9);
   final tb = pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold);
 
@@ -2586,7 +3776,7 @@ pw.Widget _pdfHeader(
         row('Period',
             '${dateFmt.format(filter.startDate)} – ${dateFmt.format(filter.endDate)}'),
         pw.SizedBox(height: 3),
-        row('Customer', customerLabel),
+        row(customerRowLabel, customerLabel),
         pw.SizedBox(height: 3),
         row('User', userLabel),
         pw.SizedBox(height: 3),

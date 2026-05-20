@@ -1417,6 +1417,19 @@ class _OrderPaymentTab extends ConsumerWidget {
             ),
           ],
         ),
+        _SettingsCard(
+          title: 'VOID ITEMS',
+          children: const [
+            _SettingSwitch(
+              settingKey: SettingKeys.requireReasonOnVoid,
+              label: 'Require reason on void',
+            ),
+            _SettingSwitch(
+              settingKey: SettingKeys.trackUnconfirmedVoidedItems,
+              label: 'Track unconfirmed voided items',
+            ),
+          ],
+        ),
       ],
     );
   }

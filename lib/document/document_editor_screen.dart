@@ -176,19 +176,24 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
     super.dispose();
   }
 
-  String _generateOrderNumber(String docTypeName) {
-    final now = DateTime.now();
-    final prefix = docTypeName
-        .toUpperCase()
-        .replaceAll(' ', '_')
-        .substring(0, docTypeName.length.clamp(0, 6).toInt());
-    final yy = now.year.toString().substring(2);
-    final mm = now.month.toString().padLeft(2, '0');
-    final dd = now.day.toString().padLeft(2, '0');
-    final hh = now.hour.toString().padLeft(2, '0');
-    final min = now.minute.toString().padLeft(2, '0');
-    final ss = now.second.toString().padLeft(2, '0');
-    return "$prefix-$yy$mm$dd$hh$min$ss";
+  Future<String> _fetchNextDocumentNumber(int documentTypeId) async {
+    try {
+      final companyId = ref.read(selectedCompanyProvider)?.id ?? 0;
+      final dio = createDio();
+      final response = await dio.get(
+        '/Document/GetNextNumber',
+        queryParameters: {
+          'companyId': companyId,
+          'documentTypeId': documentTypeId,
+        },
+      );
+      return response.data as String;
+    } catch (_) {
+      // Fallback: timestamp-based number so the user can still proceed
+      final now = DateTime.now();
+      final yy = now.year.toString().substring(2);
+      return 'DOC-$yy${now.millisecondsSinceEpoch}';
+    }
   }
 
   String _isoDate(DateTime dt) => dt.toIso8601String().split('.')[0];
@@ -267,7 +272,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
           'number': _numberCtrl.text.trim(),
           'userId': _selectedUserId,
           'customerId': _selectedCustomerId,
-          'orderNumber': _generateOrderNumber(_selectedDocTypeName ?? 'DOC'),
+          'orderNumber': 'ORD-${DateTime.now().millisecondsSinceEpoch}',
           'date': _isoDate(_date),
           'stockDate': _isoDate(_stockDate),
           'dueDate': _isoDate(_dueDate),
@@ -435,10 +440,11 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
                     _selectedDocTypeId = result.id;
                     _selectedDocTypeName = "${result.code} - ${result.name}";
                     _selectedWarehouseId = result.warehouseId;
-                    if (_numberCtrl.text.isEmpty) {
-                      _numberCtrl.text = _generateOrderNumber(result.name);
-                    }
                   });
+                  if (_numberCtrl.text.isEmpty) {
+                    final nextNumber = await _fetchNextDocumentNumber(result.id);
+                    if (mounted) setState(() => _numberCtrl.text = nextNumber);
+                  }
                 }
               },
               onCustomerChanged: (v) => setState(() => _selectedCustomerId = v),

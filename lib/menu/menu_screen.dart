@@ -1671,6 +1671,128 @@ class _CartSectionState extends ConsumerState<CartSection> {
     }
   }
 
+  Future<void> _handleVoidOrder(
+    BuildContext context,
+    WidgetRef ref,
+    CartState cartState,
+    List<CartItem> cartItems,
+  ) async {
+    // Step 1: Confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        icon: const CircleAvatar(
+          radius: 32,
+          backgroundColor: Colors.grey,
+          child: Icon(Icons.question_mark, size: 32, color: Colors.white),
+        ),
+        title: const Text('Void order'),
+        content: const Text('Are you sure you want to void this order?'),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('No'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Yes'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    final settings = ref.read(appSettingsProvider);
+    final requireReason = settings[SettingKeys.requireReasonOnVoid]?.toLowerCase() == 'true';
+
+    // Step 2: Reason dialog (if setting enabled)
+    String? selectedReason;
+    if (requireReason && cartItems.isNotEmpty) {
+      selectedReason = await _showVoidReasonDialog(context, cartState.orderNumber);
+      if (selectedReason == null || !context.mounted) return; // user cancelled
+    }
+
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    final user = ref.read(currentUserProvider);
+    if (companyId == null || cartState.activePosOrderId == null) return;
+
+    final wasBookingOrder = cartState.bookingId != null;
+    final wasTableOrder   = cartState.floorPlanTableId != null;
+
+    try {
+      // Step 3: Save each item as a PosVoid record
+      if (cartItems.isNotEmpty) {
+        final dio = createDio();
+        for (final item in cartItems) {
+          final total = item.price * item.quantity;
+          await dio.post('/PosVoids/Add', queryParameters: {
+            'companyId':    companyId,
+            'orderNumber':  cartState.orderNumber ?? 'UNKNOWN',
+            'userId':       user?.id,
+            'userName':     user?.displayName ?? 'Unknown',
+            'productId':    item.productId,
+            'productName':  item.productName,
+            'roundNumber':  item.roundNumber,
+            'quantity':     item.quantity,
+            'price':        item.price,
+            'discount':     item.discount,
+            'discountType': item.discountType,
+            'total':        total,
+            'voidedById':   user?.id,
+            'voidedByName': user?.displayName ?? 'Unknown',
+            if (item.bundle != null) 'bundle': item.bundle,
+            if (selectedReason != null) 'reason': selectedReason,
+          });
+        }
+      }
+
+      // Step 4: Delete the order
+      await ApiClient().deletePosOrder(
+        companyId,
+        cartState.activePosOrderId!,
+        cartState.activeWarehouseId ?? 1,
+      );
+      ref.read(cartProvider.notifier).clearCart();
+      await syncLatestOrderNumber(ref, companyId);
+
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Order Voided'), backgroundColor: Colors.red),
+      );
+
+      final bookingEnabled   = settings[SettingKeys.featureBookingEnabled]?.toLowerCase()   == 'true';
+      final floorPlanEnabled = settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+      int? navIndex;
+      if (wasBookingOrder && bookingEnabled)   navIndex = 2;
+      else if (wasTableOrder && floorPlanEnabled) navIndex = 4;
+      else if (bookingEnabled)                 navIndex = 2;
+      else if (floorPlanEnabled)               navIndex = 4;
+
+      if (navIndex != null && context.mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => MainLayout(initialIndex: navIndex!)),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<String?> _showVoidReasonDialog(BuildContext context, String? orderNumber) async {
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _VoidReasonDialog(orderNumber: orderNumber),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cartState = ref.watch(cartProvider);
@@ -2233,68 +2355,9 @@ class _CartSectionState extends ConsumerState<CartSection> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   ElevatedButton(
-                    onPressed: () async {
-                      final companyId = ref.read(selectedCompanyProvider)?.id;
-                      if (companyId == null ||
-                          cartState.activePosOrderId == null)
-                        return;
-                      final wasBookingOrder = cartState.bookingId != null;
-                      final wasTableOrder = cartState.floorPlanTableId != null;
-                      try {
-                        await ApiClient().deletePosOrder(
-                          companyId,
-                          cartState.activePosOrderId!,
-                          cartState.activeWarehouseId ?? 1,
-                        );
-                        ref.read(cartProvider.notifier).clearCart();
-                        await syncLatestOrderNumber(ref, companyId);
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Order Voided'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                          final settings = ref.read(appSettingsProvider);
-                          final bookingEnabled =
-                              settings[SettingKeys.featureBookingEnabled]
-                                  ?.toLowerCase() ==
-                              'true';
-                          final floorPlanEnabled =
-                              settings[SettingKeys.featureFloorPlanEnabled]
-                                  ?.toLowerCase() ==
-                              'true';
-                          int? voidIndex;
-                          if (wasBookingOrder && bookingEnabled) {
-                            voidIndex = 2;
-                          } else if (wasTableOrder && floorPlanEnabled) {
-                            voidIndex = 4;
-                          } else if (bookingEnabled) {
-                            voidIndex = 2;
-                          } else if (floorPlanEnabled) {
-                            voidIndex = 4;
-                          }
-                          if (voidIndex != null) {
-                            Navigator.pushAndRemoveUntil(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) =>
-                                    MainLayout(initialIndex: voidIndex!),
-                              ),
-                              (route) => false,
-                            );
-                          }
-                        }
-                      } catch (e) {
-                        if (context.mounted)
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Error: $e'),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
-                      }
-                    },
+                    onPressed: cartState.activePosOrderId == null
+                        ? null
+                        : () => _handleVoidOrder(context, ref, cartState, cartItems),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.redAccent,
                       padding: const EdgeInsets.symmetric(
@@ -2966,3 +3029,118 @@ class _SelectAvailableSpaceDialog extends ConsumerWidget {
     );
   }
 }
+
+// ── Void Reason Dialog ────────────────────────────────────────────────────────
+
+class _VoidReasonDialog extends ConsumerStatefulWidget {
+  final String? orderNumber;
+  const _VoidReasonDialog({this.orderNumber});
+
+  @override
+  ConsumerState<_VoidReasonDialog> createState() => _VoidReasonDialogState();
+}
+
+class _VoidReasonDialogState extends ConsumerState<_VoidReasonDialog> {
+  final _customCtrl = TextEditingController();
+  String? _selected;
+
+  @override
+  void dispose() {
+    _customCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final reasonsAsync = ref.watch(_voidReasonsDialogProvider);
+
+    return AlertDialog(
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Enter void reason', style: TextStyle(fontWeight: FontWeight.bold)),
+          if (widget.orderNumber != null)
+            Text(
+              'Enter or select void reason for voiding "${widget.orderNumber}"',
+              style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant, fontWeight: FontWeight.normal),
+            ),
+        ],
+      ),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            reasonsAsync.when(
+              loading: () => const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator())),
+              error: (_, __) => const SizedBox.shrink(),
+              data: (reasons) {
+                if (reasons.isEmpty) return const SizedBox.shrink();
+                return Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: reasons.map((r) {
+                    final active = _selected == r;
+                    return ChoiceChip(
+                      label: Text(r),
+                      selected: active,
+                      onSelected: (_) => setState(() {
+                        _selected = active ? null : r;
+                        if (!active) _customCtrl.clear();
+                      }),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _customCtrl,
+              decoration: InputDecoration(
+                hintText: 'Enter void reason here',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.edit),
+                  onPressed: () {},
+                ),
+              ),
+              onChanged: (v) {
+                if (v.isNotEmpty) setState(() => _selected = null);
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final reason = _selected ?? _customCtrl.text.trim();
+            if (reason.isEmpty) return;
+            Navigator.pop(context, reason);
+          },
+          child: const Text('Continue'),
+        ),
+      ],
+    );
+  }
+}
+
+// Lightweight provider just for the dialog — fetches void reason names only
+final _voidReasonsDialogProvider = FutureProvider.autoDispose<List<String>>((ref) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  final dio = createDio();
+  final res = await dio.get('/VoidReasons/GetAll',
+      queryParameters: companyId != null ? {'companyId': companyId} : null);
+  return (res.data as List)
+      .map((j) => (j as Map<String, dynamic>)['name']?.toString() ?? '')
+      .where((n) => n.isNotEmpty)
+      .toList();
+});

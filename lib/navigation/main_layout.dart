@@ -17,6 +17,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:pos_app/auth/user_info_screen.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/auth/login_screen.dart';
+import 'package:pos_app/cash/cash_movement_screen.dart';
 
 class MainLayout extends ConsumerStatefulWidget {
   final int initialIndex;
@@ -153,7 +154,16 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     NavItem(
                       icon: Icons.download,
                       label: "Cash In / Out",
-                      onTap: () {},
+                      onTap: () {
+                        if (!isDesktop && Scaffold.of(context).hasDrawer)
+                          Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const CashMovementScreen(),
+                          ),
+                        );
+                      },
                     ),
                     NavItem(
                       icon: Icons.credit_card,

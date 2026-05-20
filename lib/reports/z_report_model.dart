@@ -37,6 +37,8 @@ class ZReportModel {
   final double taxableTotal;
   final double totalTax;
   final double grandTotal;
+  final double totalCashIn;
+  final double totalCashOut;
   final List<ZReportPaymentSummaryModel> paymentSummaries;
 
   ZReportModel({
@@ -52,6 +54,8 @@ class ZReportModel {
     required this.taxableTotal,
     required this.totalTax,
     required this.grandTotal,
+    this.totalCashIn = 0.0,
+    this.totalCashOut = 0.0,
     required this.paymentSummaries,
   });
 
@@ -69,6 +73,8 @@ class ZReportModel {
       taxableTotal: (json['taxableTotal'] as num?)?.toDouble() ?? 0.0,
       totalTax: (json['totalTax'] as num?)?.toDouble() ?? 0.0,
       grandTotal: (json['grandTotal'] as num?)?.toDouble() ?? 0.0,
+      totalCashIn: (json['totalCashIn'] as num?)?.toDouble() ?? 0.0,
+      totalCashOut: (json['totalCashOut'] as num?)?.toDouble() ?? 0.0,
       paymentSummaries: (json['paymentSummaries'] as List?)
               ?.map((x) => ZReportPaymentSummaryModel.fromJson(x))
               .toList() ??

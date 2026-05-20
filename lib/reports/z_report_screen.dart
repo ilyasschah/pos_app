@@ -166,6 +166,32 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
                   "${report.totalTax.toStringAsFixed(2)} $sym",
                   theme,
                 ),
+                const SizedBox(height: 8),
+                Divider(color: theme.colorScheme.outlineVariant),
+                const SizedBox(height: 8),
+                Text(
+                  "CASH MOVEMENTS",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    letterSpacing: 2,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Divider(color: theme.colorScheme.outlineVariant),
+                const SizedBox(height: 8),
+                _receiptRow(
+                  "Cash In",
+                  "+${report.totalCashIn.toStringAsFixed(2)} $sym",
+                  theme,
+                ),
+                _receiptRow(
+                  "Cash Out",
+                  "-${report.totalCashOut.toStringAsFixed(2)} $sym",
+                  theme,
+                ),
                 const SizedBox(height: 16),
                 Text(
                   "TENDER TYPES",
