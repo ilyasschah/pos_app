@@ -674,6 +674,135 @@ class UnpaidPurchaseRow {
       );
 }
 
+class PurchaseByTaxRow {
+  final String taxName;
+  final double totalBeforeTax;
+  final double taxAmount;
+  final double total;
+
+  const PurchaseByTaxRow({
+    required this.taxName,
+    required this.totalBeforeTax,
+    required this.taxAmount,
+    required this.total,
+  });
+
+  factory PurchaseByTaxRow.fromJson(Map<String, dynamic> j) => PurchaseByTaxRow(
+        taxName:        j['taxName'] as String? ?? '',
+        totalBeforeTax: (j['totalBeforeTax'] as num).toDouble(),
+        taxAmount:      (j['taxAmount'] as num).toDouble(),
+        total:          (j['total'] as num).toDouble(),
+      );
+}
+
+class PurchaseInvoiceListRow {
+  final DateTime date;
+  final String documentNumber;
+  final String? externalDocument;
+  final String supplierName;
+  final double total;
+
+  const PurchaseInvoiceListRow({
+    required this.date,
+    required this.documentNumber,
+    required this.externalDocument,
+    required this.supplierName,
+    required this.total,
+  });
+
+  factory PurchaseInvoiceListRow.fromJson(Map<String, dynamic> j) =>
+      PurchaseInvoiceListRow(
+        date:             DateTime.parse(j['date'] as String),
+        documentNumber:   j['documentNumber'] as String? ?? '',
+        externalDocument: j['externalDocument'] as String?,
+        supplierName:     j['supplierName'] as String? ?? 'Unknown',
+        total:            (j['total'] as num).toDouble(),
+      );
+}
+
+class PurchaseItemsDiscountsRow {
+  final String supplierName;
+  final String documentNumber;
+  final DateTime date;
+  final String userName;
+  final String? productCode;
+  final String productName;
+  final double quantity;
+  final double cost;
+  final double totalBeforeDiscount;
+  final double totalAfterDiscount;
+  final double discountValue;
+  final int discountType;
+  final double totalDiscount;
+
+  const PurchaseItemsDiscountsRow({
+    required this.supplierName,
+    required this.documentNumber,
+    required this.date,
+    required this.userName,
+    required this.productCode,
+    required this.productName,
+    required this.quantity,
+    required this.cost,
+    required this.totalBeforeDiscount,
+    required this.totalAfterDiscount,
+    required this.discountValue,
+    required this.discountType,
+    required this.totalDiscount,
+  });
+
+  String get discountDisplay => discountType == 1
+      ? '${discountValue.toStringAsFixed(2)} (fixed)'
+      : '${discountValue.toStringAsFixed(0)}%';
+
+  factory PurchaseItemsDiscountsRow.fromJson(Map<String, dynamic> j) =>
+      PurchaseItemsDiscountsRow(
+        supplierName:        j['supplierName'] as String? ?? 'Unknown',
+        documentNumber:      j['documentNumber'] as String? ?? '',
+        date:                DateTime.parse(j['date'] as String),
+        userName:            j['userName'] as String? ?? '',
+        productCode:         j['productCode'] as String?,
+        productName:         j['productName'] as String? ?? '',
+        quantity:            (j['quantity'] as num).toDouble(),
+        cost:                (j['cost'] as num).toDouble(),
+        totalBeforeDiscount: (j['totalBeforeDiscount'] as num).toDouble(),
+        totalAfterDiscount:  (j['totalAfterDiscount'] as num).toDouble(),
+        discountValue:       (j['discountValue'] as num).toDouble(),
+        discountType:        j['discountType'] as int? ?? 0,
+        totalDiscount:       (j['totalDiscount'] as num).toDouble(),
+      );
+}
+
+class PurchaseDiscountsRow {
+  final String supplierName;
+  final String documentNumber;
+  final DateTime date;
+  final String userName;
+  final double totalBeforeDiscount;
+  final double totalAfterDiscount;
+  final double discountGranted;
+
+  const PurchaseDiscountsRow({
+    required this.supplierName,
+    required this.documentNumber,
+    required this.date,
+    required this.userName,
+    required this.totalBeforeDiscount,
+    required this.totalAfterDiscount,
+    required this.discountGranted,
+  });
+
+  factory PurchaseDiscountsRow.fromJson(Map<String, dynamic> j) => PurchaseDiscountsRow(
+        supplierName:        j['supplierName'] as String? ?? 'Unknown',
+        documentNumber:      j['documentNumber'] as String? ?? '',
+        date:                DateTime.parse(j['date'] as String),
+        userName:            j['userName'] as String? ?? '',
+        totalBeforeDiscount: (j['totalBeforeDiscount'] as num).toDouble(),
+        totalAfterDiscount:  (j['totalAfterDiscount'] as num).toDouble(),
+        discountGranted:     (j['discountGranted'] as num).toDouble(),
+      );
+}
+
 class PurchaseBySupplierRow {
   final String supplier;
   final double totalBeforeTax;
@@ -690,6 +819,177 @@ class PurchaseBySupplierRow {
         supplier:       j['supplier'] as String? ?? 'Unknown',
         totalBeforeTax: (j['totalBeforeTax'] as num).toDouble(),
         total:          (j['total'] as num).toDouble(),
+      );
+}
+
+class PurchaseExpirationDateRow {
+  final String? productCode;
+  final String productName;
+  final double quantity;
+  final String uom;
+  final DateTime expirationDate;
+
+  const PurchaseExpirationDateRow({
+    required this.productCode,
+    required this.productName,
+    required this.quantity,
+    required this.uom,
+    required this.expirationDate,
+  });
+
+  factory PurchaseExpirationDateRow.fromJson(Map<String, dynamic> j) =>
+      PurchaseExpirationDateRow(
+        productCode:    j['productCode'] as String?,
+        productName:    j['productName'] as String? ?? '',
+        quantity:       (j['quantity'] as num).toDouble(),
+        uom:            j['uom'] as String? ?? '',
+        expirationDate: DateTime.parse(j['expirationDate'] as String),
+      );
+}
+
+class StockReturnByProductRow {
+  final DateTime date;
+  final String? code;
+  final String product;
+  final double quantity;
+  final String uom;
+  final double totalBeforeTax;
+  final double total;
+
+  const StockReturnByProductRow({
+    required this.date,
+    required this.code,
+    required this.product,
+    required this.quantity,
+    required this.uom,
+    required this.totalBeforeTax,
+    required this.total,
+  });
+
+  factory StockReturnByProductRow.fromJson(Map<String, dynamic> j) =>
+      StockReturnByProductRow(
+        date:           DateTime.parse(j['date'] as String),
+        code:           j['code'] as String?,
+        product:        j['product'] as String? ?? '',
+        quantity:       (j['quantity'] as num).toDouble(),
+        uom:            j['uom'] as String? ?? '',
+        totalBeforeTax: (j['totalBeforeTax'] as num).toDouble(),
+        total:          (j['total'] as num).toDouble(),
+      );
+}
+
+class LossAndDamageByProductRow {
+  final DateTime date;
+  final String? code;
+  final String product;
+  final double quantity;
+  final String uom;
+  final double totalBeforeTax;
+  final double total;
+
+  const LossAndDamageByProductRow({
+    required this.date,
+    required this.code,
+    required this.product,
+    required this.quantity,
+    required this.uom,
+    required this.totalBeforeTax,
+    required this.total,
+  });
+
+  factory LossAndDamageByProductRow.fromJson(Map<String, dynamic> j) =>
+      LossAndDamageByProductRow(
+        date:           DateTime.parse(j['date'] as String),
+        code:           j['code'] as String?,
+        product:        j['product'] as String? ?? '',
+        quantity:       (j['quantity'] as num).toDouble(),
+        uom:            j['uom'] as String? ?? '',
+        totalBeforeTax: (j['totalBeforeTax'] as num).toDouble(),
+        total:          (j['total'] as num).toDouble(),
+      );
+}
+
+class ReorderProductListRow {
+  final String supplierName;
+  final String productName;
+  final double orderQuantity;
+  final String uom;
+
+  const ReorderProductListRow({
+    required this.supplierName,
+    required this.productName,
+    required this.orderQuantity,
+    required this.uom,
+  });
+
+  factory ReorderProductListRow.fromJson(Map<String, dynamic> j) =>
+      ReorderProductListRow(
+        supplierName:  j['supplierName']  as String? ?? 'N/A',
+        productName:   j['productName']   as String? ?? '',
+        orderQuantity: (j['orderQuantity'] as num).toDouble(),
+        uom:           j['uom']           as String? ?? '',
+      );
+}
+
+class LowStockWarningRow {
+  final String supplierName;
+  final String productName;
+  final double currentStock;
+  final double lowStockWarningQuantity;
+  final double orderQuantity;
+  final String uom;
+
+  const LowStockWarningRow({
+    required this.supplierName,
+    required this.productName,
+    required this.currentStock,
+    required this.lowStockWarningQuantity,
+    required this.orderQuantity,
+    required this.uom,
+  });
+
+  factory LowStockWarningRow.fromJson(Map<String, dynamic> j) =>
+      LowStockWarningRow(
+        supplierName:           j['supplierName']           as String? ?? 'N/A',
+        productName:            j['productName']            as String? ?? '',
+        currentStock:           (j['currentStock']          as num).toDouble(),
+        lowStockWarningQuantity:(j['lowStockWarningQuantity'] as num).toDouble(),
+        orderQuantity:          (j['orderQuantity']         as num).toDouble(),
+        uom:                    j['uom']                    as String? ?? '',
+      );
+}
+
+class TransactionHistoryRow {
+  final DateTime? date;
+  final String transactionType;
+  final String? refNumber;
+  final double credit;
+  final double debit;
+  final double balance;
+  final bool isPreviousBalance;
+  final String partnerName;
+
+  const TransactionHistoryRow({
+    this.date,
+    required this.transactionType,
+    this.refNumber,
+    required this.credit,
+    required this.debit,
+    required this.balance,
+    required this.isPreviousBalance,
+    required this.partnerName,
+  });
+
+  factory TransactionHistoryRow.fromJson(Map<String, dynamic> j) =>
+      TransactionHistoryRow(
+        date:             j['date'] != null ? DateTime.parse(j['date'] as String) : null,
+        transactionType:  j['transactionType'] as String? ?? '',
+        refNumber:        j['refNumber'] as String?,
+        credit:           (j['credit'] as num).toDouble(),
+        debit:            (j['debit'] as num).toDouble(),
+        balance:          (j['balance'] as num).toDouble(),
+        isPreviousBalance: j['isPreviousBalance'] as bool? ?? false,
+        partnerName:      j['partnerName'] as String? ?? '',
       );
 }
 

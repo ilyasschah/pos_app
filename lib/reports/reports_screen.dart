@@ -70,6 +70,41 @@ const _purchaseReports = [
   _ReportType('purchase_expiration',       'Expiration date',             Icons.event_outlined),
 ];
 
+const _stockReturnReports = [
+  _ReportType('stock_return_products', 'Products', Icons.local_offer_outlined),
+];
+
+const _lossAndDamageReports = [
+  _ReportType('loss_and_damage_products', 'Products', Icons.local_offer_outlined),
+];
+
+const _stockControlReports = [
+  _ReportType('reorder_list',      'Reorder product list', Icons.shopping_cart_outlined),
+  _ReportType('low_stock_warning', 'Low stock warning',    Icons.warning_amber_outlined),
+];
+
+const _financeReports = [
+  _ReportType('transaction_history', 'Transaction history', Icons.receipt_long_outlined),
+];
+
+// ─── Section lookup helpers ───────────────────────────────────────────────────
+
+const _allSections = <(String, List<_ReportType>)>[
+  ('Sales',           _salesReports),
+  ('Purchase',        _purchaseReports),
+  ('Stock Return',    _stockReturnReports),
+  ('Loss and damage', _lossAndDamageReports),
+  ('Stock control',   _stockControlReports),
+  ('Finance',         _financeReports),
+];
+
+String _sectionOf(String reportId) {
+  for (final (section, reports) in _allSections) {
+    if (reports.any((r) => r.id == reportId)) return section;
+  }
+  return '';
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 class ReportsScreen extends ConsumerStatefulWidget {
@@ -88,6 +123,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   final List<_OpenTab> _tabs = [];
   String _activeTabId = 'home';
   int _tabCounter = 0;
+  final Set<String> _favorites = {};
+  String _searchQuery = '';
 
   void _showReport() {
     if (_selectedReportType == null) return;
@@ -449,6 +486,112 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         }
         buf.writeln('"","Total",${rows.fold(0.0, (s, r) => s + r.quantity)},"",${rows.fold(0.0, (s, r) => s + r.totalBeforeTax)},${rows.fold(0.0, (s, r) => s + r.total)}');
         filename = 'PurchaseByProduct';
+      } else if (reportId == 'purchase_invoice_list') {
+        final rows = await ref.read(purchaseInvoiceListProvider(filter).future);
+        final dateFmt = DateFormat('dd/MM/yyyy');
+        buf.writeln('#,Supplier,Purchase number,External document,Date,Total');
+        var i = 1;
+        for (final r in rows) {
+          buf.writeln(
+            '$i,"${r.supplierName}","${r.documentNumber}",'
+            '"${r.externalDocument ?? ''}","${dateFmt.format(r.date)}",${r.total}',
+          );
+          i++;
+        }
+        buf.writeln('"","","","","Total",${rows.fold(0.0, (s, r) => s + r.total)}');
+        filename = 'PurchaseInvoices';
+      } else if (reportId == 'purchase_items_discounts') {
+        final rows = await ref.read(purchaseItemsDiscountsProvider(filter).future);
+        final dateFmt = DateFormat('dd/MM/yyyy');
+        buf.writeln('Supplier,Document,Date,User,Code,Product,Qty,Cost,Before disc.,After disc.,Discount,Total disc.');
+        for (final r in rows) {
+          buf.writeln(
+            '"${r.supplierName}","${r.documentNumber}",'
+            '"${dateFmt.format(r.date)}","${r.userName}",'
+            '"${r.productCode ?? ''}","${r.productName}",'
+            '${r.quantity},${r.cost},'
+            '${r.totalBeforeDiscount},${r.totalAfterDiscount},'
+            '"${r.discountDisplay}",${r.totalDiscount}',
+          );
+        }
+        buf.writeln('"","","","","","","","","","","Total",${rows.fold(0.0, (s, r) => s + r.totalDiscount)}');
+        filename = 'PurchaseItemsDiscounts';
+      } else if (reportId == 'purchase_discounts') {
+        final rows = await ref.read(purchaseDiscountsProvider(filter).future);
+        final dateFmt = DateFormat('dd/MM/yyyy');
+        buf.writeln('Supplier,Document,Date,User,Total before disc.,Total after disc.,Discount granted');
+        for (final r in rows) {
+          buf.writeln(
+            '"${r.supplierName}","${r.documentNumber}",'
+            '"${dateFmt.format(r.date)}","${r.userName}",'
+            '${r.totalBeforeDiscount},${r.totalAfterDiscount},${r.discountGranted}',
+          );
+        }
+        buf.writeln('"","","","","","Total",${rows.fold(0.0, (s, r) => s + r.discountGranted)}');
+        filename = 'PurchaseDiscounts';
+      } else if (reportId == 'purchase_tax') {
+        final rows = await ref.read(purchaseByTaxProvider(filter).future);
+        buf.writeln('Tax name,Total before tax,Tax,Total');
+        for (final r in rows) {
+          buf.writeln('"${r.taxName}",${r.totalBeforeTax},${r.taxAmount},${r.total}');
+        }
+        buf.writeln('"Total",${rows.fold(0.0, (s, r) => s + r.totalBeforeTax)},${rows.fold(0.0, (s, r) => s + r.taxAmount)},${rows.fold(0.0, (s, r) => s + r.total)}');
+        filename = 'PurchaseTax';
+      } else if (reportId == 'purchase_expiration') {
+        final rows = await ref.read(purchaseExpirationDateProvider(filter).future);
+        final dateFmt = DateFormat('dd/MM/yyyy');
+        buf.writeln('#,Code,Product,Quantity,UOM,Expiration date');
+        var i = 1;
+        for (final r in rows) {
+          buf.writeln(
+            '$i,"${r.productCode ?? ''}","${r.productName}",'
+            '${r.quantity},"${r.uom}","${dateFmt.format(r.expirationDate)}"',
+          );
+          i++;
+        }
+        filename = 'PurchaseExpirationDate';
+      } else if (reportId == 'stock_return_products') {
+        final rows = await ref.read(stockReturnByProductProvider(filter).future);
+        final dateFmt = DateFormat('dd/MM/yyyy');
+        buf.writeln('Date,Code,Product,Quantity,UOM,Total before tax,Total');
+        for (final r in rows) {
+          buf.writeln('"${dateFmt.format(r.date)}","${r.code ?? ''}","${r.product}",${r.quantity},"${r.uom}",${r.totalBeforeTax},${r.total}');
+        }
+        buf.writeln('"","","Total",${rows.fold(0.0, (s, r) => s + r.quantity)},"",${rows.fold(0.0, (s, r) => s + r.totalBeforeTax)},${rows.fold(0.0, (s, r) => s + r.total)}');
+        filename = 'StockReturnByProduct';
+      } else if (reportId == 'loss_and_damage_products') {
+        final rows = await ref.read(lossAndDamageByProductProvider(filter).future);
+        final dateFmt = DateFormat('dd/MM/yyyy');
+        buf.writeln('Date,Code,Product,Quantity,UOM,Total before tax,Total');
+        for (final r in rows) {
+          buf.writeln('"${dateFmt.format(r.date)}","${r.code ?? ''}","${r.product}",${r.quantity},"${r.uom}",${r.totalBeforeTax},${r.total}');
+        }
+        buf.writeln('"","","Total",${rows.fold(0.0, (s, r) => s + r.quantity)},"",${rows.fold(0.0, (s, r) => s + r.totalBeforeTax)},${rows.fold(0.0, (s, r) => s + r.total)}');
+        filename = 'LossAndDamageByProduct';
+      } else if (reportId == 'reorder_list') {
+        final rows = await ref.read(reorderProductListProvider(filter).future);
+        buf.writeln('Supplier,Product name,Order qty.,UOM');
+        for (final r in rows) {
+          buf.writeln('"${r.supplierName}","${r.productName}",${r.orderQuantity},"${r.uom}"');
+        }
+        filename = 'ReorderProductList';
+      } else if (reportId == 'low_stock_warning') {
+        final rows = await ref.read(lowStockWarningProvider(filter).future);
+        buf.writeln('Supplier,Product name,Current stock,Warning qty.,Order qty.,UOM');
+        for (final r in rows) {
+          buf.writeln('"${r.supplierName}","${r.productName}",${r.currentStock},${r.lowStockWarningQuantity},${r.orderQuantity},"${r.uom}"');
+        }
+        filename = 'LowStockWarning';
+      } else if (reportId == 'transaction_history') {
+        if (filter.customerId == null) return;
+        final rows = await ref.read(transactionHistoryProvider(filter).future);
+        final dateFmt = DateFormat('dd/MM/yyyy');
+        buf.writeln('Date,Transaction type,Ref. number,Credit,Debit,Balance');
+        for (final r in rows) {
+          final dateStr = r.isPreviousBalance ? '' : (r.date != null ? dateFmt.format(r.date!) : '');
+          buf.writeln('"$dateStr","${r.transactionType}","${r.refNumber ?? ''}",${r.credit},${r.debit},${r.balance}');
+        }
+        filename = 'TransactionHistory';
       } else {
         return;
       }
@@ -511,18 +654,32 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
         // ── Body ─────────────────────────────────────────────────────────────
         Expanded(
-          child: _activeTabId == 'home'
-              ? _HomeView(
-                  selected: _selectedReportType,
-                  filter: _filter,
-                  onSelectReport: (r) => setState(() => _selectedReportType = r),
-                  onFilterChanged: (f) => setState(() => _filter = f),
-                  onShowReport: _showReport,
-                  onExportCsv: _exportCsv,
-                )
-              : activeTab != null
-                  ? _TabPdfView(tab: activeTab)
-                  : const Center(child: Text('Tab not found')),
+          child: Material(
+            color: cs.surface,
+            child: _activeTabId == 'home'
+                ? _HomeView(
+                    selected: _selectedReportType,
+                    filter: _filter,
+                    onSelectReport: (r) => setState(() => _selectedReportType = r),
+                    onFilterChanged: (f) => setState(() => _filter = f),
+                    onShowReport: _showReport,
+                    onExportCsv: _exportCsv,
+                    favorites: _favorites,
+                    onToggleFavorite: (id) => setState(() {
+                      if (_favorites.contains(id)) {
+                        _favorites.remove(id);
+                      } else {
+                        _favorites.add(id);
+                      }
+                    }),
+                    onClearFavorites: () => setState(() => _favorites.clear()),
+                    searchQuery: _searchQuery,
+                    onSearchChanged: (q) => setState(() => _searchQuery = q),
+                  )
+                : activeTab != null
+                    ? _TabPdfView(tab: activeTab)
+                    : const Center(child: Text('Tab not found')),
+          ),
         ),
       ],
     );
@@ -612,6 +769,11 @@ class _HomeView extends StatelessWidget {
   final ValueChanged<ReportFilter> onFilterChanged;
   final VoidCallback onShowReport;
   final Future<void> Function() onExportCsv;
+  final Set<String> favorites;
+  final ValueChanged<String> onToggleFavorite;
+  final VoidCallback onClearFavorites;
+  final String searchQuery;
+  final ValueChanged<String> onSearchChanged;
 
   const _HomeView({
     required this.selected,
@@ -620,34 +782,59 @@ class _HomeView extends StatelessWidget {
     required this.onFilterChanged,
     required this.onShowReport,
     required this.onExportCsv,
+    required this.favorites,
+    required this.onToggleFavorite,
+    required this.onClearFavorites,
+    required this.searchQuery,
+    required this.onSearchChanged,
   });
 
-  Widget _sectionLabel(ColorScheme cs, String text) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 12, 24, 6),
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.2,
-            color: cs.onSurfaceVariant,
-          ),
+  Widget _sectionLabel(ColorScheme cs, String text, {Widget? trailing}) =>
+      Padding(
+        padding: const EdgeInsets.fromLTRB(24, 12, 16, 6),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                text,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ),
+            if (trailing != null) trailing,
+          ],
         ),
       );
 
-  Widget _reportTile(ColorScheme cs, _ReportType r) {
+  Widget _reportTile(ColorScheme cs, _ReportType r, {String? prefixLabel}) {
     final active = selected?.id == r.id;
+    final isFav = favorites.contains(r.id);
     return ListTile(
       dense: true,
       leading: Icon(r.icon, size: 18,
           color: active ? cs.primary : cs.onSurfaceVariant),
       title: Text(
-        r.label,
+        prefixLabel != null ? prefixLabel : r.label,
         style: TextStyle(
           fontSize: 14,
           color: active ? cs.primary : cs.onSurface,
           fontWeight: active ? FontWeight.w600 : FontWeight.normal,
         ),
+      ),
+      trailing: IconButton(
+        icon: Icon(
+          isFav ? Icons.star_rounded : Icons.star_border_rounded,
+          size: 20,
+          color: isFav ? Colors.amber : cs.onSurfaceVariant,
+        ),
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(),
+        visualDensity: VisualDensity.compact,
+        onPressed: () => onToggleFavorite(r.id),
       ),
       selected: active,
       selectedTileColor: cs.primaryContainer.withValues(alpha: 0.35),
@@ -659,47 +846,150 @@ class _HomeView extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
+    // Build filtered flat list when searching
+    final q = searchQuery.trim().toLowerCase();
+    final List<(String, _ReportType)> searchResults = q.isEmpty
+        ? []
+        : [
+            for (final (section, reports) in _allSections)
+              for (final r in reports)
+                if (r.label.toLowerCase().contains(q) ||
+                    section.toLowerCase().contains(q))
+                  (section, r),
+          ];
+
+    // Favorite _ReportType objects in insertion order
+    final favoriteReports = [
+      for (final (_, reports) in _allSections)
+        for (final r in reports)
+          if (favorites.contains(r.id)) r,
+    ];
+
     return Row(
       children: [
-        // Report list
+        // ── Report list ──────────────────────────────────────────────────────
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Header row with title + search bar
               Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 4),
-                child: Text(
-                  'Select report to view or print',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    color: cs.onSurface,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: ListView(
+                padding: const EdgeInsets.fromLTRB(24, 16, 16, 8),
+                child: Row(
                   children: [
-                    _sectionLabel(cs, 'Sales'),
-                    const Divider(height: 1),
-                    for (final r in _salesReports) ...[
-                      _reportTile(cs, r),
-                      Divider(height: 1, color: cs.outlineVariant),
-                    ],
-                    _sectionLabel(cs, 'Purchase'),
-                    const Divider(height: 1),
-                    for (final r in _purchaseReports) ...[
-                      _reportTile(cs, r),
-                      Divider(height: 1, color: cs.outlineVariant),
-                    ],
+                    Text(
+                      'Select report to view or print',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: cs.onSurface,
+                      ),
+                    ),
+                    const Spacer(),
+                    SizedBox(
+                      width: 220,
+                      height: 36,
+                      child: TextField(
+                        onChanged: onSearchChanged,
+                        style: TextStyle(fontSize: 13, color: cs.onSurface),
+                        decoration: InputDecoration(
+                          hintText: 'Search reports',
+                          hintStyle: TextStyle(
+                              fontSize: 13, color: cs.onSurfaceVariant),
+                          prefixIcon: Icon(Icons.search,
+                              size: 18, color: cs.onSurfaceVariant),
+                          isDense: true,
+                          contentPadding:
+                              const EdgeInsets.symmetric(vertical: 8),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: cs.outlineVariant),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: cs.outlineVariant),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide:
+                                BorderSide(color: cs.primary, width: 1.5),
+                          ),
+                          filled: true,
+                          fillColor: cs.surface,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: q.isNotEmpty
+                    // ── Search results ───────────────────────────────────────
+                    ? ListView(
+                        children: [
+                          if (searchResults.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text('No reports found.',
+                                  style: TextStyle(
+                                      color: cs.onSurfaceVariant,
+                                      fontSize: 13)),
+                            ),
+                          for (final (section, r) in searchResults) ...[
+                            _reportTile(cs, r,
+                                prefixLabel: '$section / ${r.label}'),
+                            Divider(height: 1, color: cs.outlineVariant),
+                          ],
+                        ],
+                      )
+                    // ── Normal grouped list ──────────────────────────────────
+                    : ListView(
+                        children: [
+                          // Favorites section
+                          if (favoriteReports.isNotEmpty) ...[
+                            _sectionLabel(
+                              cs,
+                              'Favorites',
+                              trailing: TextButton(
+                                onPressed: onClearFavorites,
+                                style: TextButton.styleFrom(
+                                  foregroundColor: cs.primary,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: const Text('Clear favorites',
+                                    style: TextStyle(fontSize: 12)),
+                              ),
+                            ),
+                            const Divider(height: 1),
+                            for (final r in favoriteReports) ...[
+                              _reportTile(cs, r,
+                                  prefixLabel:
+                                      '${_sectionOf(r.id)} / ${r.label}'),
+                              Divider(height: 1, color: cs.outlineVariant),
+                            ],
+                          ],
+                          // All sections
+                          for (final (section, reports) in _allSections) ...[
+                            _sectionLabel(cs, section),
+                            const Divider(height: 1),
+                            for (final r in reports) ...[
+                              _reportTile(cs, r),
+                              Divider(height: 1, color: cs.outlineVariant),
+                            ],
+                          ],
+                        ],
+                      ),
               ),
             ],
           ),
         ),
 
-        // Filter panel
+        // ── Filter panel ─────────────────────────────────────────────────────
         if (selected != null) ...[
           VerticalDivider(width: 1, color: cs.outlineVariant),
           _FilterPanel(
@@ -1364,6 +1654,255 @@ class _TabPdfView extends ConsumerWidget {
             supplierLabel: customerLabel(),
             userLabel: userLabel(),
             productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'purchase_tax') {
+      final async = ref.watch(purchaseByTaxProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'PurchaseTax.pdf',
+          initialPageFormat: PdfPageFormat.a4.landscape,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildPurchaseTaxPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            customerLabel: customerLabel(),
+            userLabel: userLabel(),
+            productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'purchase_expiration') {
+      final async = ref.watch(purchaseExpirationDateProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'PurchaseExpirationDate.pdf',
+          initialPageFormat: PdfPageFormat.a4.landscape,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildPurchaseExpirationDatePdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            customerLabel: customerLabel(),
+            userLabel: userLabel(),
+            productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'purchase_invoice_list') {
+      final async = ref.watch(purchaseInvoiceListProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'PurchaseInvoices.pdf',
+          initialPageFormat: PdfPageFormat.a4.landscape,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildPurchaseInvoiceListPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            supplierLabel: customerLabel(),
+            userLabel: userLabel(),
+            productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'purchase_items_discounts') {
+      final async = ref.watch(purchaseItemsDiscountsProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'PurchaseItemsDiscounts.pdf',
+          initialPageFormat: PdfPageFormat.a4.landscape,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildPurchaseItemsDiscountsPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            supplierLabel: customerLabel(),
+            userLabel: userLabel(),
+            productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'purchase_discounts') {
+      final async = ref.watch(purchaseDiscountsProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'PurchaseDiscounts.pdf',
+          initialPageFormat: PdfPageFormat.a4,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildPurchaseDiscountsPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            supplierLabel: customerLabel(),
+            userLabel: userLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'stock_return_products') {
+      final async = ref.watch(stockReturnByProductProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'StockReturnByProduct.pdf',
+          initialPageFormat: PdfPageFormat.a4.landscape,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildStockReturnByProductPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            userLabel: userLabel(),
+            productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'loss_and_damage_products') {
+      final async = ref.watch(lossAndDamageByProductProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'LossAndDamageByProduct.pdf',
+          initialPageFormat: PdfPageFormat.a4.landscape,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildLossAndDamageByProductPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            userLabel: userLabel(),
+            productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'reorder_list') {
+      final async = ref.watch(reorderProductListProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'ReorderProductList.pdf',
+          initialPageFormat: PdfPageFormat.a4.landscape,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildReorderProductListPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            supplierLabel: customerLabel(),
+            productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'low_stock_warning') {
+      final async = ref.watch(lowStockWarningProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'LowStockWarning.pdf',
+          initialPageFormat: PdfPageFormat.a4.landscape,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildLowStockWarningPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            supplierLabel: customerLabel(),
+            productLabel: productLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'transaction_history') {
+      if (tab.filter.customerId == null) {
+        return Center(
+          child: Text(
+            'Please select a business partner in the filter panel.',
+            style: TextStyle(color: cs.onSurfaceVariant),
+          ),
+        );
+      }
+      final async = ref.watch(transactionHistoryProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'TransactionHistory.pdf',
+          initialPageFormat: PdfPageFormat.a4.landscape,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildTransactionHistoryPdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
+            partnerLabel: customerLabel(),
           ),
         ),
       );
@@ -3751,6 +4290,504 @@ Future<Uint8List> _buildPurchaseByProductPdf({
   return doc.save();
 }
 
+Future<Uint8List> _buildPurchaseExpirationDatePdf({
+  required List<PurchaseExpirationDateRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String customerLabel,
+  required String userLabel,
+  required String productLabel,
+}) async {
+  final doc     = pw.Document();
+  final fmt     = NumberFormat('#,##0.00');
+  final dateFmt = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold    = await PdfGoogleFonts.notoSansBold();
+  final theme   = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4.landscape,
+    theme: theme,
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.red)),
+        pw.Text('Page ${ctx.pageNumber}', style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('EXPIRATION DATE',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      _pdfHeader(dateFmt, filter, companyName, companyAddress,
+          customerLabel, userLabel, productLabel),
+      pw.SizedBox(height: 12),
+      pw.TableHelper.fromTextArray(
+        headers: ['#', 'Code', 'Product', 'Quantity', 'UOM', 'Expiration date'],
+        headerStyle:      pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+        cellStyle:        const pw.TextStyle(fontSize: 9),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        cellAlignments: {
+          0: pw.Alignment.centerRight,
+          3: pw.Alignment.centerRight,
+        },
+        columnWidths: const {
+          0: pw.FixedColumnWidth(30),
+          1: pw.FixedColumnWidth(80),
+          2: pw.FlexColumnWidth(3),
+          3: pw.FixedColumnWidth(80),
+          4: pw.FixedColumnWidth(60),
+          5: pw.FixedColumnWidth(100),
+        },
+        data: rows.asMap().entries.map((e) => [
+              '${e.key + 1}',
+              e.value.productCode ?? '',
+              e.value.productName,
+              fmt.format(e.value.quantity),
+              e.value.uom,
+              dateFmt.format(e.value.expirationDate),
+            ]).toList(),
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildPurchaseTaxPdf({
+  required List<PurchaseByTaxRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String customerLabel,
+  required String userLabel,
+  required String productLabel,
+}) async {
+  final doc     = pw.Document();
+  final fmt     = NumberFormat('#,##0.00');
+  final dateFmt = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold    = await PdfGoogleFonts.notoSansBold();
+  final theme   = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4.landscape,
+    theme: theme,
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.red)),
+        pw.Text('Page ${ctx.pageNumber}', style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('PURCHASE TAX',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      _pdfHeader(dateFmt, filter, companyName, companyAddress,
+          customerLabel, userLabel, productLabel),
+      pw.SizedBox(height: 12),
+      pw.TableHelper.fromTextArray(
+        headers: ['Tax name', 'Total before tax', 'Tax', 'Total'],
+        headerStyle:      pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+        cellStyle:        const pw.TextStyle(fontSize: 9),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        cellAlignments: {
+          1: pw.Alignment.centerRight,
+          2: pw.Alignment.centerRight,
+          3: pw.Alignment.centerRight,
+        },
+        columnWidths: const {
+          0: pw.FlexColumnWidth(3),
+          1: pw.FixedColumnWidth(110),
+          2: pw.FixedColumnWidth(90),
+          3: pw.FixedColumnWidth(110),
+        },
+        data: [
+          ...rows.map((r) => [
+                r.taxName,
+                fmt.format(r.totalBeforeTax),
+                fmt.format(r.taxAmount),
+                fmt.format(r.total),
+              ]),
+          [
+            '',
+            fmt.format(rows.fold(0.0, (s, r) => s + r.totalBeforeTax)),
+            fmt.format(rows.fold(0.0, (s, r) => s + r.taxAmount)),
+            fmt.format(rows.fold(0.0, (s, r) => s + r.total)),
+          ],
+        ],
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildPurchaseInvoiceListPdf({
+  required List<PurchaseInvoiceListRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String supplierLabel,
+  required String userLabel,
+  required String productLabel,
+}) async {
+  final doc    = pw.Document();
+  final fmt    = NumberFormat('#,##0.00');
+  final dateFmt = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold    = await PdfGoogleFonts.notoSansBold();
+  final theme   = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  final grandTotal = rows.fold(0.0, (s, r) => s + r.total);
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4.landscape,
+    theme: theme,
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.red)),
+        pw.Text('Page ${ctx.pageNumber}', style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('PURCHASE INVOICES',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      _pdfHeader(dateFmt, filter, companyName, companyAddress,
+          supplierLabel, userLabel, productLabel,
+          customerRowLabel: 'Supplier'),
+      pw.SizedBox(height: 12),
+      pw.TableHelper.fromTextArray(
+        headers: ['#', 'Supplier', 'Purchase number', 'External document', 'Date', 'Total'],
+        headerStyle:      pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+        cellStyle:        const pw.TextStyle(fontSize: 9),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        cellAlignments: {
+          0: pw.Alignment.centerRight,
+          5: pw.Alignment.centerRight,
+        },
+        columnWidths: const {
+          0: pw.FixedColumnWidth(24),
+          1: pw.FlexColumnWidth(2),
+          2: pw.FixedColumnWidth(110),
+          3: pw.FixedColumnWidth(110),
+          4: pw.FixedColumnWidth(70),
+          5: pw.FixedColumnWidth(80),
+        },
+        data: [
+          ...rows.asMap().entries.map((e) => [
+            '${e.key + 1}',
+            e.value.supplierName,
+            e.value.documentNumber,
+            e.value.externalDocument ?? '',
+            dateFmt.format(e.value.date),
+            fmt.format(e.value.total),
+          ]),
+          ['', '', '', '', '', fmt.format(grandTotal)],
+        ],
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildPurchaseItemsDiscountsPdf({
+  required List<PurchaseItemsDiscountsRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String supplierLabel,
+  required String userLabel,
+  required String productLabel,
+}) async {
+  final doc    = pw.Document();
+  final fmt    = NumberFormat('#,##0.00');
+  final hdrFmt = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold    = await PdfGoogleFonts.notoSansBold();
+  final theme   = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  // Group by supplier
+  final grouped = <String, List<PurchaseItemsDiscountsRow>>{};
+  for (final r in rows) {
+    grouped.putIfAbsent(r.supplierName, () => []).add(r);
+  }
+
+  final grandTotalDiscount = rows.fold(0.0, (s, r) => s + r.totalDiscount);
+
+  pw.Widget hdrRow(String label, String value) => pw.RichText(
+      text: pw.TextSpan(children: [
+        pw.TextSpan(text: '$label  ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+        pw.TextSpan(text: value,      style: const pw.TextStyle(fontSize: 9)),
+      ]));
+
+  const colWidths = {
+    0: pw.FixedColumnWidth(14),   // #
+    1: pw.FixedColumnWidth(44),   // Code
+    2: pw.FlexColumnWidth(2),     // Product
+    3: pw.FixedColumnWidth(42),   // Qty
+    4: pw.FixedColumnWidth(56),   // Cost
+    5: pw.FixedColumnWidth(62),   // Before disc.
+    6: pw.FixedColumnWidth(62),   // After disc.
+    7: pw.FixedColumnWidth(58),   // Discount
+    8: pw.FixedColumnWidth(58),   // Total disc.
+  };
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4.landscape,
+    theme: theme,
+    margin: const pw.EdgeInsets.all(20),
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.red)),
+        pw.Text('Page ${ctx.pageNumber}', style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) {
+      final widgets = <pw.Widget>[
+        pw.Text('PURCHASED ITEMS DISCOUNTS',
+            style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+        pw.SizedBox(height: 8),
+        pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Expanded(child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                hdrRow('Period:',   '${hdrFmt.format(filter.startDate)} - ${hdrFmt.format(filter.endDate)}'),
+                hdrRow('Supplier:', supplierLabel),
+                hdrRow('User:',     userLabel),
+                hdrRow('Product:',  productLabel),
+              ],
+            )),
+            pw.Expanded(child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                hdrRow('Company:', companyName ?? ''),
+                hdrRow('Address:', companyAddress ?? ''),
+              ],
+            )),
+          ],
+        ),
+        pw.SizedBox(height: 12),
+      ];
+
+      for (final entry in grouped.entries) {
+        final supplierRows = entry.value;
+        final supplierTotal = supplierRows.fold(0.0, (s, r) => s + r.totalDiscount);
+
+        widgets.add(pw.Container(
+          width: double.infinity,
+          color: PdfColors.grey200,
+          padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+          child: pw.Text('Supplier: ${entry.key}',
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+        ));
+
+        var rowIndex = 1;
+        widgets.add(pw.TableHelper.fromTextArray(
+          headers: ['#', 'Code', 'Product', 'Qty', 'Cost', 'Before disc.', 'After disc.', 'Discount', 'Total disc.'],
+          headerStyle:      pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7),
+          cellStyle:        const pw.TextStyle(fontSize: 7),
+          headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+          cellAlignments: {
+            0: pw.Alignment.centerRight,
+            3: pw.Alignment.centerRight,
+            4: pw.Alignment.centerRight,
+            5: pw.Alignment.centerRight,
+            6: pw.Alignment.centerRight,
+            7: pw.Alignment.centerRight,
+            8: pw.Alignment.centerRight,
+          },
+          columnWidths: colWidths,
+          data: [
+            ...supplierRows.map((r) => [
+              '${rowIndex++}',
+              r.productCode ?? '',
+              r.productName,
+              fmt.format(r.quantity),
+              fmt.format(r.cost),
+              fmt.format(r.totalBeforeDiscount),
+              fmt.format(r.totalAfterDiscount),
+              r.discountDisplay,
+              fmt.format(r.totalDiscount),
+            ]),
+            ['', '', '', '', '', '', '', '',
+              fmt.format(supplierTotal)],
+          ],
+        ));
+        widgets.add(pw.SizedBox(height: 6));
+      }
+
+      widgets.addAll([
+        pw.Divider(borderStyle: pw.BorderStyle.dashed, color: PdfColors.grey400),
+        pw.SizedBox(height: 4),
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.end,
+          children: [
+            pw.Text('Total discount:  ',
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+            pw.Text(fmt.format(grandTotalDiscount),
+                style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+          ],
+        ),
+      ]);
+
+      return widgets;
+    },
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildPurchaseDiscountsPdf({
+  required List<PurchaseDiscountsRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String supplierLabel,
+  required String userLabel,
+}) async {
+  final doc     = pw.Document();
+  final fmt     = NumberFormat('#,##0.00');
+  final dateFmt = DateFormat('dd/MM/yyyy');
+  final hdrFmt  = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold    = await PdfGoogleFonts.notoSansBold();
+  final theme   = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  final grouped = <String, List<PurchaseDiscountsRow>>{};
+  for (final r in rows) {
+    grouped.putIfAbsent(r.supplierName, () => []).add(r);
+  }
+
+  final grandTotal  = rows.fold(0.0, (s, r) => s + r.discountGranted);
+  final totalOrders = rows.length;
+
+  pw.Widget hdrRow(String label, String value) => pw.RichText(
+      text: pw.TextSpan(children: [
+        pw.TextSpan(text: '$label  ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+        pw.TextSpan(text: value,      style: const pw.TextStyle(fontSize: 9)),
+      ]));
+
+  const colWidths = {
+    0: pw.FlexColumnWidth(1.5),
+    1: pw.FixedColumnWidth(58),
+    2: pw.FixedColumnWidth(58),
+    3: pw.FixedColumnWidth(62),
+    4: pw.FixedColumnWidth(62),
+    5: pw.FixedColumnWidth(62),
+  };
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4,
+    theme: theme,
+    margin: const pw.EdgeInsets.all(24),
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.red)),
+        pw.Text('Page ${ctx.pageNumber}', style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('PURCHASE DISCOUNTS',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Expanded(child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              hdrRow('Period:',   '${hdrFmt.format(filter.startDate)} - ${hdrFmt.format(filter.endDate)}'),
+              hdrRow('Supplier:', supplierLabel),
+              hdrRow('User:',     userLabel),
+            ],
+          )),
+          pw.Expanded(child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              hdrRow('Company:', companyName ?? ''),
+              hdrRow('Address:', companyAddress ?? ''),
+            ],
+          )),
+        ],
+      ),
+      pw.SizedBox(height: 12),
+      for (final entry in grouped.entries) ...[
+        pw.Container(
+          width: double.infinity,
+          padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          decoration: const pw.BoxDecoration(color: PdfColors.grey200),
+          child: pw.Text('Supplier: ${entry.key}',
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+        ),
+        pw.TableHelper.fromTextArray(
+          headers: ['Document', 'Date', 'User', 'Total before disc.', 'Total after disc.', 'Discount granted'],
+          headerStyle:      pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 7),
+          cellStyle:        const pw.TextStyle(fontSize: 7),
+          headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+          cellAlignments: {
+            3: pw.Alignment.centerRight,
+            4: pw.Alignment.centerRight,
+            5: pw.Alignment.centerRight,
+          },
+          columnWidths: colWidths,
+          data: [
+            ...entry.value.map((r) => [
+              r.documentNumber,
+              dateFmt.format(r.date),
+              r.userName,
+              fmt.format(r.totalBeforeDiscount),
+              fmt.format(r.totalAfterDiscount),
+              fmt.format(r.discountGranted),
+            ]),
+            ['', '', '', '', '',
+              fmt.format(entry.value.fold(0.0, (s, r) => s + r.discountGranted))],
+          ],
+        ),
+        pw.SizedBox(height: 6),
+      ],
+      pw.Divider(borderStyle: pw.BorderStyle.dashed),
+      pw.SizedBox(height: 4),
+      pw.Row(
+        mainAxisAlignment: pw.MainAxisAlignment.end,
+        children: [
+          pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.Text('Number of orders discounted: $totalOrders',
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9)),
+              pw.SizedBox(height: 2),
+              pw.Text('Total discounted: ${fmt.format(grandTotal)}',
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
+            ],
+          ),
+        ],
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
 pw.Widget _pdfHeader(
   DateFormat dateFmt,
   ReportFilter filter,
@@ -3790,6 +4827,396 @@ pw.Widget _pdfHeader(
       ]),
     ],
   );
+}
+
+Future<Uint8List> _buildStockReturnByProductPdf({
+  required List<StockReturnByProductRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String userLabel,
+  required String productLabel,
+}) async {
+  final doc = pw.Document();
+  final fmt = NumberFormat('#,##0.00');
+  final dateFmt = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold = await PdfGoogleFonts.notoSansBold();
+  final theme = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4.landscape,
+    theme: theme,
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8)),
+        pw.Text('Page ${ctx.pageNumber}',
+            style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('STOCK RETURNS BY PRODUCT',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      _pdfHeader(dateFmt, filter, companyName, companyAddress,
+          'N/A', userLabel, productLabel),
+      pw.SizedBox(height: 12),
+      pw.TableHelper.fromTextArray(
+        headers: ['Date', 'Code', 'Product', 'Quantity', 'UOM', 'Total before tax', 'Total'],
+        headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+        cellStyle: const pw.TextStyle(fontSize: 9),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        cellAlignments: {
+          3: pw.Alignment.centerRight,
+          5: pw.Alignment.centerRight,
+          6: pw.Alignment.centerRight,
+        },
+        data: [
+          ...rows.map((r) => [
+                dateFmt.format(r.date),
+                r.code ?? '',
+                r.product,
+                fmt.format(r.quantity),
+                r.uom,
+                fmt.format(r.totalBeforeTax),
+                fmt.format(r.total),
+              ]),
+          [
+            '', '', 'Total',
+            fmt.format(rows.fold(0.0, (s, r) => s + r.quantity)),
+            '',
+            fmt.format(rows.fold(0.0, (s, r) => s + r.totalBeforeTax)),
+            fmt.format(rows.fold(0.0, (s, r) => s + r.total)),
+          ],
+        ],
+        columnWidths: const {
+          0: pw.FixedColumnWidth(65),
+          1: pw.FixedColumnWidth(55),
+          2: pw.FlexColumnWidth(3),
+          3: pw.FixedColumnWidth(70),
+          4: pw.FixedColumnWidth(45),
+          5: pw.FixedColumnWidth(90),
+          6: pw.FixedColumnWidth(90),
+        },
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildLossAndDamageByProductPdf({
+  required List<LossAndDamageByProductRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String userLabel,
+  required String productLabel,
+}) async {
+  final doc = pw.Document();
+  final fmt = NumberFormat('#,##0.00');
+  final dateFmt = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold = await PdfGoogleFonts.notoSansBold();
+  final theme = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4.landscape,
+    theme: theme,
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8)),
+        pw.Text('Page ${ctx.pageNumber}',
+            style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('LOSS AND DAMAGE BY PRODUCT',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      _pdfHeader(dateFmt, filter, companyName, companyAddress,
+          'N/A', userLabel, productLabel),
+      pw.SizedBox(height: 12),
+      pw.TableHelper.fromTextArray(
+        headers: ['Date', 'Code', 'Product', 'Quantity', 'UOM', 'Total before tax', 'Total'],
+        headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+        cellStyle: const pw.TextStyle(fontSize: 9),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        cellAlignments: {
+          3: pw.Alignment.centerRight,
+          5: pw.Alignment.centerRight,
+          6: pw.Alignment.centerRight,
+        },
+        data: [
+          ...rows.map((r) => [
+                dateFmt.format(r.date),
+                r.code ?? '',
+                r.product,
+                fmt.format(r.quantity),
+                r.uom,
+                fmt.format(r.totalBeforeTax),
+                fmt.format(r.total),
+              ]),
+          [
+            '', '', 'Total',
+            fmt.format(rows.fold(0.0, (s, r) => s + r.quantity)),
+            '',
+            fmt.format(rows.fold(0.0, (s, r) => s + r.totalBeforeTax)),
+            fmt.format(rows.fold(0.0, (s, r) => s + r.total)),
+          ],
+        ],
+        columnWidths: const {
+          0: pw.FixedColumnWidth(65),
+          1: pw.FixedColumnWidth(55),
+          2: pw.FlexColumnWidth(3),
+          3: pw.FixedColumnWidth(70),
+          4: pw.FixedColumnWidth(45),
+          5: pw.FixedColumnWidth(90),
+          6: pw.FixedColumnWidth(90),
+        },
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildReorderProductListPdf({
+  required List<ReorderProductListRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String supplierLabel,
+  required String productLabel,
+}) async {
+  final doc = pw.Document();
+  final fmt = NumberFormat('#,##0.00');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold = await PdfGoogleFonts.notoSansBold();
+  final theme = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  // Build grouped table data
+  final tableData = <List<String>>[];
+  final supplierRows = <int>{};
+  String? current;
+  for (final r in rows) {
+    if (r.supplierName != current) {
+      current = r.supplierName;
+      supplierRows.add(tableData.length);
+      tableData.add([r.supplierName, '', '']);
+    }
+    tableData.add([r.productName, fmt.format(r.orderQuantity), r.uom]);
+  }
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4.landscape,
+    theme: theme,
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8)),
+        pw.Text('Page ${ctx.pageNumber}',
+            style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('REORDER PRODUCT LIST',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      _pdfHeader(DateFormat('dd/MM/yyyy'), filter, companyName, companyAddress,
+          supplierLabel, 'N/A', productLabel),
+      pw.SizedBox(height: 12),
+      pw.TableHelper.fromTextArray(
+        headers: ['Product name', 'Order qty.', 'UOM'],
+        headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+        cellStyle: const pw.TextStyle(fontSize: 9),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        cellDecoration: (index, data, rowNum) => supplierRows.contains(rowNum)
+            ? const pw.BoxDecoration(color: PdfColors.grey200)
+            : const pw.BoxDecoration(),
+        cellAlignments: {1: pw.Alignment.centerRight},
+        data: tableData,
+        columnWidths: const {
+          0: pw.FlexColumnWidth(4),
+          1: pw.FixedColumnWidth(90),
+          2: pw.FixedColumnWidth(60),
+        },
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildLowStockWarningPdf({
+  required List<LowStockWarningRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String supplierLabel,
+  required String productLabel,
+}) async {
+  final doc = pw.Document();
+  final fmt = NumberFormat('#,##0.00');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold = await PdfGoogleFonts.notoSansBold();
+  final theme = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  // Build grouped table data
+  final tableData = <List<String>>[];
+  final supplierRows = <int>{};
+  String? current;
+  for (final r in rows) {
+    if (r.supplierName != current) {
+      current = r.supplierName;
+      supplierRows.add(tableData.length);
+      tableData.add([r.supplierName, '', '', '', '']);
+    }
+    tableData.add([
+      r.productName,
+      fmt.format(r.currentStock),
+      fmt.format(r.lowStockWarningQuantity),
+      fmt.format(r.orderQuantity),
+      r.uom,
+    ]);
+  }
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4.landscape,
+    theme: theme,
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8)),
+        pw.Text('Page ${ctx.pageNumber}',
+            style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('LOW STOCK WARNING',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      _pdfHeader(DateFormat('dd/MM/yyyy'), filter, companyName, companyAddress,
+          supplierLabel, 'N/A', productLabel),
+      pw.SizedBox(height: 12),
+      pw.TableHelper.fromTextArray(
+        headers: ['Product name', 'Current stock', 'Warning qty.', 'Order qty.', 'UOM'],
+        headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+        cellStyle: const pw.TextStyle(fontSize: 9),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        cellDecoration: (index, data, rowNum) => supplierRows.contains(rowNum)
+            ? const pw.BoxDecoration(color: PdfColors.grey200)
+            : const pw.BoxDecoration(),
+        cellAlignments: {
+          1: pw.Alignment.centerRight,
+          2: pw.Alignment.centerRight,
+          3: pw.Alignment.centerRight,
+        },
+        data: tableData,
+        columnWidths: const {
+          0: pw.FlexColumnWidth(3),
+          1: pw.FixedColumnWidth(85),
+          2: pw.FixedColumnWidth(85),
+          3: pw.FixedColumnWidth(85),
+          4: pw.FixedColumnWidth(55),
+        },
+      ),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildTransactionHistoryPdf({
+  required List<TransactionHistoryRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+  required String partnerLabel,
+}) async {
+  final doc = pw.Document();
+  final fmt = NumberFormat('#,##0.00');
+  final dateFmt = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold = await PdfGoogleFonts.notoSansBold();
+  final theme = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4.landscape,
+    theme: theme,
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8)),
+        pw.Text('Page ${ctx.pageNumber}',
+            style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('TRANSACTION HISTORY',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 4),
+      pw.Text('Business partner: $partnerLabel',
+          style: const pw.TextStyle(fontSize: 10)),
+      pw.SizedBox(height: 4),
+      pw.Text(
+          'Period: ${dateFmt.format(filter.startDate)} – ${dateFmt.format(filter.endDate)}',
+          style: const pw.TextStyle(fontSize: 10)),
+      if (companyName != null) ...[
+        pw.SizedBox(height: 4),
+        pw.Text(companyName, style: const pw.TextStyle(fontSize: 10)),
+        if (companyAddress != null)
+          pw.Text(companyAddress, style: const pw.TextStyle(fontSize: 10)),
+      ],
+      pw.SizedBox(height: 12),
+      pw.TableHelper.fromTextArray(
+        headers: ['Date', 'Transaction type', 'Ref. number', 'Credit', 'Debit', 'Balance'],
+        headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+        cellStyle: const pw.TextStyle(fontSize: 9),
+        headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        cellAlignments: {
+          3: pw.Alignment.centerRight,
+          4: pw.Alignment.centerRight,
+          5: pw.Alignment.centerRight,
+        },
+        data: rows.map((r) {
+          final dateStr = r.isPreviousBalance
+              ? ''
+              : (r.date != null ? dateFmt.format(r.date!) : '');
+          return [
+            dateStr,
+            r.transactionType,
+            r.refNumber ?? '',
+            r.credit > 0 ? fmt.format(r.credit) : '',
+            r.debit > 0 ? fmt.format(r.debit) : '',
+            fmt.format(r.balance),
+          ];
+        }).toList(),
+        columnWidths: const {
+          0: pw.FixedColumnWidth(65),
+          1: pw.FixedColumnWidth(110),
+          2: pw.FlexColumnWidth(2),
+          3: pw.FixedColumnWidth(90),
+          4: pw.FixedColumnWidth(90),
+          5: pw.FixedColumnWidth(90),
+        },
+      ),
+    ],
+  ));
+
+  return doc.save();
 }
 
 // ─── Filter panel ─────────────────────────────────────────────────────────────
@@ -3836,7 +5263,9 @@ class _FilterPanel extends ConsumerWidget {
                     color: cs.onSurface)),
             const Gap(16),
 
-            _FilterLabel('Customers & suppliers'),
+            _FilterLabel(reportId == 'transaction_history'
+                ? 'Business partner (required)'
+                : 'Customers & suppliers'),
             const Gap(4),
             _FilterDropdown<int?>(
               value: filter.customerId,
@@ -3850,69 +5279,73 @@ class _FilterPanel extends ConsumerWidget {
             ),
             const Gap(12),
 
-            _FilterLabel('User'),
-            const Gap(4),
-            _FilterDropdown<int?>(
-              value: filter.userId,
-              items: [
-                const DropdownMenuItem(value: null, child: Text('All')),
-                ...users.map((u) {
-                  final name =
-                      '${u.firstName ?? ''} ${u.lastName ?? ''}'.trim();
-                  return DropdownMenuItem(
-                      value: u.id,
-                      child: Text(
-                          name.isEmpty ? u.username ?? 'User ${u.id}' : name,
-                          overflow: TextOverflow.ellipsis));
-                }),
-              ],
-              onChanged: (v) => onFilterChanged(filter.copyWith(userId: v)),
-            ),
-            const Gap(12),
+            if (reportId != 'transaction_history' &&
+                reportId != 'reorder_list' &&
+                reportId != 'low_stock_warning') ...[
+              _FilterLabel('User'),
+              const Gap(4),
+              _FilterDropdown<int?>(
+                value: filter.userId,
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('All')),
+                  ...users.map((u) {
+                    final name =
+                        '${u.firstName ?? ''} ${u.lastName ?? ''}'.trim();
+                    return DropdownMenuItem(
+                        value: u.id,
+                        child: Text(
+                            name.isEmpty ? u.username ?? 'User ${u.id}' : name,
+                            overflow: TextOverflow.ellipsis));
+                  }),
+                ],
+                onChanged: (v) => onFilterChanged(filter.copyWith(userId: v)),
+              ),
+              const Gap(12),
 
-            _FilterLabel('Cash register'),
-            const Gap(4),
-            _FilterDropdown<int?>(
-              value: filter.warehouseId,
-              items: [
-                const DropdownMenuItem(value: null, child: Text('All')),
-                ...warehouses.map((w) => DropdownMenuItem(
-                    value: w.id,
-                    child: Text(w.name, overflow: TextOverflow.ellipsis))),
-              ],
-              onChanged: (v) =>
-                  onFilterChanged(filter.copyWith(warehouseId: v)),
-            ),
-            const Gap(12),
+              _FilterLabel('Cash register'),
+              const Gap(4),
+              _FilterDropdown<int?>(
+                value: filter.warehouseId,
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('All')),
+                  ...warehouses.map((w) => DropdownMenuItem(
+                      value: w.id,
+                      child: Text(w.name, overflow: TextOverflow.ellipsis))),
+                ],
+                onChanged: (v) =>
+                    onFilterChanged(filter.copyWith(warehouseId: v)),
+              ),
+              const Gap(12),
 
-            _FilterLabel('Product'),
-            const Gap(4),
-            _FilterDropdown<int?>(
-              value: filter.productId,
-              items: [
-                const DropdownMenuItem(value: null, child: Text('All')),
-                ...products.map((p) => DropdownMenuItem(
-                    value: p.id,
-                    child: Text(p.name, overflow: TextOverflow.ellipsis))),
-              ],
-              onChanged: (v) => onFilterChanged(filter.copyWith(productId: v)),
-            ),
-            const Gap(12),
+              _FilterLabel('Product'),
+              const Gap(4),
+              _FilterDropdown<int?>(
+                value: filter.productId,
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('All')),
+                  ...products.map((p) => DropdownMenuItem(
+                      value: p.id,
+                      child: Text(p.name, overflow: TextOverflow.ellipsis))),
+                ],
+                onChanged: (v) => onFilterChanged(filter.copyWith(productId: v)),
+              ),
+              const Gap(12),
 
-            _FilterLabel('Product group'),
-            const Gap(4),
-            _FilterDropdown<int?>(
-              value: filter.productGroupId,
-              items: [
-                const DropdownMenuItem(value: null, child: Text('All')),
-                ...groups.map((g) => DropdownMenuItem(
-                    value: g.id,
-                    child: Text(g.name, overflow: TextOverflow.ellipsis))),
-              ],
-              onChanged: (v) =>
-                  onFilterChanged(filter.copyWith(productGroupId: v)),
-            ),
-            const Gap(6),
+              _FilterLabel('Product group'),
+              const Gap(4),
+              _FilterDropdown<int?>(
+                value: filter.productGroupId,
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('All')),
+                  ...groups.map((g) => DropdownMenuItem(
+                      value: g.id,
+                      child: Text(g.name, overflow: TextOverflow.ellipsis))),
+                ],
+                onChanged: (v) =>
+                    onFilterChanged(filter.copyWith(productGroupId: v)),
+              ),
+              const Gap(6),
+            ],
 
             if (reportId == 'sales_by_group')
               CheckboxListTile(
@@ -3930,31 +5363,32 @@ class _FilterPanel extends ConsumerWidget {
             const Divider(),
             const Gap(8),
 
-            _FilterLabel('Period'),
-            const Gap(6),
-            Row(
-              children: [
-                Expanded(
-                  child: _DateButton(
-                    label: dateFmt.format(filter.startDate),
-                    onTap: () => _pickDate(context, true),
+            if (reportId != 'reorder_list' && reportId != 'low_stock_warning') ...[
+              _FilterLabel('Period'),
+              const Gap(6),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DateButton(
+                      label: dateFmt.format(filter.startDate),
+                      onTap: () => _pickDate(context, true),
+                    ),
                   ),
-                ),
-                const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 4),
-                    child: Text('–')),
-                Expanded(
-                  child: _DateButton(
-                    label: dateFmt.format(filter.endDate),
-                    onTap: () => _pickDate(context, false),
+                  const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4),
+                      child: Text('–')),
+                  Expanded(
+                    child: _DateButton(
+                      label: dateFmt.format(filter.endDate),
+                      onTap: () => _pickDate(context, false),
+                    ),
                   ),
-                ),
-              ],
-            ),
-
-            const Gap(16),
-            const Divider(),
-            const Gap(12),
+                ],
+              ),
+              const Gap(16),
+              const Divider(),
+              const Gap(12),
+            ],
 
             FilledButton.icon(
               icon: const Icon(Icons.search, size: 16),

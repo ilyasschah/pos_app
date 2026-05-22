@@ -268,7 +268,7 @@ class _YearlyContent extends StatelessWidget {
                                 return const SizedBox.shrink();
                               }
                               return SideTitleWidget(
-                                axisSide: meta.axisSide,
+                                meta: meta,
                                 child: Text(
                                   _kMonths[idx + 1],
                                   style: _sans(
@@ -815,7 +815,7 @@ class _HourlySalesCard extends ConsumerWidget {
                       showTitles: true,
                       reservedSize: 22,
                       getTitlesWidget: (value, meta) => SideTitleWidget(
-                        axisSide: meta.axisSide,
+                        meta: meta,
                         child: Text(
                           '${value.toInt()}h',
                           style: _mono(

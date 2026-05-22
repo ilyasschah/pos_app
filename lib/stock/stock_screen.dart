@@ -11,7 +11,6 @@ import 'package:pos_app/stock/warehouse_provider.dart';
 import 'package:pos_app/stock/stock_model.dart';
 import 'package:pos_app/stock/stock_control_model.dart';
 import 'package:pos_app/stock/stock_control_provider.dart';
-import 'package:pos_app/product/product_provider.dart';
 import 'package:pos_app/product/product_model.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 
@@ -34,13 +33,17 @@ final stockMasterProvider =
   if (company == null) return [];
 
   final dio = createDio();
-  final products = await ref.watch(allProductsListProvider.future);
-  final stockResponse = await dio.get(
-    '/Stocks/GetAllStocks',
-    queryParameters: {'companyId': company.id},
-  );
-  final allStocks =
-      (stockResponse.data as List).map((j) => StockItem.fromJson(j)).toList();
+  final results = await Future.wait([
+    dio.get('/Products/GetAll', queryParameters: {'companyId': company.id}),
+    dio.get('/Stocks/GetAllStocks', queryParameters: {'companyId': company.id}),
+  ]);
+
+  final products = (results[0].data as List)
+      .map((j) => Product.fromJson(j))
+      .toList();
+  final allStocks = (results[1].data as List)
+      .map((j) => StockItem.fromJson(j))
+      .toList();
 
   return products.map((p) {
     final productStocks = allStocks.where((s) => s.productId == p.id).toList();

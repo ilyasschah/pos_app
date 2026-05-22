@@ -705,6 +705,7 @@ class CartNotifier extends Notifier<CartState> {
         companyId,
         effectiveWarehouseId,
         state.items,
+        grandTotal,
       );
 
       if (response['success'] != true) {
@@ -858,6 +859,7 @@ class CartNotifier extends Notifier<CartState> {
         companyId,
         effectiveWarehouseId,
         state.items,
+        grandTotal,
       );
 
       if (response['success'] != true) {
@@ -1001,6 +1003,7 @@ class CartNotifier extends Notifier<CartState> {
           companyId,
           effectiveWarehouseId,
           state.items,
+          grandTotal,
         );
         if (response['success'] != true) {
           throw Exception(

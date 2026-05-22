@@ -30,17 +30,15 @@ class AppSettingsNotifier extends Notifier<Map<String, String>> {
   Map<String, String> build() {
     final map = Map<String, String>.from(kSettingDefaults);
 
-    ref.listen<AsyncValue<List<AppProperty>>>(rawAppPropertiesProvider, (
-      _,
-      next,
-    ) {
-      next.whenData((props) {
-        for (final p in props) {
-          map[p.name] = p.value;
-        }
-        state = Map<String, String>.from(map);
-      });
-    }, fireImmediately: true);
+    // In Riverpod 3.x, setting `state` inside a fireImmediately listener during
+    // build() violates the "one task at a time" scheduler rule. Use ref.watch so
+    // Riverpod re-runs build() whenever the async source resolves, instead.
+    final rawProps = ref.watch(rawAppPropertiesProvider);
+    rawProps.whenData((props) {
+      for (final p in props) {
+        map[p.name] = p.value;
+      }
+    });
 
     return map;
   }

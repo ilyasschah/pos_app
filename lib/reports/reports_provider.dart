@@ -570,6 +570,233 @@ final purchaseBySupplierProvider = FutureProvider.autoDispose
       .toList();
 });
 
+final purchaseByTaxProvider = FutureProvider.autoDispose
+    .family<List<PurchaseByTaxRow>, ReportFilter>((ref, filter) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return [];
+
+  final dio = createDio();
+  final response = await dio.get(
+    '/Reports/GetPurchaseByTax',
+    queryParameters: {
+      'companyId': companyId,
+      'startDate': filter.startDate.toIso8601String(),
+      'endDate':   filter.endDate.toIso8601String(),
+      if (filter.customerId     != null) 'supplierId':     filter.customerId,
+      if (filter.userId         != null) 'userId':         filter.userId,
+      if (filter.warehouseId    != null) 'warehouseId':    filter.warehouseId,
+      if (filter.productId      != null) 'productId':      filter.productId,
+      if (filter.productGroupId != null) 'productGroupId': filter.productGroupId,
+    },
+  );
+
+  return (response.data as List)
+      .map((j) => PurchaseByTaxRow.fromJson(j as Map<String, dynamic>))
+      .toList();
+});
+
+final purchaseInvoiceListProvider = FutureProvider.autoDispose
+    .family<List<PurchaseInvoiceListRow>, ReportFilter>((ref, filter) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return [];
+
+  final dio = createDio();
+  final response = await dio.get(
+    '/Reports/GetPurchaseInvoiceList',
+    queryParameters: {
+      'companyId': companyId,
+      'startDate': filter.startDate.toIso8601String(),
+      'endDate':   filter.endDate.toIso8601String(),
+      if (filter.customerId  != null) 'supplierId':  filter.customerId,
+      if (filter.userId      != null) 'userId':      filter.userId,
+      if (filter.warehouseId != null) 'warehouseId': filter.warehouseId,
+    },
+  );
+
+  return (response.data as List)
+      .map((j) => PurchaseInvoiceListRow.fromJson(j as Map<String, dynamic>))
+      .toList();
+});
+
+final purchaseItemsDiscountsProvider = FutureProvider.autoDispose
+    .family<List<PurchaseItemsDiscountsRow>, ReportFilter>((ref, filter) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return [];
+
+  final dio = createDio();
+  final response = await dio.get(
+    '/Reports/GetPurchaseItemsDiscounts',
+    queryParameters: {
+      'companyId': companyId,
+      'startDate': filter.startDate.toIso8601String(),
+      'endDate':   filter.endDate.toIso8601String(),
+      if (filter.customerId != null) 'supplierId': filter.customerId,
+      if (filter.userId != null)     'userId':     filter.userId,
+      if (filter.productId != null)  'productId':  filter.productId,
+    },
+  );
+
+  return (response.data as List)
+      .map((j) => PurchaseItemsDiscountsRow.fromJson(j as Map<String, dynamic>))
+      .toList();
+});
+
+final purchaseDiscountsProvider = FutureProvider.autoDispose
+    .family<List<PurchaseDiscountsRow>, ReportFilter>((ref, filter) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return [];
+
+  final dio = createDio();
+  final response = await dio.get(
+    '/Reports/GetPurchaseDiscounts',
+    queryParameters: {
+      'companyId': companyId,
+      'startDate': filter.startDate.toIso8601String(),
+      'endDate':   filter.endDate.toIso8601String(),
+      if (filter.customerId != null) 'supplierId': filter.customerId,
+      if (filter.userId != null)     'userId':     filter.userId,
+    },
+  );
+
+  return (response.data as List)
+      .map((j) => PurchaseDiscountsRow.fromJson(j as Map<String, dynamic>))
+      .toList();
+});
+
+final purchaseExpirationDateProvider = FutureProvider.autoDispose
+    .family<List<PurchaseExpirationDateRow>, ReportFilter>((ref, filter) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return [];
+
+  final dio = createDio();
+  final response = await dio.get(
+    '/Reports/GetPurchaseExpirationDate',
+    queryParameters: {
+      'companyId': companyId,
+      'startDate': filter.startDate.toIso8601String(),
+      'endDate':   filter.endDate.toIso8601String(),
+      if (filter.customerId  != null) 'supplierId':    filter.customerId,
+      if (filter.userId      != null) 'userId':        filter.userId,
+      if (filter.warehouseId != null) 'warehouseId':   filter.warehouseId,
+      if (filter.productId   != null) 'productId':     filter.productId,
+      if (filter.productGroupId != null) 'productGroupId': filter.productGroupId,
+    },
+  );
+
+  return (response.data as List)
+      .map((j) => PurchaseExpirationDateRow.fromJson(j as Map<String, dynamic>))
+      .toList();
+});
+
+final stockReturnByProductProvider = FutureProvider.autoDispose
+    .family<List<StockReturnByProductRow>, ReportFilter>((ref, filter) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return [];
+
+  final dio = createDio();
+  final response = await dio.get(
+    '/Reports/GetStockReturnByProduct',
+    queryParameters: {
+      'companyId': companyId,
+      'startDate': filter.startDate.toIso8601String(),
+      'endDate':   filter.endDate.toIso8601String(),
+      if (filter.userId      != null) 'userId':        filter.userId,
+      if (filter.warehouseId != null) 'warehouseId':   filter.warehouseId,
+      if (filter.productId   != null) 'productId':     filter.productId,
+      if (filter.productGroupId != null) 'productGroupId': filter.productGroupId,
+    },
+  );
+
+  return (response.data as List)
+      .map((j) => StockReturnByProductRow.fromJson(j as Map<String, dynamic>))
+      .toList();
+});
+
+final lossAndDamageByProductProvider = FutureProvider.autoDispose
+    .family<List<LossAndDamageByProductRow>, ReportFilter>((ref, filter) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return [];
+
+  final dio = createDio();
+  final response = await dio.get(
+    '/Reports/GetLossAndDamageByProduct',
+    queryParameters: {
+      'companyId': companyId,
+      'startDate': filter.startDate.toIso8601String(),
+      'endDate':   filter.endDate.toIso8601String(),
+      if (filter.userId         != null) 'userId':         filter.userId,
+      if (filter.warehouseId    != null) 'warehouseId':    filter.warehouseId,
+      if (filter.productId      != null) 'productId':      filter.productId,
+      if (filter.productGroupId != null) 'productGroupId': filter.productGroupId,
+    },
+  );
+
+  return (response.data as List)
+      .map((j) => LossAndDamageByProductRow.fromJson(j as Map<String, dynamic>))
+      .toList();
+});
+
+final reorderProductListProvider = FutureProvider.autoDispose
+    .family<List<ReorderProductListRow>, ReportFilter>((ref, filter) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return [];
+
+  final dio = createDio();
+  final response = await dio.get(
+    '/Reports/GetReorderProductList',
+    queryParameters: {
+      'companyId': companyId,
+      if (filter.customerId != null) 'supplierId': filter.customerId,
+      if (filter.productId  != null) 'productId':  filter.productId,
+    },
+  );
+
+  return (response.data as List)
+      .map((j) => ReorderProductListRow.fromJson(j as Map<String, dynamic>))
+      .toList();
+});
+
+final lowStockWarningProvider = FutureProvider.autoDispose
+    .family<List<LowStockWarningRow>, ReportFilter>((ref, filter) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return [];
+
+  final dio = createDio();
+  final response = await dio.get(
+    '/Reports/GetLowStockWarning',
+    queryParameters: {
+      'companyId': companyId,
+      if (filter.customerId != null) 'supplierId': filter.customerId,
+      if (filter.productId  != null) 'productId':  filter.productId,
+    },
+  );
+
+  return (response.data as List)
+      .map((j) => LowStockWarningRow.fromJson(j as Map<String, dynamic>))
+      .toList();
+});
+
+final transactionHistoryProvider = FutureProvider.autoDispose
+    .family<List<TransactionHistoryRow>, ReportFilter>((ref, filter) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null || filter.customerId == null) return [];
+
+  final dio = createDio();
+  final response = await dio.get(
+    '/Reports/GetTransactionHistory',
+    queryParameters: {
+      'companyId': companyId,
+      'partnerId': filter.customerId,
+      'startDate': filter.startDate.toIso8601String(),
+      'endDate':   filter.endDate.toIso8601String(),
+    },
+  );
+
+  return (response.data as List)
+      .map((j) => TransactionHistoryRow.fromJson(j as Map<String, dynamic>))
+      .toList();
+});
+
 final unpaidPurchaseProvider = FutureProvider.autoDispose
     .family<List<UnpaidPurchaseRow>, ReportFilter>((ref, filter) async {
   final companyId = ref.watch(selectedCompanyProvider)?.id;

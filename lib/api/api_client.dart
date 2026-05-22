@@ -79,6 +79,7 @@ class ApiClient {
     int companyId,
     int warehouseId,
     List<CartItem> items,
+    double orderTotal,
   ) async {
     try {
       final List<Map<String, dynamic>> jsonList = items
@@ -87,7 +88,7 @@ class ApiClient {
 
       final response = await _dio.post(
         '/PosOrderItem/BulkAdd',
-        queryParameters: {'companyId': companyId, 'warehouseId': warehouseId},
+        queryParameters: {'companyId': companyId, 'warehouseId': warehouseId, 'orderTotal': orderTotal},
         data: jsonList,
       );
 

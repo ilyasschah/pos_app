@@ -134,7 +134,6 @@ class _ViewPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext _) {
-    final cs = Theme.of(context).colorScheme;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [

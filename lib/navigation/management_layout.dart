@@ -23,7 +23,8 @@ class ManagementLayout extends StatefulWidget {
 
 class _ManagementLayoutState extends State<ManagementLayout> {
   int _selectedIndex = 0;
-  bool _isSidebarVisible = true; // ✨ NEW: Desktop Sidebar Toggle State
+  bool _isSidebarVisible = true;
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   Widget build(BuildContext context) {
@@ -32,11 +33,19 @@ class _ManagementLayoutState extends State<ManagementLayout> {
     // ✨ Only show the permanent sidebar if we are on Desktop AND it hasn't been hidden
     final showPermanentSidebar = isDesktop && _isSidebarVisible;
 
+    void onMenuPressed() {
+      if (isDesktop) {
+        setState(() => _isSidebarVisible = true);
+      } else {
+        _scaffoldKey.currentState?.openDrawer();
+      }
+    }
+
     final List<Widget> screens = [
       const DashboardScreen(), // Index 0
       const DocumentsScreen(), // Index 1
-      const ProductsScreen(), // Index 2
-      const ProductGroupsScreen(), // Index 3
+      ProductsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed), // Index 2
+      ProductGroupsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed), // Index 3
       const StockScreen(), // Index 4
       const ReportsScreen(), // Index 5
       const CustomersScreen(), // Index 6
@@ -197,6 +206,7 @@ class _ManagementLayoutState extends State<ManagementLayout> {
     );
 
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: kNavBg,
       drawer: isDesktop
           ? null
@@ -210,26 +220,16 @@ class _ManagementLayoutState extends State<ManagementLayout> {
             child: ClipRect(
               child: Column(
                 children: [
-                  // ✨ Show the Top Bar if the sidebar is hidden (Mobile OR Desktop)
-                  if (!showPermanentSidebar)
+                  // Show the top bar only when sidebar is hidden AND not on the Products screen
+                  if (!showPermanentSidebar && _selectedIndex != 2 && _selectedIndex != 3)
                     Container(
                       height: kToolbarHeight,
                       color: kNavSidebar,
                       child: Row(
                         children: [
-                          Builder(
-                            builder: (ctx) => IconButton(
-                              icon: const Icon(Icons.menu, color: Colors.white),
-                              onPressed: () {
-                                if (isDesktop) {
-                                  // Restore Desktop Sidebar
-                                  setState(() => _isSidebarVisible = true);
-                                } else {
-                                  // Open Mobile Drawer
-                                  Scaffold.of(ctx).openDrawer();
-                                }
-                              },
-                            ),
+                          IconButton(
+                            icon: const Icon(Icons.menu, color: Colors.white),
+                            onPressed: onMenuPressed,
                           ),
                           const SizedBox(width: 8),
                           const Text(
@@ -239,11 +239,6 @@ class _ManagementLayoutState extends State<ManagementLayout> {
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
                             ),
-                          ),
-                          const Spacer(),
-                          IconButton(
-                            icon: const Icon(Icons.close, color: Colors.white),
-                            onPressed: () => Navigator.pop(context),
                           ),
                         ],
                       ),

@@ -442,7 +442,9 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
                     _selectedWarehouseId = result.warehouseId;
                   });
                   if (_numberCtrl.text.isEmpty) {
-                    final nextNumber = await _fetchNextDocumentNumber(result.id);
+                    final nextNumber = await _fetchNextDocumentNumber(
+                      result.id,
+                    );
                     if (mounted) setState(() => _numberCtrl.text = nextNumber);
                   }
                 }
@@ -1557,11 +1559,13 @@ class _AddItemDialog extends ConsumerStatefulWidget {
 class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
   int? _selectedProductId;
   final _qtyCtrl = TextEditingController(text: '1');
-  final _priceCtrl = TextEditingController();
-  final _priceBeforeTaxCtrl = TextEditingController();
+  final _priceCtrl = TextEditingController(); // price before tax
   final _discountCtrl = TextEditingController(text: '0');
+  final _expDateCtrl = TextEditingController();
   int _discountType = 0;
-  bool _discountApplyRule = true;
+  int? _selectedTaxId;
+  double _selectedTaxRate = 0;
+  DateTime? _expirationDate;
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -1569,10 +1573,18 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
   void dispose() {
     _qtyCtrl.dispose();
     _priceCtrl.dispose();
-    _priceBeforeTaxCtrl.dispose();
     _discountCtrl.dispose();
+    _expDateCtrl.dispose();
     super.dispose();
   }
+
+  double get _pbt => double.tryParse(_priceCtrl.text) ?? 0;
+  double get _price => _pbt * (1 + _selectedTaxRate / 100);
+  double get _disc => double.tryParse(_discountCtrl.text) ?? 0;
+  double get _qty => double.tryParse(_qtyCtrl.text) ?? 1;
+  double get _discountTaxed =>
+      _discountType == 0 ? _price * (_disc / 100) : _disc;
+  double get _total => (_price - _discountTaxed) * _qty;
 
   Future<void> _submit() async {
     if (_selectedProductId == null) {
@@ -1585,21 +1597,47 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
     });
     try {
       final dio = createDio();
-      await dio.post(
+
+      // 1. Create the item with the correct price before and after tax
+      final res = await dio.post(
         '/DocumentItems/Add',
         queryParameters: {'companyId': widget.companyId},
         data: {
           'documentId': widget.documentId,
           'productId': _selectedProductId,
-          'quantity': double.tryParse(_qtyCtrl.text) ?? 1,
-          'expectedQuantity': double.tryParse(_qtyCtrl.text) ?? 1,
-          'priceBeforeTax': double.tryParse(_priceBeforeTaxCtrl.text) ?? 0,
-          'price': double.tryParse(_priceCtrl.text) ?? 0,
-          'discount': double.tryParse(_discountCtrl.text) ?? 0,
+          'quantity': _qty,
+          'expectedQuantity': _qty,
+          'priceBeforeTax': _pbt,
+          'price': _price,
+          'discount': _disc,
           'discountType': _discountType,
-          'discountApplyRule': _discountApplyRule,
+          'discountApplyRule': true,
         },
       );
+
+      final int newItemId = (res.data['id'] as num).toInt();
+
+      // 2. Add tax if selected (backend will also recalculate item price)
+      if (_selectedTaxId != null) {
+        await dio.post(
+          '/DocumentItemTaxes/Add',
+          queryParameters: {'companyId': widget.companyId},
+          data: {'documentItemId': newItemId, 'taxId': _selectedTaxId},
+        );
+      }
+
+      // 3. Add expiration date if set
+      if (_expirationDate != null) {
+        await dio.post(
+          '/DocumentItemExpirationDates/Add',
+          queryParameters: {'companyId': widget.companyId},
+          data: {
+            'documentItemId': newItemId,
+            'expirationDate': _expirationDate!.toIso8601String(),
+          },
+        );
+      }
+
       if (!mounted) return;
       Navigator.of(context).pop();
     } on DioException catch (e) {
@@ -1613,105 +1651,223 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
   @override
   Widget build(BuildContext context) {
     final asyncProducts = ref.watch(allProductsListProvider);
+    final asyncTaxes = ref.watch(allTaxesProvider);
     final theme = Theme.of(context);
+    final sym = ref.watch(currencySymbolProvider);
+    final fmt = (double v) => v.toStringAsFixed(2);
 
     return AlertDialog(
       title: const Text("Add Product"),
       content: SizedBox(
-        width: 420,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            asyncProducts.when(
-              loading: () => const CircularProgressIndicator(),
-              error: (e, _) => Text("Error: $e"),
-              data: (products) => DropdownButtonFormField<int>(
-                initialValue: _selectedProductId,
-                decoration: const InputDecoration(
-                  labelText: "Product *",
-                  border: OutlineInputBorder(),
+        width: 460,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Product
+              asyncProducts.when(
+                loading: () => const CircularProgressIndicator(),
+                error: (e, _) => Text("Error: $e"),
+                data: (products) => DropdownButtonFormField<int>(
+                  initialValue: _selectedProductId,
+                  decoration: const InputDecoration(
+                    labelText: "Product *",
+                    border: OutlineInputBorder(),
+                  ),
+                  items: products
+                      .map(
+                        (p) => DropdownMenuItem(
+                          value: p.id,
+                          child: Text(
+                            "${p.name}${p.code != null ? ' (${p.code})' : ''}",
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (v) {
+                    final p = products.firstWhere((prod) => prod.id == v);
+                    setState(() {
+                      _selectedProductId = v;
+                      _priceCtrl.text = p.price.toStringAsFixed(2);
+                    });
+                  },
                 ),
-                items: products
-                    .map(
-                      (p) => DropdownMenuItem(
-                        value: p.id,
-                        child: Text(
-                          "${p.name}${p.code != null ? ' (${p.code})' : ''}",
-                          overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 12),
+
+              // Quantity + Price Before Tax
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _qtyCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: "Quantity",
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _priceCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: "Price before tax",
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Tax
+              asyncTaxes.when(
+                loading: () => const LinearProgressIndicator(),
+                error: (_, __) => const SizedBox.shrink(),
+                data: (taxes) {
+                  final enabled = taxes.where((t) => t.isEnabled).toList();
+                  return DropdownButtonFormField<int>(
+                    initialValue: _selectedTaxId,
+                    decoration: const InputDecoration(
+                      labelText: "Tax (optional)",
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      const DropdownMenuItem<int>(
+                        value: null,
+                        child: Text("None"),
+                      ),
+                      ...enabled.map(
+                        (t) => DropdownMenuItem(
+                          value: t.id,
+                          child: Text("${t.name} (${t.rate}%)"),
                         ),
                       ),
-                    )
-                    .toList(),
-                onChanged: (v) {
-                  final p = products.firstWhere((prod) => prod.id == v);
-                  setState(() {
-                    _selectedProductId = v;
-                    _priceCtrl.text = p.price.toStringAsFixed(2);
-                    _priceBeforeTaxCtrl.text = p.price.toStringAsFixed(2);
-                  });
+                    ],
+                    onChanged: (v) {
+                      final rate = v == null
+                          ? 0.0
+                          : (taxes.firstWhere((t) => t.id == v).rate);
+                      setState(() {
+                        _selectedTaxId = v;
+                        _selectedTaxRate = rate;
+                      });
+                    },
+                  );
                 },
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _qtyCtrl,
-                    decoration: const InputDecoration(
-                      labelText: "Quantity",
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextFormField(
-                    controller: _priceCtrl,
-                    decoration: const InputDecoration(
-                      labelText: "Price",
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _discountCtrl,
-                    decoration: const InputDecoration(
-                      labelText: "Item Discount",
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: DropdownButtonFormField<int>(
-                    initialValue: _discountType,
-                    decoration: const InputDecoration(
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: 0, child: Text("%")),
-                      DropdownMenuItem(value: 1, child: Text("Fixed")),
-                    ],
-                    onChanged: (v) => setState(() => _discountType = v ?? 0),
-                  ),
-                ),
-              ],
-            ),
-            if (_errorMessage != null) ...[
               const SizedBox(height: 12),
-              Text(
-                _errorMessage!,
-                style: TextStyle(color: theme.colorScheme.error, fontSize: 13),
+
+              // Discount + Type
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _discountCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: "Item Discount",
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DropdownButtonFormField<int>(
+                      initialValue: _discountType,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 0, child: Text("%")),
+                        DropdownMenuItem(value: 1, child: Text("Fixed")),
+                      ],
+                      onChanged: (v) => setState(() => _discountType = v ?? 0),
+                    ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 12),
+
+              // Expiration date
+              TextFormField(
+                controller: _expDateCtrl,
+                readOnly: true,
+                decoration: InputDecoration(
+                  labelText: "Expiration Date (optional)",
+                  border: const OutlineInputBorder(),
+                  suffixIcon: _expirationDate != null
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 16),
+                          onPressed: () => setState(() {
+                            _expirationDate = null;
+                            _expDateCtrl.clear();
+                          }),
+                        )
+                      : const Icon(Icons.calendar_today, size: 16),
+                ),
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: DateTime.now(),
+                    firstDate: DateTime(2000),
+                    lastDate: DateTime(2100),
+                  );
+                  if (picked != null) {
+                    setState(() {
+                      _expirationDate = picked;
+                      _expDateCtrl.text = picked
+                          .toIso8601String()
+                          .split('T')
+                          .first;
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 16),
+
+              // Live preview
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  children: [
+                    _PreviewRow(
+                      label: "Price (after tax)",
+                      value: "${fmt(_price)} $sym",
+                    ),
+                    const Divider(height: 8),
+                    _PreviewRow(
+                      label: "Total",
+                      value: "${fmt(_total)} $sym",
+                      bold: true,
+                    ),
+                  ],
+                ),
+              ),
+
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _errorMessage!,
+                  style: TextStyle(
+                    color: theme.colorScheme.error,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
       actions: [
@@ -1767,7 +1923,9 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
   void initState() {
     super.initState();
     _qtyCtrl = TextEditingController(text: widget.item.quantity.toString());
-    _priceCtrl = TextEditingController(text: widget.item.price.toString());
+    _priceCtrl = TextEditingController(
+      text: widget.item.priceBeforeTax.toString(),
+    );
     _discountCtrl = TextEditingController(
       text: widget.item.discount.toString(),
     );
@@ -1792,7 +1950,19 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
     try {
       final dio = createDio();
 
-      // 1. Update the Document Item itself
+      // 1. Compute tax-inclusive price from the current applied taxes
+      final itemTaxes =
+          ref.read(documentItemTaxesProvider(widget.item.id)).value ?? [];
+      final allTaxes = ref.read(allTaxesProvider).value ?? [];
+      final appliedIds = itemTaxes.map((t) => t.taxId).toSet();
+      final sumRate = allTaxes
+          .where((t) => appliedIds.contains(t.id))
+          .fold(0.0, (s, t) => s + t.rate);
+      final pbt =
+          double.tryParse(_priceCtrl.text) ?? widget.item.priceBeforeTax;
+      final price = pbt * (1 + sumRate / 100);
+
+      // 2. Update the Document Item
       await dio.patch(
         '/DocumentItems/Update',
         queryParameters: {'companyId': widget.companyId},
@@ -1803,8 +1973,8 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
           'quantity': double.tryParse(_qtyCtrl.text) ?? widget.item.quantity,
           'expectedQuantity':
               double.tryParse(_qtyCtrl.text) ?? widget.item.quantity,
-          'priceBeforeTax': widget.item.priceBeforeTax,
-          'price': double.tryParse(_priceCtrl.text) ?? widget.item.price,
+          'priceBeforeTax': pbt,
+          'price': price,
           'discount':
               double.tryParse(_discountCtrl.text) ?? widget.item.discount,
           'discountType': _discountType,
@@ -1933,11 +2103,30 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
       },
     );
 
+    // Live preview computation
+    final allTaxesList = allTaxesAsync.value ?? [];
+    final itemTaxesList = itemTaxesAsync.value ?? [];
+    final appliedIds = itemTaxesList.map((t) => t.taxId).toSet();
+    final sumRate = allTaxesList
+        .where((t) => appliedIds.contains(t.id))
+        .fold(0.0, (s, t) => s + t.rate);
+    final previewPbt =
+        double.tryParse(_priceCtrl.text) ?? widget.item.priceBeforeTax;
+    final previewPrice = previewPbt * (1 + sumRate / 100);
+    final previewDisc =
+        double.tryParse(_discountCtrl.text) ?? widget.item.discount;
+    final previewQty = double.tryParse(_qtyCtrl.text) ?? widget.item.quantity;
+    final previewDiscTaxed = _discountType == 0
+        ? previewPrice * (previewDisc / 100)
+        : previewDisc;
+    final previewTotal = (previewPrice - previewDiscTaxed) * previewQty;
+    final fmt = (double v) => v.toStringAsFixed(2);
+
     return AlertDialog(
       title: Text("Edit — ${widget.item.productName ?? ''}"),
       content: SizedBox(
-        width: 800, // Widened to fit taxes naturally
-        height: 380,
+        width: 800,
+        height: 420,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1953,20 +2142,24 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                         Expanded(
                           child: TextFormField(
                             controller: _qtyCtrl,
+                            keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
                               labelText: "Quantity",
                               border: OutlineInputBorder(),
                             ),
+                            onChanged: (_) => setState(() {}),
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: TextFormField(
                             controller: _priceCtrl,
+                            keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              labelText: "Price",
+                              labelText: "Price before tax",
                               border: OutlineInputBorder(),
                             ),
+                            onChanged: (_) => setState(() {}),
                           ),
                         ),
                       ],
@@ -1977,10 +2170,12 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                         Expanded(
                           child: TextFormField(
                             controller: _discountCtrl,
+                            keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
                               labelText: "Discount",
                               border: OutlineInputBorder(),
                             ),
+                            onChanged: (_) => setState(() {}),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -2002,7 +2197,7 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                     ),
                     const SizedBox(height: 12),
 
-                    // FULLY WIRED Expiration Date Field
+                    // Expiration Date Field
                     TextFormField(
                       controller: _expirationDateCtrl,
                       readOnly: true,
@@ -2037,6 +2232,30 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                                 },
                               )
                             : const Icon(Icons.calendar_today, size: 16),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Live preview
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        children: [
+                          _PreviewRow(
+                            label: "Price (after tax)",
+                            value: "${fmt(previewPrice)} $sym",
+                          ),
+                          const Divider(height: 8),
+                          _PreviewRow(
+                            label: "Total",
+                            value: "${fmt(previewTotal)} $sym",
+                            bold: true,
+                          ),
+                        ],
                       ),
                     ),
 
@@ -2216,10 +2435,39 @@ class _PaidStatusChip extends StatelessWidget {
 
     return ActionChip(
       avatar: Icon(icon, color: color, size: 16),
-      label: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+      label: Text(
+        label,
+        style: TextStyle(color: color, fontWeight: FontWeight.bold),
+      ),
       side: BorderSide(color: color),
       backgroundColor: color.withValues(alpha: 0.1),
       onPressed: () => onChanged(nextStatus),
+    );
+  }
+}
+
+class _PreviewRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool bold;
+  const _PreviewRow({
+    required this.label,
+    required this.value,
+    this.bold = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final style = TextStyle(
+      fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+      fontSize: bold ? 14 : 12,
+    );
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: style),
+        Text(value, style: style),
+      ],
     );
   }
 }

@@ -17,7 +17,7 @@ import 'package:pos_app/menu/discount_dialog.dart';
 import 'package:pos_app/product/product_group_model.dart';
 import 'package:pos_app/product/product_group_provider.dart';
 import 'package:pos_app/cart/checkout_models.dart';
-import 'package:pos_app/cart/checkout_dialog.dart';
+import 'package:pos_app/cart/payment_checkout_dialog.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/tax/tax_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
@@ -850,10 +850,12 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
               ),
             ),
           ),
-          Container(
-            width: ref.watch(cartWidthProvider),
+          Material(
             color: Theme.of(context).colorScheme.surface,
-            child: const CartSection(),
+            child: SizedBox(
+              width: ref.watch(cartWidthProvider),
+              child: const CartSection(),
+            ),
           ),
         ],
       ),
@@ -2382,7 +2384,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                             showDialog(
                               context: context,
                               barrierDismissible: false,
-                              builder: (context) => const CheckoutDialog(),
+                              builder: (context) => const PaymentCheckoutDialog(),
                             );
                           },
                     style: ElevatedButton.styleFrom(

@@ -1,6 +1,8 @@
 // ignore_for_file: deprecated_member_use
 
 import 'dart:convert';
+import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
@@ -10,6 +12,7 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/product/product_group_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/product/product_model.dart';
+import 'package:pos_app/product/product_export_model.dart';
 import 'package:pos_app/product/product_group_model.dart';
 import 'package:pos_app/product/product_provider.dart';
 import 'package:pos_app/tax/tax_provider.dart';
@@ -17,6 +20,299 @@ import 'package:pos_app/product/product_comment_provider.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/stock/stock_control_provider.dart';
 import 'package:pos_app/barcode/barcode_provider.dart';
+import 'package:pos_app/product/product_import_screen.dart';
+
+// ---------------------------------------------------------------------------
+// EXPORT HELPERS
+// ---------------------------------------------------------------------------
+
+String _xmlEsc(String? s) => (s ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+
+String _csvCell(String? v) {
+  final s = v ?? '';
+  if (s.contains(',') || s.contains('"') || s.contains('\n')) {
+    return '"${s.replaceAll('"', '""')}"';
+  }
+  return s;
+}
+
+String _buildCsvExport(List<ProductExportRow> rows) {
+  const header =
+      'Name,ProductGroup,SKU,Barcode,MeasurementUnit,Cost,Markup,Price,'
+      'Tax,IsTaxInclusivePrice,IsPriceChangeAllowed,IsUsingDefaultQuantity,'
+      'IsService,IsEnabled,Description,Quantity,Supplier,ReorderPoint,'
+      'PreferredQuantity,LowStockWarning,WarningQuantity';
+  final lines = [header];
+  for (final p in rows) {
+    lines.add([
+      _csvCell(p.name),
+      _csvCell(p.productGroupName),
+      _csvCell(p.code),
+      _csvCell(p.barcodes.isNotEmpty ? p.barcodes.first : ''),
+      _csvCell(p.measurementUnit),
+      p.cost,
+      p.markup ?? '',
+      p.price,
+      p.taxes.isNotEmpty ? p.taxes.first.rate : '',
+      p.isTaxInclusivePrice ? 1 : 0,
+      p.isPriceChangeAllowed ? 1 : 0,
+      p.isUsingDefaultQuantity ? 1 : 0,
+      p.isService ? 1 : 0,
+      p.isEnabled ? 1 : 0,
+      _csvCell(p.description),
+      p.totalStock,
+      _csvCell(p.supplierName),
+      p.reorderPoint,
+      p.preferredQuantity,
+      p.isLowStockWarningEnabled ? 1 : 0,
+      p.lowStockWarningQuantity,
+    ].join(','));
+  }
+  return lines.join('\n');
+}
+
+String _buildXmlExport(List<ProductExportRow> rows) {
+  // Group by productGroupName (preserve insertion order)
+  final groups = <String?, List<ProductExportRow>>{};
+  for (final p in rows) {
+    (groups[p.productGroupName] ??= []).add(p);
+  }
+
+  final sb = StringBuffer()
+    ..writeln('<?xml version="1.0" encoding="utf-8"?>')
+    ..writeln(
+        '<ProductGroup xmlns:xsd="http://www.w3.org/2001/XMLSchema" '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">')
+    ..writeln('  <Color>Transparent</Color>')
+    ..writeln('  <Rank>0</Rank>')
+    ..writeln('  <Items>');
+
+  groups.forEach((groupName, products) {
+    final indent = groupName != null ? '    ' : '  ';
+    if (groupName != null) {
+      sb
+        ..writeln('    <PosItem xsi:type="ProductGroup">')
+        ..writeln('      <Name>${_xmlEsc(groupName)}</Name>')
+        ..writeln('      <Color>Transparent</Color>')
+        ..writeln('      <Rank>0</Rank>')
+        ..writeln('      <Items>');
+    }
+
+    int barcodeId = 1;
+    for (final p in products) {
+      sb
+        ..writeln('$indent  <PosItem xsi:type="Product">')
+        ..writeln(
+            '$indent    <Id xsi:type="xsd:long">${p.id}</Id>')
+        ..writeln('$indent    <Name>${_xmlEsc(p.name)}</Name>')
+        ..writeln('$indent    <Color>${_xmlEsc(p.color)}</Color>')
+        ..writeln('$indent    <Rank>${p.rank ?? 0}</Rank>');
+      if (p.code != null) sb.writeln('$indent    <Code>${_xmlEsc(p.code)}</Code>');
+      if (p.plu != null) sb.writeln('$indent    <PLU>${p.plu}</PLU>');
+      sb
+        ..writeln('$indent    <Price>${p.price}</Price>')
+        ..writeln('$indent    <Taxes>');
+      for (final t in p.taxes) {
+        sb
+          ..writeln('$indent      <Tax>')
+          ..writeln('$indent        <Id xsi:type="xsd:long">${t.id}</Id>')
+          ..writeln('$indent        <Name>${_xmlEsc(t.name)}</Name>')
+          ..writeln('$indent        <Rate>${t.rate}</Rate>')
+          ..writeln('$indent        <Code>${_xmlEsc(t.code)}</Code>')
+          ..writeln(
+              '$indent        <IsFixed>${t.isFixed.toString().toLowerCase()}</IsFixed>')
+          ..writeln(
+              '$indent        <IsTaxOnTotal>${t.isTaxOnTotal.toString().toLowerCase()}</IsTaxOnTotal>')
+          ..writeln(
+              '$indent        <IsEnabled>${t.isEnabled.toString().toLowerCase()}</IsEnabled>')
+          ..writeln('$indent      </Tax>');
+      }
+      sb
+        ..writeln('$indent    </Taxes>')
+        ..writeln(
+            '$indent    <IsTaxInclusivePrice>${p.isTaxInclusivePrice.toString().toLowerCase()}</IsTaxInclusivePrice>')
+        ..writeln('$indent    <Excise>0</Excise>');
+      if (p.measurementUnit != null) {
+        sb
+          ..writeln('$indent    <MeasurementUnit>')
+          ..writeln('$indent      <Name>${_xmlEsc(p.measurementUnit)}</Name>')
+          ..writeln('$indent    </MeasurementUnit>');
+      }
+      sb
+        ..writeln('$indent    <Package><Quantity>1</Quantity></Package>')
+        ..writeln('$indent    <Barcodes>');
+      for (final barcode in p.barcodes) {
+        sb
+          ..writeln('$indent      <Barcode>')
+          ..writeln(
+              '$indent        <Id xsi:type="xsd:long">${barcodeId++}</Id>')
+          ..writeln('$indent        <Value>${_xmlEsc(barcode)}</Value>')
+          ..writeln('$indent      </Barcode>');
+      }
+      sb
+        ..writeln('$indent    </Barcodes>')
+        ..writeln('$indent    <IsUsingSerialNumbers>false</IsUsingSerialNumbers>')
+        ..writeln('$indent    <IsDiscountAllowed>true</IsDiscountAllowed>')
+        ..writeln('$indent    <MaxDiscount>100</MaxDiscount>')
+        ..writeln(
+            '$indent    <IsPriceChangeAllowed>${p.isPriceChangeAllowed.toString().toLowerCase()}</IsPriceChangeAllowed>')
+        ..writeln('$indent    <IsManufactureRequired>false</IsManufactureRequired>')
+        ..writeln(
+            '$indent    <IsService>${p.isService.toString().toLowerCase()}</IsService>')
+        ..writeln(
+            '$indent    <IsUsingDefaultQuantity>${p.isUsingDefaultQuantity.toString().toLowerCase()}</IsUsingDefaultQuantity>')
+        ..writeln('$indent    <Comments>');
+      for (final c in p.comments) {
+        sb.writeln('$indent      <string>${_xmlEsc(c)}</string>');
+      }
+      sb
+        ..writeln('$indent    </Comments>');
+      if (p.description != null && p.description!.isNotEmpty) {
+        sb.writeln(
+            '$indent    <Description>${_xmlEsc(p.description)}</Description>');
+      }
+      sb
+        ..writeln(
+            '$indent    <IsEnabled>${p.isEnabled.toString().toLowerCase()}</IsEnabled>')
+        ..writeln('$indent    <Cost>${p.cost}</Cost>');
+      if (p.lastPurchasePrice != null) {
+        sb.writeln(
+            '$indent    <LastPurchasePrice>${p.lastPurchasePrice}</LastPurchasePrice>');
+      }
+      if (p.markup != null) {
+        sb.writeln('$indent    <Markup>${p.markup}</Markup>');
+      }
+      if (p.ageRestriction != null) {
+        sb.writeln(
+            '$indent    <AgeRestriction>${p.ageRestriction}</AgeRestriction>');
+      } else {
+        sb.writeln(
+            '$indent    <AgeRestriction xsi:nil="true" />');
+      }
+      if (p.dateCreated != null) {
+        sb.writeln('$indent    <DateCreated>${p.dateCreated}</DateCreated>');
+      }
+      if (p.dateUpdated != null) {
+        sb.writeln('$indent    <DateUpdated>${p.dateUpdated}</DateUpdated>');
+      }
+      sb.writeln('$indent  </PosItem>');
+    }
+
+    if (groupName != null) {
+      sb
+        ..writeln('      </Items>')
+        ..writeln('    </PosItem>');
+    }
+  });
+
+  sb
+    ..writeln('  </Items>')
+    ..writeln('</ProductGroup>');
+  return sb.toString();
+}
+
+Future<void> _runExport(
+    BuildContext context, WidgetRef ref, String format) async {
+  final company = ref.read(selectedCompanyProvider);
+  if (company == null) return;
+
+  try {
+    final dio = createDio();
+    final response = await dio.get(
+      '/Products/GetForExport',
+      queryParameters: {'companyId': company.id},
+    );
+    final rows = (response.data as List<dynamic>)
+        .map((e) => ProductExportRow.fromJson(e as Map<String, dynamic>))
+        .toList();
+
+    final content =
+        format == 'csv' ? _buildCsvExport(rows) : _buildXmlExport(rows);
+    final ext = format == 'csv' ? 'csv' : 'xml';
+
+    final path = await FilePicker.platform.saveFile(
+      dialogTitle: 'Save export file',
+      fileName: 'products_export.$ext',
+      type: FileType.custom,
+      allowedExtensions: [ext],
+    );
+    if (path == null) return;
+
+    await File(path).writeAsString(content, encoding: const Utf8Codec());
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Exported ${rows.length} products to $path'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Export failed: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+}
+
+Future<void> _showExportDialog(BuildContext context, WidgetRef ref) async {
+  String selected = 'csv';
+  await showDialog<void>(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setState) => AlertDialog(
+        title: const Text('Select export type'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            RadioListTile<String>(
+              value: 'csv',
+              groupValue: selected,
+              onChanged: (v) => setState(() => selected = v!),
+              title: Row(children: [
+                const Icon(Icons.table_chart, color: Colors.green, size: 20),
+                const SizedBox(width: 10),
+                const Text('CSV (Excel)'),
+              ]),
+            ),
+            RadioListTile<String>(
+              value: 'xml',
+              groupValue: selected,
+              onChanged: (v) => setState(() => selected = v!),
+              title: Row(children: [
+                const Icon(Icons.code, color: Colors.blue, size: 20),
+                const SizedBox(width: 10),
+                const Text('XML'),
+              ]),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _runExport(context, ref, selected);
+            },
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 
 // --- HELPER ---
 String _parseApiError(dynamic e) {
@@ -31,37 +327,142 @@ String _parseApiError(dynamic e) {
 }
 
 // --- MAIN SCREEN ---
-class ProductsScreen extends ConsumerWidget {
-  const ProductsScreen({super.key});
+class ProductsScreen extends ConsumerStatefulWidget {
+  final VoidCallback? onMenuPressed;
+  const ProductsScreen({super.key, this.onMenuPressed});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ProductsScreen> createState() => _ProductsScreenState();
+}
+
+class _ProductsScreenState extends ConsumerState<ProductsScreen> {
+  final Set<int> _selectedIds = {};
+
+  void _updateSelection(Set<int> ids) {
+    setState(() {
+      _selectedIds.clear();
+      _selectedIds.addAll(ids);
+    });
+  }
+
+  Future<void> _bulkDelete() async {
+    if (_selectedIds.isEmpty) return;
+    final products = ref.read(productsByGroupProvider).value ?? [];
+    final effectiveIds =
+        _selectedIds.intersection(products.map((p) => p.id).toSet());
+    if (effectiveIds.isEmpty) return;
+
+    final count = effectiveIds.length;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Delete Products"),
+        content: Text(
+            "Delete $count product${count == 1 ? '' : 's'}? This cannot be undone."),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("Cancel")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("Delete", style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    final companyId =
+        products.firstWhere((p) => effectiveIds.contains(p.id)).companyId;
+    int deleted = 0;
+    final errors = <String>[];
+    final dio = createDio();
+    await Future.wait(effectiveIds.map((id) async {
+      try {
+        await dio.delete('/Products/Delete',
+            queryParameters: {'id': id, 'companyId': companyId});
+        deleted++;
+      } catch (e) {
+        errors.add(_parseApiError(e));
+      }
+    }));
+
+    if (mounted) {
+      setState(() => _selectedIds.clear());
+      ref.invalidate(productsByGroupProvider);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(errors.isEmpty
+            ? "$deleted product${deleted == 1 ? '' : 's'} deleted"
+            : "$deleted deleted, ${errors.length} failed"),
+        backgroundColor: errors.isEmpty ? Colors.green : Colors.orange,
+      ));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final hasSelection = _selectedIds.isNotEmpty;
+
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text("Inventory / Products"),
+        automaticallyImplyLeading: false,
+        leading: widget.onMenuPressed != null
+            ? IconButton(
+                icon: const Icon(Icons.menu),
+                onPressed: widget.onMenuPressed,
+              )
+            : null,
+        title: const Text("Products"),
         backgroundColor: theme.colorScheme.surface,
         actions: [
+          TextButton.icon(
+            icon: Icon(Icons.delete_rounded,
+                color: hasSelection ? Colors.red : theme.disabledColor),
+            label: Text(
+              hasSelection ? "Delete (${_selectedIds.length})" : "Delete",
+              style: TextStyle(
+                  color: hasSelection ? Colors.red : theme.disabledColor),
+            ),
+            onPressed: hasSelection ? _bulkDelete : null,
+          ),
+          const SizedBox(width: 4),
+          TextButton.icon(
+            icon: const Icon(Icons.download_rounded),
+            label: const Text("Import"),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ProductImportScreen()),
+            ).then((_) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                ref.invalidate(productsByGroupProvider);
+              });
+            }),
+          ),
+          const SizedBox(width: 4),
+          TextButton.icon(
+            icon: const Icon(Icons.upload_rounded),
+            label: const Text("Export"),
+            onPressed: () => _showExportDialog(context, ref),
+          ),
+          const SizedBox(width: 8),
           ElevatedButton.icon(
             icon: const Icon(Icons.add),
             label: const Text("Add Product"),
             style: ElevatedButton.styleFrom(
                 backgroundColor: theme.colorScheme.primary,
                 foregroundColor: theme.colorScheme.onPrimary),
-
-            // --- TWO-PHASE CREATION FLOW ---
             onPressed: () async {
-              // PHASE 1: General Info
               final result = await showDialog(
                 context: context,
                 builder: (_) =>
                     const _ProductEditorDialog(isPostCreation: false),
               );
-
               ref.invalidate(productsByGroupProvider);
-
-              if (result is Product && context.mounted) {
+              if (result is Product && mounted) {
                 showDialog(
                   context: context,
                   builder: (_) => _ProductEditorDialog(
@@ -88,8 +489,7 @@ class ProductsScreen extends ConsumerWidget {
                   color: theme.colorScheme.surfaceContainerHighest,
                   child: Text("CATEGORIES",
                       style: theme.textTheme.labelMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.2)),
+                          fontWeight: FontWeight.bold, letterSpacing: 1.2)),
                 ),
                 const Expanded(child: _GroupTreeSidebar()),
               ],
@@ -97,7 +497,12 @@ class ProductsScreen extends ConsumerWidget {
           ),
           const VerticalDivider(width: 1, thickness: 1),
           // RIGHT AREA
-          const Expanded(child: _ProductListContent()),
+          Expanded(
+            child: _ProductListContent(
+              selectedIds: Set.from(_selectedIds),
+              onSelectionChanged: _updateSelection,
+            ),
+          ),
         ],
       ),
     );
@@ -123,15 +528,18 @@ class _GroupTreeSidebar extends ConsumerWidget {
 
           return ListView(
             children: [
-              ListTile(
-                leading: Icon(Icons.all_inbox, color: Theme.of(context).colorScheme.primary),
-                title: const Text("All Products",
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                selected: ref.watch(selectedProductGroupIdProvider) == null,
-                selectedTileColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
-                onTap: () => ref
-                    .read(selectedProductGroupIdProvider.notifier)
-                    .state = null,
+              Material(
+                color: Colors.transparent,
+                child: ListTile(
+                  leading: Icon(Icons.all_inbox, color: Theme.of(context).colorScheme.primary),
+                  title: const Text("All Products",
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  selected: ref.watch(selectedProductGroupIdProvider) == null,
+                  selectedTileColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                  onTap: () => ref
+                      .read(selectedProductGroupIdProvider.notifier)
+                      .state = null,
+                ),
               ),
               Divider(height: 1, color: Theme.of(context).dividerColor.withValues(alpha: 0.1)),
               ...rootGroups.map((g) =>
@@ -241,44 +649,13 @@ class _TreeNodeState extends State<_TreeNode> {
 
 // --- PRODUCT DATA TABLE WIDGET ---
 class _ProductListContent extends ConsumerWidget {
-  const _ProductListContent();
+  final Set<int> selectedIds;
+  final ValueChanged<Set<int>> onSelectionChanged;
 
-  Future<void> _deleteProduct(
-      BuildContext context, WidgetRef ref, Product product) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Delete Product"),
-        content: Text("Are you sure you want to delete '${product.name}'?"),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text("Cancel")),
-          ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              onPressed: () => Navigator.pop(ctx, true),
-              child:
-                  const Text("Delete", style: TextStyle(color: Colors.white))),
-        ],
-      ),
-    );
-
-    if (confirm != true || !context.mounted) return;
-
-    try {
-      final dio = createDio();
-      await dio.delete('/Products/Delete',
-          queryParameters: {'id': product.id, 'companyId': product.companyId});
-      ref.invalidate(productsByGroupProvider);
-      if (context.mounted)
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("Product deleted"), backgroundColor: Colors.green));
-    } catch (e) {
-      if (context.mounted)
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(_parseApiError(e)), backgroundColor: Colors.red));
-    }
-  }
+  const _ProductListContent({
+    required this.selectedIds,
+    required this.onSelectionChanged,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -286,6 +663,11 @@ class _ProductListContent extends ConsumerWidget {
     final sym = ref.watch(currencySymbolProvider);
     final asyncProducts = ref.watch(productsByGroupProvider);
     final groups = ref.watch(allProductGroupsProvider).value ?? [];
+
+    // Clear selection whenever the category filter changes.
+    ref.listen(selectedProductGroupIdProvider, (_, __) {
+      onSelectionChanged({});
+    });
 
     return asyncProducts.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -296,13 +678,17 @@ class _ProductListContent extends ConsumerWidget {
                 child: Text("No products found.",
                     style: TextStyle(color: Colors.grey, fontSize: 18)));
 
+          final effectiveSelected =
+              selectedIds.intersection(products.map((p) => p.id).toSet());
+
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Card(
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.1)),
+                side: BorderSide(
+                    color: theme.dividerColor.withValues(alpha: 0.1)),
               ),
               color: theme.cardColor,
               clipBehavior: Clip.antiAlias,
@@ -310,6 +696,8 @@ class _ProductListContent extends ConsumerWidget {
                 headingRowColor: WidgetStateProperty.all(
                     theme.colorScheme.surfaceContainerHighest),
                 dataRowMaxHeight: 65,
+                onSelectAll: (val) => onSelectionChanged(
+                    val == true ? products.map((p) => p.id).toSet() : {}),
                 columns: const [
                   DataColumn(label: Text("Image")),
                   DataColumn(label: Text("Code")),
@@ -317,7 +705,7 @@ class _ProductListContent extends ConsumerWidget {
                   DataColumn(label: Text("Category")),
                   DataColumn(label: Text("Price")),
                   DataColumn(label: Text("Cost")),
-                  DataColumn(label: Text("Actions")),
+                  DataColumn(label: Text("Edit")),
                 ],
                 rows: products.map((p) {
                   final groupName = groups
@@ -327,71 +715,80 @@ class _ProductListContent extends ConsumerWidget {
                       '-';
 
                   return DataRow(
-                      color: WidgetStateProperty.all(
-                          p.isEnabled ? Colors.transparent : theme.disabledColor.withValues(alpha: 0.05)),
-                      cells: [
-                        DataCell(Container(
-                          width: 45,
-                          height: 45,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[200],
-                            borderRadius: BorderRadius.circular(6),
-                            image: p.imageBytes != null
-                                ? DecorationImage(
-                                    image: MemoryImage(p.imageBytes!),
-                                    fit: BoxFit.cover)
-                                : null,
-                          ),
-                          child: p.imageBytes == null
-                              ? const Icon(Icons.inventory_2,
-                                  color: Colors.grey)
+                    selected: effectiveSelected.contains(p.id),
+                    onSelectChanged: (val) {
+                      final next = Set<int>.from(selectedIds);
+                      if (val == true) {
+                        next.add(p.id);
+                      } else {
+                        next.remove(p.id);
+                      }
+                      onSelectionChanged(next);
+                    },
+                    color: WidgetStateProperty.resolveWith((states) {
+                      if (states.contains(WidgetState.selected)) {
+                        return theme.colorScheme.primary.withValues(alpha: 0.08);
+                      }
+                      return p.isEnabled
+                          ? Colors.transparent
+                          : theme.disabledColor.withValues(alpha: 0.05);
+                    }),
+                    cells: [
+                      DataCell(Container(
+                        width: 45,
+                        height: 45,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(6),
+                          image: p.imageBytes != null
+                              ? DecorationImage(
+                                  image: MemoryImage(p.imageBytes!),
+                                  fit: BoxFit.cover)
                               : null,
-                        )),
-                        DataCell(Text(p.code ?? '-')),
-                        DataCell(Text(p.name,
+                        ),
+                        child: p.imageBytes == null
+                            ? Icon(Icons.inventory_2, color: theme.hintColor)
+                            : null,
+                      )),
+                      DataCell(Text(p.code ?? '-')),
+                      DataCell(Text(p.name,
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              decoration: p.isEnabled
+                                  ? null
+                                  : TextDecoration.lineThrough))),
+                      DataCell(Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                            color: theme.colorScheme.primaryContainer
+                                .withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(6)),
+                        child: Text(groupName,
                             style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                decoration: p.isEnabled
-                                    ? null
-                                    : TextDecoration.lineThrough))),
-                        DataCell(Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                              color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
-                              borderRadius: BorderRadius.circular(6)),
-                          child: Text(groupName,
-                              style: TextStyle(
-                                  color: theme.colorScheme.primary,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold)),
-                        )),
-                        DataCell(Text("${p.price.toStringAsFixed(2)} $sym",
-                            style: const TextStyle(
-                                color: Colors.green,
-                                fontWeight: FontWeight.bold))),
-                        DataCell(Text("${p.cost.toStringAsFixed(2)} $sym",
-                            style: const TextStyle(color: Colors.redAccent))),
-                        DataCell(Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: Icon(Icons.edit,
-                                  color: theme.colorScheme.primary, size: 20),
-                              onPressed: () => showDialog(
-                                  context: context,
-                                  builder: (_) => _ProductEditorDialog(
-                                      existingProduct: p)).then((_) =>
-                                  ref.invalidate(productsByGroupProvider)),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete,
-                                  color: Colors.redAccent, size: 20),
-                              onPressed: () => _deleteProduct(context, ref, p),
-                            ),
-                          ],
-                        )),
-                      ]);
+                                color: theme.colorScheme.primary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold)),
+                      )),
+                      DataCell(Text("${p.price.toStringAsFixed(2)} $sym",
+                          style: const TextStyle(
+                              color: Colors.green,
+                              fontWeight: FontWeight.bold))),
+                      DataCell(Text("${p.cost.toStringAsFixed(2)} $sym",
+                          style:
+                              const TextStyle(color: Colors.redAccent))),
+                      DataCell(IconButton(
+                        icon: Icon(Icons.edit,
+                            color: theme.colorScheme.primary, size: 20),
+                        onPressed: () => showDialog(
+                                context: context,
+                                builder: (_) =>
+                                    _ProductEditorDialog(existingProduct: p))
+                            .then((_) =>
+                                ref.invalidate(productsByGroupProvider)),
+                      )),
+                    ],
+                  );
                 }).toList(),
               ),
             ),

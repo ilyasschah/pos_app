@@ -58,4 +58,17 @@ class ProductGroupService {
       queryParameters: {'id': id, 'companyId': companyId},
     );
   }
+
+  Future<int> assignProducts(
+      int companyId, int groupId, List<int> productIds) async {
+    final response = await _dio.post(
+      '/ProductGroups/AssignProducts',
+      data: {
+        'companyId': companyId,
+        'groupId': groupId,
+        'productIds': productIds,
+      },
+    );
+    return (response.data['updated'] as int?) ?? 0;
+  }
 }

@@ -31,36 +31,38 @@ class SettingsScreen extends ConsumerStatefulWidget {
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends ConsumerState<SettingsScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  int _selectedIndex = 0;
 
   static const _tabs = [
-    (icon: Icons.tune, label: 'General'),
-    (icon: Icons.receipt_long, label: 'Order & Payment'),
-    (icon: Icons.inventory_2, label: 'Products'),
-    (icon: Icons.description, label: 'Documents'),
-    (icon: Icons.monitor_weight, label: 'Weighing Scale'),
-    (icon: Icons.display_settings, label: 'Customer Display'),
-    (icon: Icons.email, label: 'Email'),
-    (icon: Icons.print, label: 'Print'),
+    (icon: Icons.tune,              label: 'General'),
+    (icon: Icons.receipt_long,      label: 'Order & Payment'),
+    (icon: Icons.inventory_2,       label: 'Products'),
+    (icon: Icons.description,       label: 'Documents'),
+    (icon: Icons.monitor_weight,    label: 'Weighing Scale'),
+    (icon: Icons.display_settings,  label: 'Customer Display'),
+    (icon: Icons.email,             label: 'Email'),
+    (icon: Icons.print,             label: 'Print'),
     (icon: Icons.currency_exchange, label: 'Dual Currency'),
-    (icon: Icons.storage, label: 'Database'),
-    (icon: Icons.vpn_key, label: 'License'),
-    (icon: Icons.info_outline, label: 'About'),
+    (icon: Icons.storage,           label: 'Database'),
+    (icon: Icons.vpn_key,           label: 'License'),
+    (icon: Icons.info_outline,      label: 'About'),
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: _tabs.length, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
+  static const _tabViews = [
+    _GeneralTab(),
+    _OrderPaymentTab(),
+    _ProductsTab(),
+    _DocumentsTab(),
+    _WeighingScaleTab(),
+    _CustomerDisplayTab(),
+    _EmailTab(),
+    _PrintTab(),
+    _DualCurrencyTab(),
+    _DatabaseTab(),
+    _LicenseTab(),
+    _AboutTab(),
+  ];
 
   Future<void> _saveAndRestart() async {
     showDialog(
@@ -83,9 +85,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to save settings: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save settings: $e')),
+        );
       }
     }
   }
@@ -94,44 +96,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   Widget build(BuildContext context) {
     final isLoading = ref.watch(rawAppPropertiesProvider).isLoading;
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text(
-          'Settings',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: theme.colorScheme.surface,
-        foregroundColor: theme.colorScheme.onSurface,
+        title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: cs.surface,
+        foregroundColor: cs.onSurface,
         elevation: 0,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(48),
-          child: Container(
-            color: theme.colorScheme.surface,
-            child: TabBar(
-              controller: _tabController,
-              isScrollable: true,
-              labelColor: theme.colorScheme.primary,
-              unselectedLabelColor: theme.disabledColor,
-              indicatorColor: theme.colorScheme.primary,
-              indicatorWeight: 3,
-              tabs: _tabs
-                  .map(
-                    (t) => Tab(
-                      child: Row(
-                        children: [
-                          Icon(t.icon, size: 16),
-                          const SizedBox(width: 6),
-                          Text(t.label, style: const TextStyle(fontSize: 13)),
-                        ],
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        ),
         actions: [
           if (isLoading)
             const Padding(
@@ -150,21 +123,45 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           const SizedBox(width: 8),
         ],
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: const [
-          _GeneralTab(),
-          _OrderPaymentTab(),
-          _ProductsTab(),
-          _DocumentsTab(),
-          _WeighingScaleTab(),
-          _CustomerDisplayTab(),
-          _EmailTab(),
-          _PrintTab(),
-          _DualCurrencyTab(),
-          _DatabaseTab(),
-          _LicenseTab(),
-          _AboutTab(),
+      body: Row(
+        children: [
+          // ── Left sidebar ────────────────────────────────────────────────
+          Material(
+            color: cs.surfaceContainerLow,
+            child: SizedBox(
+              width: 210,
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                itemCount: _tabs.length,
+                itemBuilder: (context, i) {
+                  final tab = _tabs[i];
+                  final active = i == _selectedIndex;
+                  return ListTile(
+                    dense: true,
+                    leading: Icon(
+                      tab.icon,
+                      size: 18,
+                      color: active ? cs.primary : cs.onSurfaceVariant,
+                    ),
+                    title: Text(
+                      tab.label,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: active ? cs.primary : cs.onSurface,
+                        fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                    selected: active,
+                    selectedTileColor: cs.primaryContainer.withValues(alpha: 0.35),
+                    onTap: () => setState(() => _selectedIndex = i),
+                  );
+                },
+              ),
+            ),
+          ),
+          VerticalDivider(width: 1, color: cs.outlineVariant),
+          // ── Content ─────────────────────────────────────────────────────
+          Expanded(child: _tabViews[_selectedIndex]),
         ],
       ),
     );
@@ -183,19 +180,13 @@ class _SettingsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
+    return Card(
       margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: theme.shadowColor.withValues(alpha: 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+      elevation: 1,
+      shadowColor: theme.shadowColor.withValues(alpha: 0.08),
+      color: theme.cardColor,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -541,13 +532,13 @@ class _CustomServiceTypesEditorState
           ...types.asMap().entries.map((entry) {
             final idx = entry.key;
             final t = entry.value;
-            return Container(
-              margin: const EdgeInsets.only(bottom: 6),
-              decoration: BoxDecoration(
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Material(
                 color: theme.colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(8),
-              ),
-              child: ListTile(
+                clipBehavior: Clip.antiAlias,
+                child: ListTile(
                 dense: true,
                 leading: CircleAvatar(
                   backgroundColor: _palette[idx % _palette.length],
@@ -581,7 +572,8 @@ class _CustomServiceTypesEditorState
                   ],
                 ),
               ),
-            );
+            ),
+          );
           }),
         ],
       ),
@@ -763,40 +755,41 @@ class _CustomServiceStatusesEditorState
           ),
           const SizedBox(height: 6),
           ...statuses.map(
-            (s) => Container(
-              margin: const EdgeInsets.only(bottom: 6),
-              decoration: BoxDecoration(
+            (s) => Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Material(
                 color: theme.colorScheme.surfaceContainerHighest,
                 borderRadius: BorderRadius.circular(8),
-              ),
-              child: ListTile(
-                dense: true,
-                leading: CircleAvatar(
-                  backgroundColor: s.color,
-                  radius: 14,
-                  child: Text(
-                    '${s.id}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
+                clipBehavior: Clip.antiAlias,
+                child: ListTile(
+                  dense: true,
+                  leading: CircleAvatar(
+                    backgroundColor: s.color,
+                    radius: 14,
+                    child: Text(
+                      '${s.id}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                ),
-                title: Text(s.name),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      onPressed: () => _showStatusDialog(existing: s),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 18),
-                      color: theme.colorScheme.error,
-                      onPressed: () => _delete(s),
-                    ),
-                  ],
+                  title: Text(s.name),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        onPressed: () => _showStatusDialog(existing: s),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        color: theme.colorScheme.error,
+                        onPressed: () => _delete(s),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -2606,13 +2599,18 @@ class _TimezoneCard extends ConsumerStatefulWidget {
 
 class _TimezoneCardState extends ConsumerState<_TimezoneCard> {
   bool _detecting = false;
-  late final List<String> _tzIds;
+  List<String> _tzIds = [];
 
   @override
   void initState() {
     super.initState();
-    tz_data.initializeTimeZones();
-    _tzIds = tz.timeZoneDatabase.locations.keys.toList()..sort();
+    _tzIds = [];
+    // Defer heavy timezone DB init so it doesn't block the route transition
+    Future.microtask(() {
+      tz_data.initializeTimeZones();
+      final ids = tz.timeZoneDatabase.locations.keys.toList()..sort();
+      if (mounted) setState(() => _tzIds = ids);
+    });
   }
 
   Future<void> _applyAutoTimezone() async {

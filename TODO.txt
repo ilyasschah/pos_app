@@ -1,4 +1,3 @@
 check the settigns if they realy work and effect the application
-report page 
 currensies screen
-product group screeen shows so big make it smaller
+sales history
