@@ -112,10 +112,39 @@ class _PaymentCheckoutDialogState
     final wasTable   = ref.read(cartProvider).floorPlanTableId != null;
     final orderNum   = ref.read(cartProvider).orderNumber;
     final payTypes   = ref.read(allPaymentTypesProvider).asData?.value ?? [];
-    final payName    = payTypes
+    final selectedPayType = payTypes
         .where((p) => p.id == _selectedPaymentTypeId)
-        .map((p) => p.name)
         .firstOrNull;
+    final payName = selectedPayType?.name;
+
+    // Rule 1: block checkout if the payment type requires a real customer.
+    // The default walk-in customer has code "C000" — that is not sufficient.
+    if (selectedPayType?.isCustomerRequired == true) {
+      final customer = ref.read(cartProvider).selectedCustomer;
+      if (customer == null || customer.code == 'C000') {
+        setState(() => _isProcessing = false);
+        if (mounted) {
+          await showDialog<void>(
+            context: ctx,
+            builder: (c) => AlertDialog(
+              icon: const Icon(Icons.block, color: Colors.red, size: 36),
+              title: const Text('Transaction Blocked'),
+              content: const Text(
+                'Credit payment requires a selected customer.\n\n'
+                'Please choose a customer before completing this transaction.',
+              ),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.pop(c),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+    }
     Uint8List? logoBytes;
     final logoB64 = company.logo;
     if (logoB64 != null && logoB64.isNotEmpty) {
@@ -124,12 +153,16 @@ class _PaymentCheckoutDialogState
     final appSettings = ref.read(appSettingsProvider);
 
     try {
+      // Cap at grandTotal: tendered amount is UI-only for change display.
+      // _paid.clamp preserves the partial-payment path for future Credit/Tab.
+      final amountToSave = _paid.clamp(0.0, _grandTotal);
+
       final success = await ref.read(cartProvider.notifier).checkoutOrder(
         apiClient:      ApiClient(),
         companyId:      company.id,
         userId:         user.id,
         paymentTypeId:  _selectedPaymentTypeId!,
-        amountPaid:     _paid,
+        amountPaid:     amountToSave,
         documentTypeId: DocumentTypes.sales,
       );
 
@@ -184,6 +217,19 @@ class _PaymentCheckoutDialogState
   }
 
   // ── Customer picker (reused from menu_screen pattern) ─────────────────────
+  void _clearCustomer() {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    final customers = ref.read(allCustomersProvider).asData?.value ?? [];
+    final defaultCustomer = customers.firstWhere(
+      (c) => c.code == 'C000',
+      orElse: () => customers.first,
+    );
+    ref.read(currentCustomerProvider.notifier).setCustomer(defaultCustomer);
+    if (companyId != null) {
+      ref.read(cartProvider.notifier).setCustomer(companyId, defaultCustomer);
+    }
+  }
+
   void _pickCustomer(BuildContext ctx, List<Customer> customers) {
     showDialog(
       context: ctx,
@@ -240,6 +286,11 @@ class _PaymentCheckoutDialogState
       }
     });
 
+    final selectedPayType = payTypesAsync.asData?.value
+        .where((p) => p.id == _selectedPaymentTypeId)
+        .firstOrNull;
+    final markAsPaid = selectedPayType?.markAsPaid ?? true;
+
     return Dialog(
       insetPadding: const EdgeInsets.all(12),
       backgroundColor: theme.colorScheme.surface,
@@ -287,8 +338,16 @@ class _PaymentCheckoutDialogState
                     grandTotal: _grandTotal,
                     sym: _sym,
                     paidNotifier: _paidNotifier,
+                    markAsPaid: markAsPaid,
                   ),
                   const Divider(height: 1),
+
+                  // Rich customer card — only for real (non-walk-in) customers
+                  if (customer != null && customer.code != 'C000')
+                    _CustomerDetailCard(
+                      customer: customer,
+                      onRemove: _clearCustomer,
+                    ),
 
                   _Numpad(
                     onKey: _onKey,
@@ -298,6 +357,7 @@ class _PaymentCheckoutDialogState
                     isProcessing: _isProcessing,
                     paidNotifier: _paidNotifier,
                     grandTotal: _grandTotal,
+                    markAsPaid: markAsPaid,
                   ),
                 ],
               ),
@@ -653,11 +713,13 @@ class _TotalsDisplay extends StatelessWidget {
   final double grandTotal;
   final String sym;
   final ValueNotifier<String> paidNotifier;
+  final bool markAsPaid;
 
   const _TotalsDisplay({
     required this.grandTotal,
     required this.sym,
     required this.paidNotifier,
+    required this.markAsPaid,
   });
 
   @override
@@ -677,12 +739,13 @@ class _TotalsDisplay extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          // Paid & Change — only these rebuild on numpad input
+          // Paid, Change/Remaining — only these rebuild on numpad input
           ValueListenableBuilder<String>(
             valueListenable: paidNotifier,
             builder: (_, raw, __) {
-              final paid   = double.tryParse(raw) ?? 0;
-              final change = (paid - grandTotal).clamp(0, double.infinity);
+              final paid      = double.tryParse(raw) ?? 0;
+              final change    = (paid - grandTotal).clamp(0.0, double.infinity);
+              final remaining = paid < grandTotal ? grandTotal - paid : 0.0;
               return Column(
                 children: [
                   _TotalRow(
@@ -696,14 +759,28 @@ class _TotalsDisplay extends StatelessWidget {
                         color: theme.colorScheme.onSurface.withAlpha(120)),
                   ),
                   const SizedBox(height: 12),
-                  _TotalRow(
-                    label: 'Change',
-                    value: '$sym ${change.toStringAsFixed(2)}',
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      color: change > 0 ? Colors.green : theme.colorScheme.onSurface.withAlpha(100),
-                      fontWeight: FontWeight.bold,
+                  // Show "Remaining" for credit/tab types; show "Change" for cash
+                  if (!markAsPaid && remaining > 0) ...[
+                    _TotalRow(
+                      label: 'Remaining',
+                      value: '$sym ${remaining.toStringAsFixed(2)}',
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        color: Colors.orange,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
+                  ] else ...[
+                    _TotalRow(
+                      label: 'Change',
+                      value: '$sym ${change.toStringAsFixed(2)}',
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        color: change > 0
+                            ? Colors.green
+                            : theme.colorScheme.onSurface.withAlpha(100),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ],
               );
             },
@@ -762,6 +839,7 @@ class _Numpad extends StatelessWidget {
   final bool isProcessing;
   final ValueNotifier<String> paidNotifier;
   final double grandTotal;
+  final bool markAsPaid;
 
   const _Numpad({
     required this.onKey,
@@ -769,6 +847,7 @@ class _Numpad extends StatelessWidget {
     required this.isProcessing,
     required this.paidNotifier,
     required this.grandTotal,
+    required this.markAsPaid,
   });
 
   static const double _gap = 8;
@@ -866,7 +945,10 @@ class _Numpad extends StatelessWidget {
                       valueListenable: paidNotifier,
                       builder: (_, raw, __) {
                         final paid   = double.tryParse(raw) ?? 0;
-                        final canPay = paid >= grandTotal && onComplete != null;
+                        // Credit/tab types (markAsPaid == false) can complete
+                        // even when paid amount is less than the grand total.
+                        final canPay = (paid >= grandTotal || !markAsPaid) &&
+                            onComplete != null;
                         return _CompleteButton(
                           canPay: canPay,
                           isProcessing: isProcessing,
@@ -932,6 +1014,73 @@ class _CompleteButton extends StatelessWidget {
                   ],
                 ),
         ),
+      ),
+    );
+  }
+}
+
+// ── Rich customer detail card ─────────────────────────────────────────────────
+
+class _CustomerDetailCard extends StatelessWidget {
+  final Customer customer;
+  final VoidCallback onRemove;
+
+  const _CustomerDetailCard({required this.customer, required this.onRemove});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    final addressParts = <String>[
+      if (customer.streetName != null && customer.streetName!.isNotEmpty)
+        customer.streetName!,
+      if (customer.city != null && customer.city!.isNotEmpty) customer.city!,
+    ];
+    final address = addressParts.isNotEmpty ? addressParts.join(', ') : null;
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHigh,
+        border: const Border(
+            left: BorderSide(color: Colors.blue, width: 4)),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.person, color: Colors.blue, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(customer.name,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 13)),
+                if (address != null)
+                  Text('Address: $address',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: cs.onSurface.withValues(alpha: 0.65))),
+                if (customer.taxNumber != null &&
+                    customer.taxNumber!.isNotEmpty)
+                  Text('Tax No.: ${customer.taxNumber}',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: cs.onSurface.withValues(alpha: 0.65))),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: Icon(Icons.delete_outline, size: 18, color: cs.error),
+            onPressed: onRemove,
+            tooltip: 'Remove customer',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
       ),
     );
   }

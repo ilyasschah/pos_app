@@ -9,7 +9,8 @@ import 'package:pos_app/refund/refund_service.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 
 class RefundDialog extends ConsumerStatefulWidget {
-  const RefundDialog({super.key});
+  final String? initialDocumentNumber;
+  const RefundDialog({super.key, this.initialDocumentNumber});
 
   @override
   ConsumerState<RefundDialog> createState() => _RefundDialogState();
@@ -27,6 +28,15 @@ class _RefundDialogState extends ConsumerState<RefundDialog> {
   // productId → quantity the cashier wants to refund
   Map<int, double> _refundQty = {};
   final _fmt = NumberFormat('#,##0.00');
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialDocumentNumber != null) {
+      _receiptCtrl.text = widget.initialDocumentNumber!;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _lookupReceipt());
+    }
+  }
 
   @override
   void dispose() {

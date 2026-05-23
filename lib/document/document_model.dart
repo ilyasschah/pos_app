@@ -139,7 +139,9 @@ class DocumentItem {
   final int documentId;
   final String? documentNumber;
   final int productId;
+  final String? productCode;
   final String? productName;
+  final String? measurementUnit;
   final double quantity;
   final double expectedQuantity;
   final double priceBeforeTax;
@@ -159,7 +161,9 @@ class DocumentItem {
     required this.documentId,
     this.documentNumber,
     required this.productId,
+    this.productCode,
     this.productName,
+    this.measurementUnit,
     required this.quantity,
     required this.expectedQuantity,
     required this.priceBeforeTax,
@@ -181,7 +185,9 @@ class DocumentItem {
       documentId: json['documentId'] ?? 0,
       documentNumber: json['documentNumber'],
       productId: json['productId'] ?? 0,
+      productCode: json['productCode'],
       productName: json['productName'],
+      measurementUnit: json['measurementUnit'],
       quantity: (json['quantity'] as num?)?.toDouble() ?? 0,
       expectedQuantity: (json['expectedQuantity'] as num?)?.toDouble() ?? 0,
       priceBeforeTax: (json['priceBeforeTax'] as num?)?.toDouble() ?? 0,

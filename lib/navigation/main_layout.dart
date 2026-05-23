@@ -18,6 +18,8 @@ import 'package:pos_app/auth/user_info_screen.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/auth/login_screen.dart';
 import 'package:pos_app/cash/cash_movement_screen.dart';
+import 'package:pos_app/reports/sales_history_screen.dart';
+import 'package:pos_app/credit/credit_payment_dialog.dart';
 
 class MainLayout extends ConsumerStatefulWidget {
   final int initialIndex;
@@ -121,7 +123,16 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                       icon: Icons.receipt_long,
                       label: "View sales history",
                       isActive: _selectedIndex == 99,
-                      onTap: () {},
+                      onTap: () {
+                        if (!isDesktop && Scaffold.of(context).hasDrawer)
+                          Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const SalesHistoryScreen(),
+                          ),
+                        );
+                      },
                     ),
                     NavItem(
                       icon: Icons.layers,
@@ -168,7 +179,11 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     NavItem(
                       icon: Icons.credit_card,
                       label: "Credit payments",
-                      onTap: () {},
+                      onTap: () {
+                        if (!isDesktop && Scaffold.of(context).hasDrawer)
+                          Navigator.pop(context);
+                        CreditPaymentsDialog.show(context);
+                      },
                     ),
                     NavItem(
                       icon: Icons.directions_run,

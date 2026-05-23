@@ -233,6 +233,9 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
       );
       setState(() => _paidStatus = newStatus);
       ref.invalidate(allDocumentsProvider);
+      // Invalidate the payments cache so the UI clears immediately after
+      // the backend deletes payment records (e.g. when marking Unpaid).
+      ref.invalidate(paymentsByDocumentIdProvider(_savedDocumentId!));
     } catch (e) {
       debugPrint("Failed to update paid status: $e");
     }
@@ -2509,7 +2512,41 @@ class _PaymentsView extends ConsumerWidget {
               children: [
                 _PaidStatusChip(
                   paidStatus: paidStatus,
-                  onChanged: onPaidStatusChanged,
+                  onChanged: (nextStatus) async {
+                    // Rule 3: guard against toggling to Unpaid when the
+                    // document is already fully balanced — doing so will
+                    // delete all payment records on the backend.
+                    final totalPaid = asyncPayments.value?.fold<double>(
+                            0, (s, p) => s + p.amount.abs()) ??
+                        0;
+                    if (nextStatus == 0 && totalPaid >= documentTotal) {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Mark as Unpaid?'),
+                          content: const Text(
+                            'This document has a complete payment balance.\n\n'
+                            'Proceeding will permanently delete all associated '
+                            'payment transactions. Are you sure?',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx, false),
+                              child: const Text('Cancel'),
+                            ),
+                            FilledButton(
+                              style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.red),
+                              onPressed: () => Navigator.pop(ctx, true),
+                              child: const Text('Yes, delete payments'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirmed != true) return;
+                    }
+                    onPaidStatusChanged(nextStatus);
+                  },
                 ),
                 const SizedBox(width: 12),
                 ElevatedButton.icon(
@@ -2544,7 +2581,7 @@ class _PaymentsView extends ConsumerWidget {
           ),
           data: (payments) {
             final totalPaid = payments.fold<double>(0, (s, p) => s + p.amount);
-            final remaining = documentTotal - totalPaid;
+            final remaining = documentTotal - totalPaid.abs();
 
             return Expanded(
               child: Column(
