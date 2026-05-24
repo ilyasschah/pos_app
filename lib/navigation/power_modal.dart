@@ -7,8 +7,9 @@ class PowerModal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Dialog(
-      backgroundColor: kNavBg,
+      backgroundColor: context.navSidebarBg,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Container(
         width: 600,
@@ -16,18 +17,18 @@ class PowerModal extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
+            Text(
               "Exit application",
               style: TextStyle(
-                color: Colors.white,
+                color: cs.onSurface,
                 fontSize: 22,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               "Are you sure you want to exit the application?",
-              style: TextStyle(color: kNavMuted, fontSize: 16),
+              style: TextStyle(color: context.navMuted, fontSize: 16),
             ),
             const SizedBox(height: 32),
             Row(
@@ -36,21 +37,19 @@ class PowerModal extends StatelessWidget {
                 _PowerOptionCard(
                   icon: Icons.power_settings_new,
                   label: "Exit application",
-                  iconColor: Colors.white,
-                  onTap: () => exit(0), // Native desktop exit
+                  iconColor: cs.onSurface,
+                  onTap: () => exit(0),
                 ),
                 _PowerOptionCard(
                   icon: Icons.refresh,
                   label: "Restart application",
-                  iconColor: Colors.white,
+                  iconColor: cs.onSurface,
                   onTap: () async {
                     try {
                       await Process.run(Platform.resolvedExecutable, []);
                       exit(0);
                     } catch (e) {
-                      if (context.mounted) {
-                        Navigator.pop(context);
-                      }
+                      if (context.mounted) Navigator.pop(context);
                     }
                   },
                 ),
@@ -72,9 +71,7 @@ class PowerModal extends StatelessWidget {
                         await Process.run('systemctl', ['poweroff']);
                       }
                     } catch (e) {
-                      if (context.mounted) {
-                        Navigator.pop(context);
-                      }
+                      if (context.mounted) Navigator.pop(context);
                     }
                   },
                 ),
@@ -83,17 +80,12 @@ class PowerModal extends StatelessWidget {
             const SizedBox(height: 32),
             OutlinedButton.icon(
               onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close, color: kNavText),
-              label: const Text("Cancel", style: TextStyle(color: kNavText)),
+              icon: Icon(Icons.close, color: cs.onSurface),
+              label: Text("Cancel", style: TextStyle(color: cs.onSurface)),
               style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: kNavDivider),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 16,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
+                side: BorderSide(color: context.navDivider),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
             ),
           ],
@@ -130,7 +122,7 @@ class _PowerOptionCardState extends State<_PowerOptionCard> {
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onExit:  (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
         child: AnimatedContainer(
@@ -138,9 +130,9 @@ class _PowerOptionCardState extends State<_PowerOptionCard> {
           width: 150,
           height: 150,
           decoration: BoxDecoration(
-            color: _hovered ? kNavHover : Colors.transparent,
+            color: _hovered ? context.navHover : Colors.transparent,
             border: Border.all(
-              color: _hovered ? kNavDivider : Colors.transparent,
+              color: _hovered ? context.navDivider : Colors.transparent,
             ),
             borderRadius: BorderRadius.circular(12),
           ),
@@ -153,7 +145,7 @@ class _PowerOptionCardState extends State<_PowerOptionCard> {
                 widget.label,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: widget.textColor ?? Colors.white,
+                  color: widget.textColor ?? Theme.of(context).colorScheme.onSurface,
                   fontWeight: FontWeight.w500,
                 ),
               ),

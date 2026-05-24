@@ -52,10 +52,9 @@ class _ManagementLayoutState extends State<ManagementLayout> {
       const PromotionsListScreen(), // Index 7
       const UsersScreen(), // Index 8
       const PaymentTypesScreen(), // Index 9
-      const PlaceholderScreen(title: "Countries"), // Index 10
-      const TaxRatesScreen(), // Index 11
-      const MyCompanyScreen(), // Index 12
-      const VoidReasonsScreen(), // Index 13
+      const TaxRatesScreen(), // Index 10
+      const MyCompanyScreen(), // Index 11
+      const VoidReasonsScreen(), // Index 12
     ];
 
     void handleNavTap(int index) {
@@ -67,7 +66,7 @@ class _ManagementLayoutState extends State<ManagementLayout> {
 
     Widget sidebar = Container(
       width: kSidebarW,
-      color: kNavSidebar,
+      color: context.navSidebarBg,
       child: SafeArea(
         child: Column(
           children: [
@@ -172,28 +171,22 @@ class _ManagementLayoutState extends State<ManagementLayout> {
                       onTap: () => handleNavTap(9),
                     ),
                     NavItem(
-                      icon: Icons.public,
-                      label: "Countries",
+                      icon: Icons.percent,
+                      label: "Tax rates",
                       isActive: _selectedIndex == 10,
                       onTap: () => handleNavTap(10),
                     ),
                     NavItem(
-                      icon: Icons.percent,
-                      label: "Tax rates",
+                      icon: Icons.business,
+                      label: "My company",
                       isActive: _selectedIndex == 11,
                       onTap: () => handleNavTap(11),
                     ),
                     NavItem(
-                      icon: Icons.business,
-                      label: "My company",
-                      isActive: _selectedIndex == 12,
-                      onTap: () => handleNavTap(12),
-                    ),
-                    NavItem(
                       icon: Icons.block,
                       label: "Void reasons",
-                      isActive: _selectedIndex == 13,
-                      onTap: () => handleNavTap(13),
+                      isActive: _selectedIndex == 12,
+                      onTap: () => handleNavTap(12),
                     ),
                     const SizedBox(height: 16),
                   ],
@@ -207,10 +200,10 @@ class _ManagementLayoutState extends State<ManagementLayout> {
 
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: kNavBg,
+      backgroundColor: context.navScaffoldBg,
       drawer: isDesktop
           ? null
-          : Drawer(backgroundColor: kNavSidebar, child: sidebar),
+          : Drawer(backgroundColor: context.navSidebarBg, child: sidebar),
       body: Row(
         children: [
           // ✨ Conditionally show sidebar based on our new variable
@@ -224,7 +217,7 @@ class _ManagementLayoutState extends State<ManagementLayout> {
                   if (!showPermanentSidebar && _selectedIndex != 2 && _selectedIndex != 3)
                     Container(
                       height: kToolbarHeight,
-                      color: kNavSidebar,
+                      color: context.navSidebarBg,
                       child: Row(
                         children: [
                           IconButton(

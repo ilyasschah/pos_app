@@ -5,6 +5,7 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/cart/payment_type_model.dart';
 import 'package:pos_app/cart/payment_type_provider.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 // ─────────────────────────────────────────────────────────────
 // SCREEN
@@ -569,23 +570,12 @@ class PaymentTypesScreen extends ConsumerWidget {
       ref.invalidate(allPaymentTypesProvider);
 
       if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Payment type deleted"),
-          backgroundColor: Colors.green,
-        ),
-      );
+      showAppSnackbar(context, ref, 'Payment type deleted');
     } on DioException catch (e) {
       if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.response?.data?.toString() ?? "Delete failed"),
-
-          backgroundColor: Colors.red,
-        ),
-      );
+      final data = e.response?.data;
+      final msg = (data is Map ? data['message'] : null) ?? data?.toString() ?? 'Delete failed';
+      showAppSnackbar(context, ref, msg, isError: true);
     }
   }
 }

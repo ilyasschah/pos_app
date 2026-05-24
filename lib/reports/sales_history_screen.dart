@@ -440,19 +440,24 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
     final items = _items;
 
     // Convert DocumentItems → CartItems
-    final cartItems = items.map((item) => CartItem(
-      posOrderId:          0,
-      productId:           item.productId,
-      productName:         item.productName ?? '-',
-      quantity:            item.quantity,
-      price:               item.price,
-      discount:            item.discount,
-      discountType:        item.discountType,
-      promotionalDiscount: 0,
-      appliedTaxes:        [],
-      measurementUnit:     item.measurementUnit,
-      isService:           false,
-    )).toList();
+    final cartItems = <CartItem>[];
+    for (int i = 0; i < items.length; i++) {
+      final item = items[i];
+      cartItems.add(CartItem(
+        cartItemId:          '${item.productId}_$i',
+        posOrderId:          0,
+        productId:           item.productId,
+        productName:         item.productName ?? '-',
+        quantity:            item.quantity,
+        price:               item.price,
+        discount:            item.discount,
+        discountType:        item.discountType,
+        promotionalDiscount: 0,
+        appliedTaxes:        [],
+        measurementUnit:     item.measurementUnit,
+        isService:           false,
+      ));
+    }
 
     // Decode logo
     Uint8List? logoBytes;

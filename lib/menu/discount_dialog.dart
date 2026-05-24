@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/cart/cart_provider.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 class DiscountDialog extends ConsumerStatefulWidget {
   const DiscountDialog({super.key});
@@ -11,30 +14,40 @@ class DiscountDialog extends ConsumerStatefulWidget {
 
 class _DiscountDialogState extends ConsumerState<DiscountDialog>
     with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+  TabController? _tabController;
   final TextEditingController _cartValueCtrl = TextEditingController(text: '0');
   final TextEditingController _itemValueCtrl = TextEditingController(text: '0');
 
   int _cartDiscountType = 0;
-  int _itemDiscountType =
-      0; // if item discount is always fixed amount, or maybe we do math
+  int _itemDiscountType = 0;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    final settings = ref.read(appSettingsProvider);
+    final defaultTypeInt = settings[SettingKeys.defaultDiscountType] == 'Fixed' ? 1 : 0;
+    _cartDiscountType = defaultTypeInt;
+    _itemDiscountType = defaultTypeInt;
+
+    final itemDiscountAllowed =
+        settings[SettingKeys.singleItemDiscountAllowed]?.toLowerCase() != 'false';
+    if (itemDiscountAllowed) {
+      _tabController = TabController(length: 2, vsync: this);
+    }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final cartState = ref.read(cartProvider);
       _cartValueCtrl.text = cartState.manualCartDiscount.toString();
-      _cartDiscountType = cartState.manualCartDiscountType;
+      // Restore existing cart discount type only if a discount is already applied
+      if (cartState.manualCartDiscount > 0) {
+        _cartDiscountType = cartState.manualCartDiscountType;
+      }
 
-      if (cartState.selectedProductId != null) {
-        final item = cartState.items.firstWhere(
-          (i) => i.productId == cartState.selectedProductId,
-          orElse: () => cartState.items.first,
-        );
-        _itemValueCtrl.text = item.discount.toString();
+      if (cartState.selectedCartItemId != null) {
+        final item = cartState.items
+            .where((i) => i.cartItemId == cartState.selectedCartItemId)
+            .firstOrNull;
+        if (item != null) _itemValueCtrl.text = item.discount.toString();
       }
       setState(() {});
     });
@@ -42,150 +55,157 @@ class _DiscountDialogState extends ConsumerState<DiscountDialog>
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _tabController?.dispose();
     _cartValueCtrl.dispose();
     _itemValueCtrl.dispose();
     super.dispose();
   }
 
-  void _apply() {
-    final cartState = ref.read(cartProvider);
-    final cartNotifier = ref.read(cartProvider.notifier);
+  void _applyCartDiscount() {
+    final val = double.tryParse(_cartValueCtrl.text) ?? 0;
+    ref.read(cartProvider.notifier).setCartDiscount(val, _cartDiscountType);
+    Navigator.pop(context);
+  }
 
-    if (_tabController.index == 0) {
-      // Cart Discount
-      final val = double.tryParse(_cartValueCtrl.text) ?? 0;
-      cartNotifier.setCartDiscount(val, _cartDiscountType);
-      Navigator.pop(context);
-    } else {
-      // Item Discount
-      if (cartState.selectedProductId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("No item selected!"),
-            backgroundColor: Colors.red,
-          ),
-        );
+  void _applyItemDiscount() {
+    final cartState = ref.read(cartProvider);
+    final selectedCartItemId = cartState.selectedCartItemId;
+    if (selectedCartItemId == null) {
+      showAppSnackbar(context, ref, 'No item selected!', isError: true);
+      return;
+    }
+
+    final item = cartState.items
+        .where((i) => i.cartItemId == selectedCartItemId)
+        .firstOrNull;
+    if (item == null) {
+      showAppSnackbar(context, ref, 'Selected item not found.', isError: true);
+      return;
+    }
+
+    final val = double.tryParse(_itemValueCtrl.text) ?? 0;
+    double finalDiscount = _itemDiscountType == 0 ? item.price * (val / 100) : val;
+
+    final settings = ref.read(appSettingsProvider);
+    final preventBelowCost =
+        settings[SettingKeys.preventSaleBelowCostPrice]?.toLowerCase() == 'true';
+    if (preventBelowCost && item.cost > 0) {
+      if (item.price - finalDiscount < item.cost) {
+        showAppSnackbar(context, ref, 'Discount would price item below cost.', isError: true);
         return;
       }
-      final val = double.tryParse(_itemValueCtrl.text) ?? 0;
-
-      // We only have one discount property on item, which is a fixed amount.
-      // If user selected %, we calculate it.
-      double finalDiscount = val;
-      if (_itemDiscountType == 0) {
-        // Percentage
-        final item = cartState.items.firstWhere(
-          (i) => i.productId == cartState.selectedProductId,
-        );
-        finalDiscount = item.price * (val / 100);
-      }
-      cartNotifier.setItemDiscount(cartState.selectedProductId!, finalDiscount);
-      Navigator.pop(context);
     }
+
+    ref.read(cartProvider.notifier).setItemDiscount(selectedCartItemId, finalDiscount);
+    Navigator.pop(context);
+  }
+
+  void _apply() {
+    if (_tabController == null || _tabController!.index == 0) {
+      _applyCartDiscount();
+    } else {
+      _applyItemDiscount();
+    }
+  }
+
+  Widget _buildCartDiscountColumn() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        DropdownButtonFormField<int>(
+          key: ValueKey(_cartDiscountType),
+          initialValue: _cartDiscountType,
+          decoration: const InputDecoration(labelText: 'Discount Type'),
+          items: const [
+            DropdownMenuItem(value: 0, child: Text('Percentage (%)')),
+            DropdownMenuItem(value: 1, child: Text('Fixed Amount')),
+          ],
+          onChanged: (v) => setState(() => _cartDiscountType = v!),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _cartValueCtrl,
+          decoration: const InputDecoration(labelText: 'Value'),
+          keyboardType: TextInputType.number,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildItemDiscountColumn(ColorScheme cs) {
+    final hasSelectedItem = ref.watch(cartProvider).selectedCartItemId != null;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (!hasSelectedItem)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              'Please select an item in the cart first.',
+              style: TextStyle(color: cs.error),
+            ),
+          ),
+        DropdownButtonFormField<int>(
+          key: ValueKey(_itemDiscountType),
+          initialValue: _itemDiscountType,
+          decoration: const InputDecoration(labelText: 'Discount Type'),
+          items: const [
+            DropdownMenuItem(value: 0, child: Text('Percentage (%)')),
+            DropdownMenuItem(value: 1, child: Text('Fixed Amount')),
+          ],
+          onChanged: (v) => setState(() => _itemDiscountType = v!),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _itemValueCtrl,
+          decoration: const InputDecoration(labelText: 'Value'),
+          keyboardType: TextInputType.number,
+        ),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return AlertDialog(
-      title: const Text("Apply Discount"),
+      title: const Text('Apply Discount'),
       content: SizedBox(
         width: 400,
-        height: 300,
-        child: Column(
-          children: [
-            TabBar(
-              controller: _tabController,
-              labelColor: Colors.blue,
-              unselectedLabelColor: Colors.grey,
-              tabs: const [
-                Tab(text: "Cart Discount"),
-                Tab(text: "Item Discount"),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
+        height: _tabController != null ? 300 : 180,
+        child: _tabController != null
+            ? Column(
                 children: [
-                  // Cart Discount Tab
-                  Column(
-                    children: [
-                      DropdownButtonFormField<int>(
-                        initialValue: _cartDiscountType,
-                        decoration: const InputDecoration(
-                          labelText: "Discount Type",
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 0,
-                            child: Text('Percentage (%)'),
-                          ),
-                          DropdownMenuItem(
-                            value: 1,
-                            child: Text('Fixed Amount (\$)'),
-                          ),
-                        ],
-                        onChanged: (v) =>
-                            setState(() => _cartDiscountType = v!),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _cartValueCtrl,
-                        decoration: const InputDecoration(labelText: "Value"),
-                        keyboardType: TextInputType.number,
-                      ),
+                  TabBar(
+                    controller: _tabController,
+                    labelColor: cs.primary,
+                    unselectedLabelColor: cs.onSurfaceVariant,
+                    tabs: const [
+                      Tab(text: 'Cart Discount'),
+                      Tab(text: 'Item Discount'),
                     ],
                   ),
-                  // Item Discount Tab
-                  Column(
-                    children: [
-                      if (ref.watch(cartProvider).selectedProductId == null)
-                        const Padding(
-                          padding: EdgeInsets.all(8.0),
-                          child: Text(
-                            "Please select an item in the cart first.",
-                            style: TextStyle(color: Colors.red),
-                          ),
-                        ),
-                      DropdownButtonFormField<int>(
-                        initialValue: _itemDiscountType,
-                        decoration: const InputDecoration(
-                          labelText: "Discount Type",
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 0,
-                            child: Text('Percentage (%)'),
-                          ),
-                          DropdownMenuItem(
-                            value: 1,
-                            child: Text('Fixed Amount (\$)'),
-                          ),
-                        ],
-                        onChanged: (v) =>
-                            setState(() => _itemDiscountType = v!),
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _itemValueCtrl,
-                        decoration: const InputDecoration(labelText: "Value"),
-                        keyboardType: TextInputType.number,
-                      ),
-                    ],
+                  const SizedBox(height: 16),
+                  Expanded(
+                    child: TabBarView(
+                      controller: _tabController,
+                      children: [
+                        _buildCartDiscountColumn(),
+                        _buildItemDiscountColumn(cs),
+                      ],
+                    ),
                   ),
                 ],
-              ),
-            ),
-          ],
-        ),
+              )
+            : _buildCartDiscountColumn(),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text("Cancel"),
+          child: const Text('Cancel'),
         ),
-        ElevatedButton(onPressed: _apply, child: const Text("Apply")),
+        ElevatedButton(onPressed: _apply, child: const Text('Apply')),
       ],
     );
   }

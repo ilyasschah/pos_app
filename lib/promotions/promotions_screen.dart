@@ -4,6 +4,7 @@ import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/promotions/promotion_edit_dialog.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 class PromotionsScreen extends ConsumerWidget {
   const PromotionsScreen({super.key});
@@ -11,7 +12,7 @@ class PromotionsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final promotionsAsync = ref.watch(allPromotionsProvider);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
@@ -45,7 +46,6 @@ class PromotionsScreen extends ConsumerWidget {
               final promotion = promotions[index];
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: isDark ? Colors.grey[850] : Colors.white,
                 child: ListTile(
                   title: Text(promotion.name,
                       style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -55,7 +55,7 @@ class PromotionsScreen extends ConsumerWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.edit, color: Colors.blue),
+                        icon: Icon(Icons.edit, color: cs.primary),
                         onPressed: () {
                           showDialog(
                             context: context,
@@ -65,7 +65,7 @@ class PromotionsScreen extends ConsumerWidget {
                         },
                       ),
                       IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.red),
+                        icon: Icon(Icons.delete, color: cs.error),
                         onPressed: () async {
                           final confirm = await showDialog<bool>(
                               context: context,
@@ -80,14 +80,11 @@ class PromotionsScreen extends ConsumerWidget {
                                             child: const Text('Cancel')),
                                         ElevatedButton(
                                             style: ElevatedButton.styleFrom(
-                                                backgroundColor: Colors.red),
+                                                backgroundColor: cs.error,
+                                                foregroundColor: cs.onError),
                                             onPressed: () =>
                                                 Navigator.pop(ctx, true),
-                                            child: const Text(
-                                              'Delete',
-                                              style: TextStyle(
-                                                  color: Colors.white),
-                                            )),
+                                            child: const Text('Delete')),
                                       ]));
                           if (confirm == true) {
                             final companyId =
@@ -98,8 +95,9 @@ class PromotionsScreen extends ConsumerWidget {
                                     .deletePromotion(companyId, promotion.id);
                                 ref.invalidate(allPromotionsProvider);
                               } catch (e) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Error: $e')));
+                                if (context.mounted) {
+                                  showAppSnackbar(context, ref, 'Error: $e', isError: true);
+                                }
                               }
                             }
                           }

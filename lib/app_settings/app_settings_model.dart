@@ -191,6 +191,74 @@ class SettingKeys {
   static String roleFontSize(String role)          => '$role.FontSize';
   static String roleCashDrawerEnabled(String role) => '$role.CashDrawer.Enabled';
   static String roleCashDrawerCommand(String role) => '$role.CashDrawer.Command';
+
+  // Application Style
+  static const writingDirection         = 'App.WritingDirection';
+  static const enableVirtualKeyboard    = 'App.EnableVirtualKeyboard';
+  static const posLayout                = 'App.PosLayout';
+
+  // Messages
+  static const messageDuration          = 'App.MessageDuration';
+  static const messagePosition          = 'App.MessagePosition';
+
+  // Business Day
+  static const showCashInOnStart        = 'App.ShowCashInOnStart';
+  static const selectBusinessDayOnStart = 'App.SelectBusinessDayOnStart';
+
+  // Basic Operations
+  static const useFloorPlans                  = 'Order.UseFloorPlans';
+  static const enableSounds                   = 'App.EnableSounds';
+
+  // Items
+  static const defaultSearch                  = 'Menu.DefaultSearch';
+  static const showSearchOptions              = 'Menu.ShowSearchOptions';
+  static const defaultDiscountType            = 'Order.DefaultDiscountType';
+  static const separateRowForEachItem         = 'Order.SeparateRowForEachItem';
+  static const preventSaleBelowCostPrice      = 'Order.PreventSaleBelowCostPrice';
+  static const preventNegativeInventory       = 'Order.PreventNegativeInventory';
+
+  // Users
+  static const singleUser                     = 'App.SingleUser';
+
+  // Payment (extended)
+  static const displayReceiptPrintDialog      = 'Order.DisplayReceiptPrintDialog';
+  static const defaultDueDateDays             = 'Order.DefaultDueDateDays';
+  static const mergeItemsOnReceipt            = 'Receipt.MergeItems';
+  static const singleItemDiscountAllowed      = 'Order.SingleItemDiscountAllowed';
+  static const shortcutKeysPaymentConfirmation = 'Order.ShortcutKeysPaymentConfirmation';
+
+  // Order Name
+  static const enableCustomOrderName          = 'Order.EnableCustomOrderName';
+  static const orderNameRequired              = 'Order.NameRequired';
+  static const requestOrderNameAutomatically  = 'Order.RequestNameAutomatically';
+
+  // Service Type (extended)
+  static const enableServiceTypeSelection     = 'Feature.ServiceType.SelectionEnabled';
+  static const requestServiceTypeAutomatically = 'Feature.ServiceType.RequestAutomatically';
+  static const defaultServiceType             = 'Feature.ServiceType.Default';
+  static const printLargeOrderNumberInReceipt = 'Receipt.PrintLargeOrderNumber';
+
+  // Advanced Settings
+  static const resetOrderNumberOnDayClose     = 'Order.ResetNumberOnDayClose';
+  static const showItemsOnPaymentForm         = 'Order.ShowItemsOnPaymentForm';
+  static const numberOfPaymentTypeRows        = 'Order.NumberOfPaymentTypeRows';
+  static const showAllOccupiedTablesInFloorPlan = 'Feature.FloorPlan.ShowAllOccupied';
+
+  // Button Bar
+  static const showSearchBtn     = 'ButtonBar.ShowSearch';
+  static const showTransferBtn   = 'ButtonBar.ShowTransfer';
+  static const showCustomerBtn   = 'ButtonBar.ShowCustomer';
+  static const showDiscountBtn   = 'ButtonBar.ShowDiscount';
+  static const showCommentBtn    = 'ButtonBar.ShowComment';
+  static const showNewSaleBtn    = 'ButtonBar.ShowNewSale';
+  static const showRefundBtn     = 'ButtonBar.ShowRefund';
+  static const showOrderNameBtn  = 'ButtonBar.ShowOrderName';
+  static const showCashDrawerBtn = 'ButtonBar.ShowCashDrawer';
+  static const showWarehouseBtn  = 'ButtonBar.ShowWarehouse';
+  static const showBookingBtn    = 'ButtonBar.ShowBooking';
+  static const showTablesBtn     = 'ButtonBar.ShowTables';
+  static const showKitchenBtn    = 'ButtonBar.ShowKitchen';
+  static const showTaxBtn        = 'ButtonBar.ShowTax';
 }
 
 const Map<String, String> kSettingDefaults = {
@@ -331,6 +399,74 @@ const Map<String, String> kSettingDefaults = {
   'Receipt.FontSize':          '100',
   'Receipt.CashDrawer.Enabled': 'false',
   'Receipt.CashDrawer.Command': r'\x1B\x70\x00\x19\xFA',
+
+  // Basic Operations
+  SettingKeys.useFloorPlans:                   'true',
+  SettingKeys.enableSounds:                    'false',
+
+  // Items
+  SettingKeys.defaultSearch:                   'Name',
+  SettingKeys.showSearchOptions:               'true',
+  SettingKeys.defaultDiscountType:             'Percentage',
+  SettingKeys.separateRowForEachItem:          'false',
+  SettingKeys.preventSaleBelowCostPrice:       'true',
+  SettingKeys.preventNegativeInventory:        'false',
+
+  // Users
+  SettingKeys.singleUser:                      'true',
+
+  // Payment (extended)
+  SettingKeys.displayReceiptPrintDialog:       'false',
+  SettingKeys.defaultDueDateDays:              '0',
+  SettingKeys.mergeItemsOnReceipt:             'true',
+  SettingKeys.singleItemDiscountAllowed:       'true',
+  SettingKeys.shortcutKeysPaymentConfirmation: 'true',
+
+  // Order Name
+  SettingKeys.enableCustomOrderName:           'true',
+  SettingKeys.orderNameRequired:               'false',
+  SettingKeys.requestOrderNameAutomatically:   'true',
+
+  // Service Type (extended)
+  SettingKeys.enableServiceTypeSelection:       'true',
+  SettingKeys.requestServiceTypeAutomatically:  'true',
+  SettingKeys.defaultServiceType:               'Dine-in',
+  SettingKeys.printLargeOrderNumberInReceipt:   'false',
+
+  // Advanced Settings
+  SettingKeys.resetOrderNumberOnDayClose:        'false',
+  SettingKeys.showItemsOnPaymentForm:            'true',
+  SettingKeys.numberOfPaymentTypeRows:           '0',
+  SettingKeys.showAllOccupiedTablesInFloorPlan:  'true',
+
+  // Application Style
+  SettingKeys.writingDirection:         'LTR',
+  SettingKeys.enableVirtualKeyboard:    'false',
+  SettingKeys.posLayout:                'Visual',
+
+  // Messages
+  SettingKeys.messageDuration:          '3',
+  SettingKeys.messagePosition:          'Bottom',
+
+  // Business Day
+  SettingKeys.showCashInOnStart:        'true',
+  SettingKeys.selectBusinessDayOnStart: 'false',
+
+  // Button Bar
+  SettingKeys.showSearchBtn:     'true',
+  SettingKeys.showTransferBtn:   'true',
+  SettingKeys.showCustomerBtn:   'true',
+  SettingKeys.showDiscountBtn:   'true',
+  SettingKeys.showCommentBtn:    'true',
+  SettingKeys.showNewSaleBtn:    'true',
+  SettingKeys.showRefundBtn:     'true',
+  SettingKeys.showOrderNameBtn:  'true',
+  SettingKeys.showCashDrawerBtn: 'true',
+  SettingKeys.showWarehouseBtn:  'true',
+  SettingKeys.showBookingBtn:    'true',
+  SettingKeys.showTablesBtn:     'true',
+  SettingKeys.showKitchenBtn:    'true',
+  SettingKeys.showTaxBtn:        'true',
 
   // Printer Role — Kitchen
   'Kitchen.PrinterName':       '',

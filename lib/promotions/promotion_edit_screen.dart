@@ -7,6 +7,7 @@ import 'package:pos_app/product/product_provider.dart';
 import 'package:pos_app/product/product_group_provider.dart';
 import 'package:pos_app/product/product_group_model.dart';
 import 'package:pos_app/product/product_model.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 class EditablePromoItem {
   int id;
@@ -179,9 +180,7 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
       }
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) showAppSnackbar(context, ref, 'Error: $e', isError: true);
     }
   }
 
@@ -210,7 +209,7 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
               g.name,
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            leading: const Icon(Icons.folder, color: Colors.blueGrey),
+            leading: Icon(Icons.folder, color: Theme.of(context).colorScheme.onSurfaceVariant),
             children: [
               Padding(
                 padding: const EdgeInsets.only(left: 16.0),
@@ -222,13 +221,13 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
         ...childProducts.map(
           (p) => ListTile(
             title: Text(p.name),
-            leading: const Icon(
+            leading: Icon(
               Icons.inventory_2,
-              color: Colors.blueGrey,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
               size: 20,
             ),
             trailing: IconButton(
-              icon: const Icon(Icons.add_circle, color: Colors.green),
+              icon: Icon(Icons.add_circle, color: Theme.of(context).colorScheme.primary),
               onPressed: () {
                 setState(() {
                   if (!_items.any((i) => i.productId == p.id)) {
@@ -272,10 +271,6 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
             icon: const Icon(Icons.save),
             label: const Text('Save'),
             onPressed: _save,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              foregroundColor: Colors.white,
-            ),
           ),
           const SizedBox(width: 16),
         ],
@@ -285,7 +280,9 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
           // Header
           Container(
             padding: const EdgeInsets.all(16),
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -304,10 +301,15 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
                     const SizedBox(width: 16),
                     Expanded(
                       flex: 1,
-                      child: SwitchListTile(
-                        title: const Text('Is Active'),
-                        value: _isEnabled,
-                        onChanged: (v) => setState(() => _isEnabled = v),
+                      child: Row(
+                        children: [
+                          const Text('Is Active'),
+                          const Spacer(),
+                          Switch(
+                            value: _isEnabled,
+                            onChanged: (v) => setState(() => _isEnabled = v),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -513,9 +515,9 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
                                           ),
                                         ),
                                         IconButton(
-                                          icon: const Icon(
+                                          icon: Icon(
                                             Icons.delete,
-                                            color: Colors.red,
+                                            color: Theme.of(context).colorScheme.error,
                                           ),
                                           onPressed: () {
                                             setState(() {

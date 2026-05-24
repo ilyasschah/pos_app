@@ -7,6 +7,7 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/utils/status_helper.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/navigation/main_layout.dart';
 
 class TableWidget extends ConsumerStatefulWidget {
@@ -55,6 +56,16 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
     final isEditMode = ref.watch(floorPlanProvider).isEditMode;
     final isSelected = selectedTableId == widget.table.id && isEditMode;
     final theme = Theme.of(context);
+    final settings = ref.watch(appSettingsProvider);
+
+    final showAllOccupied =
+        (settings[SettingKeys.showAllOccupiedTablesInFloorPlan] ?? 'true')
+            .toLowerCase() !=
+        'false';
+    final isLocked = !showAllOccupied &&
+        widget.table.status > 0 &&
+        widget.table.assignedUserId != null &&
+        widget.table.assignedUserId != widget.userId;
 
     return Positioned(
       left: localX,
@@ -63,6 +74,7 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
       height: widget.table.height,
       child: GestureDetector(
         onTap: () async {
+          if (isLocked) return;
           if (isEditMode) {
             ref
                 .read(floorPlanTableProvider.notifier)
@@ -237,13 +249,13 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
             }
           }
         },
-        onPanUpdate: isEditMode
+        onPanUpdate: isEditMode && !isLocked
             ? (details) => setState(() {
                 localX += details.delta.dx;
                 localY += details.delta.dy;
               })
             : null,
-        onPanEnd: isEditMode
+        onPanEnd: isEditMode && !isLocked
             ? (details) => ref
                   .read(floorPlanTableProvider.notifier)
                   .updateTableGeometry(
@@ -256,7 +268,17 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
             : null,
         child: Container(
           decoration: BoxDecoration(
-            gradient: ServiceStatusHelper.getGradient(widget.table.status),
+            gradient: isLocked
+                ? LinearGradient(
+                    colors: [
+                      theme.colorScheme.surfaceContainerHighest,
+                      theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.7),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : ServiceStatusHelper.getGradient(widget.table.status),
             shape: widget.table.isRound ? BoxShape.circle : BoxShape.rectangle,
             borderRadius: widget.table.isRound
                 ? null
@@ -264,7 +286,9 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
             border: Border.all(
               color: isSelected
                   ? Colors.white
-                  : Colors.black.withValues(alpha: 0.1),
+                  : isLocked
+                      ? theme.colorScheme.outline
+                      : Colors.black.withValues(alpha: 0.1),
               width: isSelected ? 4 : 1,
             ),
             boxShadow: [
@@ -282,8 +306,12 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
-                        ServiceStatusHelper.getIcon(widget.table.status),
-                        color: Colors.white,
+                        isLocked
+                            ? Icons.lock_outline
+                            : ServiceStatusHelper.getIcon(widget.table.status),
+                        color: isLocked
+                            ? theme.colorScheme.onSurfaceVariant
+                            : Colors.white,
                         size: widget.table.height > 60 ? 24 : 16,
                       ),
                       if (widget.table.height > 50) const SizedBox(height: 4),
@@ -295,8 +323,10 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                             textAlign: TextAlign.center,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: isLocked
+                                  ? theme.colorScheme.onSurfaceVariant
+                                  : Colors.white,
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
                             ),

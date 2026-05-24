@@ -24,6 +24,7 @@ import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/promotions/promotion_provider.dart';
+import 'package:pos_app/api/promotion_models.dart';
 import 'package:pos_app/promotions/promotions_list_screen.dart';
 import 'package:pos_app/bookings/bookings_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table.dart';
@@ -34,6 +35,8 @@ import 'package:pos_app/product/product_comment_provider.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
 import 'package:pos_app/printer/printer_provider.dart';
 import 'package:pos_app/refund/refund_dialog.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
+import 'package:pos_app/stock/stock_provider.dart';
 
 final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
 final searchQueryProvider = StateProvider<String>((ref) => "");
@@ -55,6 +58,8 @@ class MenuScreen extends ConsumerStatefulWidget {
 }
 
 class _MenuScreenState extends ConsumerState<MenuScreen> {
+  List<PromotionDto> _activePromos = const [];
+
   @override
   void initState() {
     super.initState();
@@ -65,6 +70,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
         if (!hasActiveOrder) {
           syncLatestOrderNumber(ref, company.id);
         }
+      }
+      final promos = ref.read(activePromotionsProvider).value;
+      if (promos != null && mounted) {
+        setState(() => _activePromos = promos);
       }
     });
   }
@@ -91,6 +100,15 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     final customServiceStatuses = ref
         .read(appSettingsProvider.notifier)
         .customServiceStatuses;
+    final showCustomerBtn  = settings[SettingKeys.showCustomerBtn]?.toLowerCase()  != 'false';
+    final showDiscountBtn  = settings[SettingKeys.showDiscountBtn]?.toLowerCase()  != 'false';
+    final showTransferBtn  = settings[SettingKeys.showTransferBtn]?.toLowerCase()  != 'false';
+    final showRefundBtn    = settings[SettingKeys.showRefundBtn]?.toLowerCase()    != 'false';
+    final showWarehouseBtn = settings[SettingKeys.showWarehouseBtn]?.toLowerCase() != 'false';
+    final showBookingBtn   = settings[SettingKeys.showBookingBtn]?.toLowerCase()   != 'false';
+    final showTablesBtn    = settings[SettingKeys.showTablesBtn]?.toLowerCase()    != 'false';
+    final showKitchenBtn   = settings[SettingKeys.showKitchenBtn]?.toLowerCase()   != 'false';
+    final showTaxBtn       = settings[SettingKeys.showTaxBtn]?.toLowerCase()       != 'false';
     ref.listen(allCustomersProvider, (previous, next) {
       next.whenData((all) {
         final customers = all.where((c) => c.isCustomer).toList();
@@ -116,6 +134,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
           syncLatestOrderNumber(ref, next.id);
         }
       }
+    });
+
+    ref.listen<AsyncValue<List<PromotionDto>>>(activePromotionsProvider, (_, next) {
+      if (mounted) setState(() => _activePromos = next.value ?? []);
     });
 
     return Scaffold(
@@ -151,7 +173,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  asyncCustomers.when(
+                  if (showCustomerBtn)
+                    asyncCustomers.when(
                     loading: () => const SizedBox(
                       width: 20,
                       height: 20,
@@ -304,14 +327,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                                       );
                                 } catch (e) {
                                   if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                          'Error creating order: $e',
-                                        ),
-                                        backgroundColor: Colors.red,
-                                      ),
-                                    );
+                                    showAppSnackbar(context, ref, 'Error creating order: $e', isError: true);
                                   }
                                 }
                               }
@@ -512,72 +528,72 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                                   .where((s) => s.id == cartState.serviceStatus)
                                   .map((s) => s.color)
                                   .firstOrNull ??
-                              Colors.blueGrey,
+                              Theme.of(context).colorScheme.primary,
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                           visualDensity: VisualDensity.compact,
                         ),
                       ),
                     ),
-                  IconButton(
-                    iconSize: 26,
-                    icon: const Icon(Icons.percent),
-                    tooltip: "Discount",
-                    onPressed: () => showDialog(
-                      context: context,
-                      builder: (_) => const DiscountDialog(),
-                    ),
-                  ),
-                  IconButton(
-                    iconSize: 26,
-                    icon: const Icon(Icons.receipt),
-                    tooltip: "Tax",
-                    onPressed: () {
-                      final selectedProductId = cartState.selectedProductId;
-                      if (selectedProductId == null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text("Please select an item first"),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                        return;
-                      }
-                      final item = cartState.items.firstWhere(
-                        (i) => i.productId == selectedProductId,
-                      );
-                      showDialog(
+                  if (showDiscountBtn)
+                    IconButton(
+                      iconSize: 26,
+                      icon: const Icon(Icons.percent),
+                      tooltip: "Discount",
+                      onPressed: () => showDialog(
                         context: context,
-                        builder: (_) => _ItemTaxDialog(item: item),
-                      );
-                    },
-                  ),
-                  IconButton(
-                    iconSize: 26,
-                    icon: const Icon(Icons.swap_horiz),
-                    tooltip: "Transfer",
-                    onPressed: cartState.activePosOrderId == null
-                        ? null
-                        : () => showDialog(
-                            context: context,
-                            builder: (_) =>
-                                _TransferDialog(cartState: cartState),
-                          ),
-                  ),
-                  IconButton(
-                    iconSize: 26,
-                    icon: const Icon(Icons.undo),
-                    tooltip: "Refund",
-                    onPressed: () => showDialog(
-                      context: context,
-                      builder: (_) => const RefundDialog(),
+                        builder: (_) => const DiscountDialog(),
+                      ),
                     ),
-                  ),
+                  if (showTaxBtn)
+                    IconButton(
+                      iconSize: 26,
+                      icon: const Icon(Icons.receipt),
+                      tooltip: "Tax",
+                      onPressed: () {
+                        final selectedCartItemId = cartState.selectedCartItemId;
+                        if (selectedCartItemId == null) {
+                          showAppSnackbar(context, ref, 'Please select an item first', isError: true);
+                          return;
+                        }
+                        final item = cartState.items.firstWhere(
+                          (i) => i.cartItemId == selectedCartItemId,
+                        );
+                        showDialog(
+                          context: context,
+                          builder: (_) => _ItemTaxDialog(item: item),
+                        );
+                      },
+                    ),
+                  if (showTransferBtn)
+                    IconButton(
+                      iconSize: 26,
+                      icon: const Icon(Icons.swap_horiz),
+                      tooltip: "Transfer",
+                      onPressed: cartState.activePosOrderId == null
+                          ? null
+                          : () => showDialog(
+                              context: context,
+                              builder: (_) =>
+                                  _TransferDialog(cartState: cartState),
+                            ),
+                    ),
+                  if (showRefundBtn)
+                    IconButton(
+                      iconSize: 26,
+                      icon: const Icon(Icons.undo),
+                      tooltip: "Refund",
+                      onPressed: () => showDialog(
+                        context: context,
+                        builder: (_) => const RefundDialog(),
+                      ),
+                    ),
 
-                  IconButton(
-                    iconSize: 26,
-                    icon: const Icon(Icons.soup_kitchen),
-                    tooltip: "Send to Kitchen",
-                    onPressed: cartState.items.isEmpty
+                  if (showKitchenBtn)
+                    IconButton(
+                      iconSize: 26,
+                      icon: const Icon(Icons.soup_kitchen),
+                      tooltip: "Send to Kitchen",
+                      onPressed: cartState.items.isEmpty
                         ? null
                         : () async {
                             try {
@@ -596,13 +612,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                               if (kitchenSelection == null ||
                                   !kitchenSelection.isEnabled) {
                                 if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Kitchen printer is not configured or disabled.',
-                                      ),
-                                    ),
-                                  );
+                                  showAppSnackbar(context, ref, 'Kitchen printer is not configured or disabled.', isError: true);
                                 }
                                 return;
                               }
@@ -616,13 +626,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
 
                               if (settings == null) {
                                 if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Kitchen printer layout settings not found.',
-                                      ),
-                                    ),
-                                  );
+                                  showAppSnackbar(context, ref, 'Kitchen printer layout settings not found.', isError: true);
                                 }
                                 return;
                               }
@@ -652,22 +656,17 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                               );
                             } catch (e) {
                               if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Kitchen print error: $e'),
-                                    backgroundColor: Colors.red,
-                                  ),
-                                );
+                                showAppSnackbar(context, ref, 'Kitchen print error: $e', isError: true);
                               }
                             }
                           },
-                  ),
+                    ),
                 ],
               ),
             ),
           ),
           const SizedBox(width: 8),
-          if (ref.watch(activePromotionsProvider).isNotEmpty)
+          if (_activePromos.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(right: 8.0),
               child: InkWell(
@@ -693,7 +692,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                       const Icon(Icons.star, color: Colors.amber),
                       const SizedBox(width: 8),
                       Text(
-                        "${ref.watch(activePromotionsProvider).length}x Active Promotions",
+                        "${_activePromos.length}x Active Promotions",
                         style: const TextStyle(
                           color: Colors.amber,
                           fontWeight: FontWeight.bold,
@@ -706,39 +705,40 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
             ),
 
           // --- Warehouse Switcher (Icon Only) ---
-          Consumer(
-            builder: (context, ref, child) {
-              final selectedWarehouse = ref.watch(selectedWarehouseProvider);
-              final warehouses = ref.watch(allWarehousesProvider);
+          if (showWarehouseBtn)
+            Consumer(
+              builder: (context, ref, child) {
+                final selectedWarehouse = ref.watch(selectedWarehouseProvider);
+                final warehouses = ref.watch(allWarehousesProvider);
 
-              return Padding(
-                padding: const EdgeInsets.only(right: 8.0),
-                child: PopupMenuButton<int>(
-                  tooltip: selectedWarehouse?.name ?? "Select Warehouse",
-                  iconSize: 26,
-                  icon: const Icon(Icons.warehouse),
-                  onSelected: (id) {
-                    warehouses.whenData((list) {
-                      final wh = list.firstWhere((w) => w.id == id);
-                      ref.read(selectedWarehouseProvider.notifier).state = wh;
-                    });
-                  },
-                  itemBuilder: (ctx) => warehouses.when(
-                    data: (list) => list
-                        .map(
-                          (w) =>
-                              PopupMenuItem(value: w.id, child: Text(w.name)),
-                        )
-                        .toList(),
-                    loading: () => [],
-                    error: (_, __) => [],
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: PopupMenuButton<int>(
+                    tooltip: selectedWarehouse?.name ?? "Select Warehouse",
+                    iconSize: 26,
+                    icon: const Icon(Icons.warehouse),
+                    onSelected: (id) {
+                      warehouses.whenData((list) {
+                        final wh = list.firstWhere((w) => w.id == id);
+                        ref.read(selectedWarehouseProvider.notifier).state = wh;
+                      });
+                    },
+                    itemBuilder: (ctx) => warehouses.when(
+                      data: (list) => list
+                          .map(
+                            (w) =>
+                                PopupMenuItem(value: w.id, child: Text(w.name)),
+                          )
+                          .toList(),
+                      loading: () => [],
+                      error: (_, __) => [],
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
+                );
+              },
+            ),
 
-          if (bookingEnabled)
+          if (bookingEnabled && showBookingBtn)
             TextButton.icon(
               onPressed: () {
                 ref.read(cartProvider.notifier).clearCart();
@@ -756,8 +756,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                 style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
             ),
-          if (floorPlanEnabled) ...[
-            if (bookingEnabled) const SizedBox(width: 4),
+          if (floorPlanEnabled && showTablesBtn) ...[
+            if (bookingEnabled && showBookingBtn) const SizedBox(width: 4),
             TextButton.icon(
               onPressed: () async {
                 final cart = ref.read(cartProvider);
@@ -789,12 +789,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                           );
                     } catch (e) {
                       if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Could not save order: $e'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
+                        showAppSnackbar(context, ref, 'Could not save order: $e', isError: true);
                       }
                       return;
                     }
@@ -882,6 +877,9 @@ class BrowserSection extends ConsumerStatefulWidget {
 
 class _BrowserSectionState extends ConsumerState<BrowserSection> {
   int _currentPage = 0;
+  List<PromotionDto> _activePromos = const [];
+  Map<int, double> _stockMap = const {};
+  String? _activeSearchMode;
 
   @override
   Widget build(BuildContext context) {
@@ -890,6 +888,12 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
     });
     ref.listen(searchQueryProvider, (_, __) {
       if (mounted) setState(() => _currentPage = 0);
+    });
+    ref.listen<AsyncValue<List<PromotionDto>>>(activePromotionsProvider, (_, next) {
+      if (mounted) setState(() => _activePromos = next.value ?? []);
+    });
+    ref.listen<AsyncValue<Map<int, double>>>(stockQuantitiesProvider, (_, next) {
+      if (mounted) setState(() => _stockMap = next.value ?? const {});
     });
 
     final asyncGroups = ref.watch(allProductGroupsProvider);
@@ -914,12 +918,28 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
     List<dynamic> itemsToDisplay = [];
     bool isSearching = searchQuery.isNotEmpty;
 
+    final effectiveMode =
+        _activeSearchMode ?? settings[SettingKeys.defaultSearch] ?? 'Name';
+    final showSearchOptions =
+        settings[SettingKeys.showSearchOptions]?.toLowerCase() != 'false';
+
     if (isSearching) {
       itemsToDisplay = allProducts.where((p) {
         if (!p.isEnabled) return false;
         final query = searchQuery.toLowerCase();
-        return p.name.toLowerCase().contains(query) ||
-            (p.code?.toLowerCase().contains(query) ?? false);
+        switch (effectiveMode) {
+          case 'Code':
+            return p.code?.toLowerCase().contains(query) ?? false;
+          case 'Barcode':
+            return p.barcodes.any((b) => b.toLowerCase().contains(query));
+          case 'All fields':
+            return p.name.toLowerCase().contains(query) ||
+                (p.code?.toLowerCase().contains(query) ?? false) ||
+                p.barcodes.any((b) => b.toLowerCase().contains(query));
+          case 'Name':
+          default:
+            return p.name.toLowerCase().contains(query);
+        }
       }).toList();
     } else {
       final visibleGroups = allGroups
@@ -931,6 +951,7 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
       itemsToDisplay = [...visibleGroups, ...visibleProducts];
     }
 
+    final showSearchBtn = settings[SettingKeys.showSearchBtn]?.toLowerCase() != 'false';
     final cols = int.tryParse(settings[SettingKeys.menuGridCols] ?? '4') ?? 4;
     final rows = int.tryParse(settings[SettingKeys.menuGridRows] ?? '4') ?? 4;
     final itemsPerPage = cols * rows;
@@ -948,32 +969,89 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
     return Column(
       children: [
         // ── Search bar ──────────────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-          child: TextField(
-            decoration: InputDecoration(
-              hintText: 'Search products...',
-              prefixIcon: const PhosphorIcon(
-                  PhosphorIconsRegular.magnifyingGlass, size: 20),
-              fillColor: cs.surfaceContainer,
-              filled: true,
-              suffixIcon: searchQuery.isNotEmpty
-                  ? IconButton(
-                      icon: const PhosphorIcon(PhosphorIconsRegular.x, size: 18),
-                      onPressed: () =>
-                          ref.read(searchQueryProvider.notifier).state = '',
-                    )
-                  : null,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                  vertical: 14, horizontal: 16),
+        if (showSearchBtn)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search products...',
+                      prefixIcon: const PhosphorIcon(
+                          PhosphorIconsRegular.magnifyingGlass, size: 20),
+                      fillColor: cs.surfaceContainer,
+                      filled: true,
+                      suffixIcon: searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const PhosphorIcon(
+                                  PhosphorIconsRegular.x, size: 18),
+                              onPressed: () =>
+                                  ref.read(searchQueryProvider.notifier).state =
+                                      '',
+                            )
+                          : null,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                          vertical: 14, horizontal: 16),
+                    ),
+                    onChanged: (v) =>
+                        ref.read(searchQueryProvider.notifier).state = v,
+                  ),
+                ),
+                if (showSearchOptions) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    height: 50,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      color: cs.surfaceContainer,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (final (mode, icon) in <(String, IconData)>[
+                          ('All fields', PhosphorIconsRegular.asterisk),
+                          ('Barcode', PhosphorIconsRegular.barcode),
+                          ('Code', PhosphorIconsRegular.hash),
+                          ('Name', PhosphorIconsRegular.tag),
+                        ])
+                          Tooltip(
+                            message: mode,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () =>
+                                  setState(() => _activeSearchMode = mode),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: effectiveMode == mode
+                                      ? cs.primary.withValues(alpha: 0.15)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: PhosphorIcon(
+                                  icon,
+                                  size: 20,
+                                  color: effectiveMode == mode
+                                      ? cs.primary
+                                      : cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
             ),
-            onChanged: (v) => ref.read(searchQueryProvider.notifier).state = v,
           ),
-        ),
 
         // ── Breadcrumb ──────────────────────────────────────────────────────
         if (!isSearching && currentGroup != null)
@@ -1170,7 +1248,7 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final sym = ref.watch(currencySymbolProvider);
-    final hasPromo = getActivePromotionCountForProduct(ref, product.id) > 0;
+    final hasPromo = getActivePromotionCountForProduct(_activePromos, product.id) > 0;
 
     return InkWell(
       onTap: () async {
@@ -1198,25 +1276,29 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
                   );
             } catch (e) {
               if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Error creating order: $e'),
-                  backgroundColor: Colors.red,
-                ),
-              );
+              showAppSnackbar(context, ref, 'Error creating order: $e', isError: true);
               return;
             }
           } else {
             if (!context.mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Please select a Table from the Floor Plan first!',
-                ),
-                backgroundColor: Colors.red,
-              ),
-            );
+            showAppSnackbar(context, ref, 'Please select a Table from the Floor Plan first!', isError: true);
             return;
+          }
+        }
+
+        if (!product.isService) {
+          final preventNegInv = ref.read(appSettingsProvider)[SettingKeys.preventNegativeInventory]?.toLowerCase() == 'true';
+          if (preventNegInv) {
+            final stock = _stockMap[product.id];
+            if (stock != null) {
+              final cartQty = ref.read(cartProvider).items
+                  .where((i) => i.productId == product.id)
+                  .fold(0.0, (sum, i) => sum + i.quantity);
+              if (cartQty + 1 > stock) {
+                if (context.mounted) showAppSnackbar(context, ref, 'Out of stock! Negative inventory is disabled.', isError: true);
+                return;
+              }
+            }
           }
         }
 
@@ -1240,7 +1322,8 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
 
         double price = product.price;
         if (product.isPriceChangeAllowed) {
-          final p = await _showPriceInputDialog(context, product.price);
+          final preventBelowCost = ref.read(appSettingsProvider)[SettingKeys.preventSaleBelowCostPrice]?.toLowerCase() == 'true';
+          final p = await _showPriceInputDialog(context, product.price, product.cost, preventBelowCost, sym);
           if (p == null) return;
           price = p;
         }
@@ -1271,6 +1354,7 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
             id: product.id,
             name: product.name,
             price: price,
+            cost: product.cost,
             isTaxInclusivePrice: product.isTaxInclusivePrice,
             color: product.color,
             stockQuantity: 9999,
@@ -1280,6 +1364,7 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
             isPriceChangeAllowed: product.isPriceChangeAllowed,
             isUsingDefaultQuantity: product.isUsingDefaultQuantity,
             measurementUnit: product.measurementUnit,
+            isService: product.isService,
           );
           ref
               .read(cartProvider.notifier)
@@ -1291,12 +1376,7 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
               );
         } catch (e) {
           if (!context.mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(e.toString().replaceAll("Exception: ", "")),
-              backgroundColor: Colors.red,
-            ),
-          );
+          showAppSnackbar(context, ref, e.toString().replaceAll("Exception: ", ""), isError: true);
         }
       },
       child: Card(
@@ -1564,17 +1644,14 @@ class _CartSectionState extends ConsumerState<CartSection> {
             ),
           );
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                wasBookingOrder
-                    ? 'Booking Saved!'
-                    : wasTableOrder
-                    ? 'Order Saved to Table!'
-                    : 'Order Saved!',
-              ),
-              backgroundColor: Colors.blue,
-            ),
+          showAppSnackbar(
+            context,
+            ref,
+            wasBookingOrder
+                ? 'Booking Saved!'
+                : wasTableOrder
+                ? 'Order Saved to Table!'
+                : 'Order Saved!',
           );
         }
 
@@ -1759,9 +1836,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
       await syncLatestOrderNumber(ref, companyId);
 
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Order Voided'), backgroundColor: Colors.red),
-      );
+      showAppSnackbar(context, ref, 'Order Voided', isError: true);
 
       final bookingEnabled   = settings[SettingKeys.featureBookingEnabled]?.toLowerCase()   == 'true';
       final floorPlanEnabled = settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
@@ -1780,9 +1855,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
+        showAppSnackbar(context, ref, 'Error: $e', isError: true);
       }
     }
   }
@@ -1928,6 +2001,30 @@ class _CartSectionState extends ConsumerState<CartSection> {
                 ),
               ),
 
+              if (ref.read(appSettingsProvider)[SettingKeys.enableCustomOrderName]?.toLowerCase() == 'true')
+                IconButton(
+                  icon: Icon(
+                    cartState.orderName?.isNotEmpty == true
+                        ? Icons.badge
+                        : Icons.badge_outlined,
+                    size: 20,
+                  ),
+                  tooltip: cartState.orderName?.isNotEmpty == true
+                      ? 'Order Name: ${cartState.orderName}'
+                      : 'Set Order Name',
+                  onPressed: () async {
+                    final name = await _showOrderNameDialog(
+                      context,
+                      cartState.orderName,
+                    );
+                    if (name != null) {
+                      ref.read(cartProvider.notifier).setOrderName(
+                            name.isEmpty ? null : name,
+                          );
+                    }
+                  },
+                ),
+
               IconButton(
                 icon: const Icon(Icons.refresh, size: 20),
                 tooltip: 'Refresh order number',
@@ -1955,7 +2052,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blueGrey,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
                 ),
               ),
             ],
@@ -1968,7 +2065,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                   child: Text(
                     "Cart is empty",
                     style: TextStyle(
-                      color: isDark ? Colors.grey[600] : Colors.grey,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
                   ),
                 )
@@ -1978,7 +2075,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                   itemBuilder: (context, index) {
                     final item = cartItems[index];
                     final isSelected =
-                        cartState.selectedProductId == item.productId;
+                        cartState.selectedCartItemId == item.cartItemId;
                     return ListTile(
                       selected: isSelected,
                       selectedTileColor: isDark
@@ -1987,7 +2084,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                       onTap: () {
                         ref
                             .read(cartProvider.notifier)
-                            .setSelectedProduct(item.productId);
+                            .setSelectedProduct(item.cartItemId);
                       },
                       title: Row(
                         children: [
@@ -2077,13 +2174,13 @@ class _CartSectionState extends ConsumerState<CartSection> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           IconButton(
-                            icon: const Icon(
+                            icon: Icon(
                               Icons.remove_circle_outline,
-                              color: Colors.blueGrey,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
                             ),
                             onPressed: () => ref
                                 .read(cartProvider.notifier)
-                                .decrementItem(item.productId),
+                                .decrementItem(item.cartItemId),
                           ),
 
                           InkWell(
@@ -2122,18 +2219,9 @@ class _CartSectionState extends ConsumerState<CartSection> {
                                         if (newQty != null && newQty >= 0) {
                                           ref
                                               .read(cartProvider.notifier)
-                                              .addItem(
-                                                MenuProduct(
-                                                  id: item.productId,
-                                                  name: item.productName,
-                                                  price: item.price,
-                                                  isTaxInclusivePrice: true,
-                                                  color: "Transparent",
-                                                  stockQuantity: 9999,
-                                                  taxes: item.appliedTaxes,
-                                                ),
-                                                quantity:
-                                                    newQty - item.quantity,
+                                              .updateItemQuantity(
+                                                item.cartItemId,
+                                                newQty,
                                               );
                                         }
                                         Navigator.pop(ctx);
@@ -2153,13 +2241,13 @@ class _CartSectionState extends ConsumerState<CartSection> {
                             ),
                           ),
                           IconButton(
-                            icon: const Icon(
+                            icon: Icon(
                               Icons.add_circle_outline,
-                              color: Colors.blueGrey,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
                             ),
                             onPressed: () => ref
                                 .read(cartProvider.notifier)
-                                .incrementItem(item.productId),
+                                .incrementItem(item.cartItemId),
                           ),
                           const SizedBox(width: 8),
                           // Price
@@ -2200,7 +2288,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                             ),
                             onPressed: () => ref
                                 .read(cartProvider.notifier)
-                                .removeItem(item.productId),
+                                .removeItem(item.cartItemId),
                           ),
                         ],
                       ),
@@ -2211,7 +2299,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E293B) : Colors.blueGrey[50],
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
             boxShadow: [
               BoxShadow(
                 color: isDark ? Colors.black38 : Colors.black12,
@@ -2359,7 +2447,8 @@ class _CartSectionState extends ConsumerState<CartSection> {
                   ElevatedButton(
                     onPressed: cartState.activePosOrderId == null
                         ? null
-                        : () => _handleVoidOrder(context, ref, cartState, cartItems),
+                        : () => _handleVoidOrder(
+                              context, ref, cartState, cartItems),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.redAccent,
                       padding: const EdgeInsets.symmetric(
@@ -2381,10 +2470,24 @@ class _CartSectionState extends ConsumerState<CartSection> {
                     onPressed: cartItems.isEmpty
                         ? null
                         : () {
+                            final settings = ref.read(appSettingsProvider);
+                            final orderNameRequired = settings[SettingKeys.orderNameRequired]?.toLowerCase() == 'true';
+                            if (orderNameRequired &&
+                                (cartState.orderName == null ||
+                                    cartState.orderName!.isEmpty)) {
+                              showAppSnackbar(
+                                context,
+                                ref,
+                                'Order Name is required to complete this transaction.',
+                                isError: true,
+                              );
+                              return;
+                            }
                             showDialog(
                               context: context,
                               barrierDismissible: false,
-                              builder: (context) => const PaymentCheckoutDialog(),
+                              builder: (context) =>
+                                  const PaymentCheckoutDialog(),
                             );
                           },
                     style: ElevatedButton.styleFrom(
@@ -2461,23 +2564,24 @@ Future<double?> _showQuantityInputDialog(
   );
 }
 
-Future<double?> _showPriceInputDialog(
+Future<String?> _showOrderNameDialog(
   BuildContext context,
-  double defaultPrice,
+  String? currentName,
 ) async {
-  final controller = TextEditingController(
-    text: defaultPrice.toStringAsFixed(2),
-  );
-  return showDialog<double?>(
+  final controller = TextEditingController(text: currentName ?? '');
+  return showDialog<String?>(
     context: context,
     barrierDismissible: false,
     builder: (ctx) => AlertDialog(
-      title: const Text('Set Sale Price'),
+      title: const Text('Order Name'),
       content: TextField(
         controller: controller,
-        keyboardType: const TextInputType.numberWithOptions(decimal: true),
         autofocus: true,
-        decoration: const InputDecoration(labelText: 'Price', prefixText: '\$'),
+        decoration: const InputDecoration(
+          labelText: 'Enter order name',
+          hintText: 'e.g. John, Table 5',
+        ),
+        textCapitalization: TextCapitalization.words,
       ),
       actions: [
         TextButton(
@@ -2485,13 +2589,60 @@ Future<double?> _showPriceInputDialog(
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          onPressed: () {
-            final val = double.tryParse(controller.text);
-            if (val != null && val >= 0) Navigator.pop(ctx, val);
-          },
+          onPressed: () => Navigator.pop(ctx, controller.text.trim()),
           child: const Text('Confirm'),
         ),
       ],
+    ),
+  );
+}
+
+Future<double?> _showPriceInputDialog(
+  BuildContext context,
+  double defaultPrice,
+  double costPrice,
+  bool preventBelowCost,
+  String currencySymbol,
+) async {
+  final controller = TextEditingController(
+    text: defaultPrice.toStringAsFixed(2),
+  );
+  String? errorText;
+  return showDialog<double?>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setState) => AlertDialog(
+        title: const Text('Set Sale Price'),
+        content: TextField(
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: 'Price',
+            suffixText: ' $currencySymbol',
+            errorText: errorText,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final val = double.tryParse(controller.text);
+              if (val == null || val < 0) return;
+              if (preventBelowCost && val < costPrice) {
+                setState(() => errorText = 'Sale price cannot be below cost price.');
+                return;
+              }
+              Navigator.pop(ctx, val);
+            },
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
     ),
   );
 }
@@ -2679,7 +2830,7 @@ class _ItemTaxDialogState extends ConsumerState<_ItemTaxDialog> {
           onPressed: () {
             ref
                 .read(cartProvider.notifier)
-                .updateItemTaxes(widget.item.productId, _selectedTaxes);
+                .updateItemTaxes(widget.item.cartItemId, _selectedTaxes);
             Navigator.pop(context);
           },
           child: const Text("Apply Taxes"),
@@ -2779,9 +2930,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Order Transferred')));
+        showAppSnackbar(context, ref, 'Order Transferred');
       }
 
       ref.read(cartProvider.notifier).clearCart();
@@ -2792,12 +2941,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Transfer failed: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        showAppSnackbar(context, ref, 'Transfer failed: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _saving = false);

@@ -26,6 +26,7 @@ class Product {
   final int? ageRestriction;
   final double? lastPurchasePrice;
   final int? rank;
+  final List<String> barcodes;
 
   Product({
     required this.id,
@@ -52,6 +53,7 @@ class Product {
     this.ageRestriction,
     this.lastPurchasePrice,
     this.rank,
+    this.barcodes = const [],
   });
 
   factory Product.fromJson(Map<String, dynamic> json) {
@@ -82,6 +84,10 @@ class Product {
           ? (json['lastPurchasePrice']).toDouble()
           : null,
       rank: json['rank'] ?? 0,
+      barcodes: (json['barcodes'] as List<dynamic>?)
+              ?.map((b) => b.toString())
+              .toList() ??
+          const [],
     );
   }
 

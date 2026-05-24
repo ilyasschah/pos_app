@@ -8,6 +8,7 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_model.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/currency/country_model.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 class MyCompanyScreen extends ConsumerStatefulWidget {
   const MyCompanyScreen({super.key});
@@ -74,8 +75,6 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
       final company = Company.fromJson(
         companyResponse.data as Map<String, dynamic>,
       );
-
-      ref.read(selectedCompanyProvider.notifier).update(company);
 
       _nameCtrl.text = company.name;
       _taxNumberCtrl.text = company.taxNumber ?? '';
@@ -184,38 +183,14 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
       ref.read(selectedCompanyProvider.notifier).updateLogo(base64Logo);
       ref.invalidate(allCompaniesProvider);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
-                SizedBox(width: 8),
-                Text('Logo updated successfully'),
-              ],
-            ),
-            backgroundColor: Colors.green.shade700,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
-        );
-      }
+      if (mounted) showAppSnackbar(context, ref, 'Logo updated successfully');
     } on DioException catch (e) {
       if (mounted) {
         setState(() => _selectedLogoBytes = null);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              e.response?.data?.toString() ?? 'Failed to upload logo.',
-            ),
-            backgroundColor: Theme.of(context).colorScheme.error,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
+        showAppSnackbar(
+          context, ref,
+          e.response?.data?.toString() ?? 'Failed to upload logo.',
+          isError: true,
         );
       }
     } finally {
@@ -263,22 +238,33 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.check_circle_outline, color: Colors.white, size: 18),
-              SizedBox(width: 8),
-              Text("Company updated successfully"),
-            ],
-          ),
-          backgroundColor: Colors.green.shade700,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
+      showAppSnackbar(context, ref, 'Company updated successfully');
+
+      final countryName = _countries
+          .where((c) => c.id == _selectedCountryId)
+          .map((c) => c.name)
+          .firstOrNull ?? company.countryName;
+      final updatedCompany = Company(
+        id: company.id,
+        name: _nameCtrl.text.trim(),
+        countryId: _selectedCountryId,
+        countryName: countryName,
+        taxNumber: _taxNumberCtrl.text.trim(),
+        streetName: _streetNameCtrl.text.trim(),
+        buildingNumber: _buildingNumberCtrl.text.trim(),
+        additionalStreetName: _additionalStreetCtrl.text.trim(),
+        plotIdentification: _plotIdCtrl.text.trim(),
+        citySubdivisionName: _citySubdivisionCtrl.text.trim(),
+        countrySubentity: _countrySubentityCtrl.text.trim(),
+        postalCode: _postalCodeCtrl.text.trim(),
+        city: _cityCtrl.text.trim(),
+        email: _emailCtrl.text.trim(),
+        phoneNumber: _phoneCtrl.text.trim(),
+        bankAccountNumber: _bankAccountCtrl.text.trim(),
+        bankDetails: _bankDetailsCtrl.text.trim(),
+        logo: company.logo,
       );
+      ref.read(selectedCompanyProvider.notifier).update(updatedCompany);
       ref.invalidate(allCompaniesProvider);
     } on DioException catch (e) {
       setState(() {

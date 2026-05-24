@@ -28,6 +28,7 @@ class MenuProduct {
   final int id;
   final String name;
   final double price;
+  final double cost;
   final bool isTaxInclusivePrice;
   final String color;
   final double stockQuantity;
@@ -43,6 +44,7 @@ class MenuProduct {
     required this.id,
     required this.name,
     required this.price,
+    this.cost = 0.0,
     required this.isTaxInclusivePrice,
     required this.color,
     required this.stockQuantity,
@@ -60,6 +62,7 @@ class MenuProduct {
       id: json['id'],
       name: json['name'] ?? '',
       price: (json['price'] ?? 0).toDouble(),
+      cost: (json['cost'] ?? 0).toDouble(),
       isTaxInclusivePrice: json['isTaxInclusivePrice'] ?? true,
       color: json['color'] ?? 'Transparent',
       stockQuantity: (json['stockQuantity'] ?? 0).toDouble(),
@@ -104,11 +107,13 @@ class MenuCategory {
 }
 
 class CartItem {
+  final String cartItemId;
   int posOrderId;
   final int productId;
   int roundNumber;
   double quantity;
   double price;
+  final double cost;
   double discount;
   int discountType;
   double promotionalDiscount;
@@ -117,16 +122,18 @@ class CartItem {
   bool isSaved;
   final String productName;
   List<MenuTax> appliedTaxes;
-  int? warehouseId; // Add optional warehouseId for split sourcing
+  int? warehouseId;
   String? measurementUnit;
   final bool isService;
 
   CartItem({
+    required this.cartItemId,
     required this.posOrderId,
     required this.productId,
     this.roundNumber = 1,
     this.quantity = 1,
     required this.price,
+    this.cost = 0.0,
     this.discount = 0,
     this.discountType = 0,
     this.promotionalDiscount = 0,

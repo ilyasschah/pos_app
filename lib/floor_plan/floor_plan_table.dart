@@ -8,6 +8,7 @@ class FloorPlanTable {
   double height;
   bool isRound;
   int status;
+  int? assignedUserId;
 
   FloorPlanTable({
     required this.id,
@@ -19,6 +20,7 @@ class FloorPlanTable {
     required this.height,
     required this.isRound,
     this.status = 0,
+    this.assignedUserId,
   });
 
   factory FloorPlanTable.fromJson(Map<String, dynamic> json) {
@@ -32,6 +34,7 @@ class FloorPlanTable {
       height: (json['height'] as num).toDouble(),
       isRound: json['isRound'],
       status: json['status'] ?? 0,
+      assignedUserId: json['assignedUserId'] as int?,
     );
   }
 

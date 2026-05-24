@@ -1,11 +1,12 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
+import 'package:pos_app/auth/login_screen.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/cart/checkout_models.dart';
 import 'package:pos_app/cart/payment_type_model.dart';
@@ -17,6 +18,7 @@ import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/document/document_type_constants.dart';
 import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 // ---------------------------------------------------------------------------
 // Main Dialog
@@ -29,8 +31,7 @@ class PaymentCheckoutDialog extends ConsumerStatefulWidget {
       _PaymentCheckoutDialogState();
 }
 
-class _PaymentCheckoutDialogState
-    extends ConsumerState<PaymentCheckoutDialog> {
+class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
   // ── Numpad state: ValueNotifier so ONLY the Paid/Change rows rebuild ──
   final _paidNotifier = ValueNotifier<String>('');
 
@@ -49,15 +50,16 @@ class _PaymentCheckoutDialogState
   void initState() {
     super.initState();
     final notifier = ref.read(cartProvider.notifier);
-    _grandTotal  = ref.read(cartTotalProvider);
-    _subtotal    = notifier.subtotal;
-    _taxTotal    = notifier.taxTotal;
-    _totalDiscount = notifier.discountTotal
-        + notifier.manualCartDiscountAmount
-        + notifier.customerDiscountAmount
-        + notifier.promotionalDiscountTotal;
-    _cartItems   = List.unmodifiable(ref.read(cartProvider).items);
-    _sym         = ref.read(currencySymbolProvider);
+    _grandTotal = ref.read(cartTotalProvider);
+    _subtotal = notifier.subtotal;
+    _taxTotal = notifier.taxTotal;
+    _totalDiscount =
+        notifier.discountTotal +
+        notifier.manualCartDiscountAmount +
+        notifier.customerDiscountAmount +
+        notifier.promotionalDiscountTotal;
+    _cartItems = List.unmodifiable(ref.read(cartProvider).items);
+    _sym = ref.read(currencySymbolProvider);
     _paidNotifier.value = '0';
   }
 
@@ -100,7 +102,7 @@ class _PaymentCheckoutDialogState
     if (_selectedPaymentTypeId == null) return;
     setState(() => _isProcessing = true);
 
-    final user    = ref.read(currentUserProvider);
+    final user = ref.read(currentUserProvider);
     final company = ref.read(selectedCompanyProvider);
     if (company == null || user == null) {
       setState(() => _isProcessing = false);
@@ -109,9 +111,9 @@ class _PaymentCheckoutDialogState
 
     // Capture everything before checkout clears the cart
     final wasBooking = ref.read(cartProvider).bookingId != null;
-    final wasTable   = ref.read(cartProvider).floorPlanTableId != null;
-    final orderNum   = ref.read(cartProvider).orderNumber;
-    final payTypes   = ref.read(allPaymentTypesProvider).asData?.value ?? [];
+    final wasTable = ref.read(cartProvider).floorPlanTableId != null;
+    final orderNum = ref.read(cartProvider).orderNumber;
+    final payTypes = ref.read(allPaymentTypesProvider).asData?.value ?? [];
     final selectedPayType = payTypes
         .where((p) => p.id == _selectedPaymentTypeId)
         .firstOrNull;
@@ -148,7 +150,9 @@ class _PaymentCheckoutDialogState
     Uint8List? logoBytes;
     final logoB64 = company.logo;
     if (logoB64 != null && logoB64.isNotEmpty) {
-      try { logoBytes = base64Decode(logoB64); } catch (_) {}
+      try {
+        logoBytes = base64Decode(logoB64);
+      } catch (_) {}
     }
     final appSettings = ref.read(appSettingsProvider);
 
@@ -157,14 +161,16 @@ class _PaymentCheckoutDialogState
       // _paid.clamp preserves the partial-payment path for future Credit/Tab.
       final amountToSave = _paid.clamp(0.0, _grandTotal);
 
-      final success = await ref.read(cartProvider.notifier).checkoutOrder(
-        apiClient:      ApiClient(),
-        companyId:      company.id,
-        userId:         user.id,
-        paymentTypeId:  _selectedPaymentTypeId!,
-        amountPaid:     amountToSave,
-        documentTypeId: DocumentTypes.sales,
-      );
+      final success = await ref
+          .read(cartProvider.notifier)
+          .checkoutOrder(
+            apiClient: ApiClient(),
+            companyId: company.id,
+            userId: user.id,
+            paymentTypeId: _selectedPaymentTypeId!,
+            amountPaid: amountToSave,
+            documentTypeId: DocumentTypes.sales,
+          );
 
       if (!success || !mounted) return;
 
@@ -172,46 +178,78 @@ class _PaymentCheckoutDialogState
       Navigator.pop(ctx);
 
       // ── Fire-and-forget: print + navigate in background ──────────
-      ReceiptPrinterService().printCartReceipt(
-        company:         company,
-        cashier:         user,
-        orderNumber:     orderNum ?? 'WALK-IN',
-        printTime:       DateTime.now(),
-        items:           _cartItems,
-        subtotal:        _subtotal,
-        totalDiscount:   _totalDiscount,
-        totalTax:        _taxTotal,
-        grandTotal:      _grandTotal,
-        currencySymbol:  _sym,
-        paymentTypeName: payName,
-        amountPaid:      _paid,
-        logoBytes:       logoBytes,
-        roleSettings:    appSettings,
-      ).catchError((_) {}); // swallow print errors silently
+      ReceiptPrinterService()
+          .printCartReceipt(
+            company: company,
+            cashier: user,
+            orderNumber: orderNum ?? 'WALK-IN',
+            printTime: DateTime.now(),
+            items: _cartItems,
+            subtotal: _subtotal,
+            totalDiscount: _totalDiscount,
+            totalTax: _taxTotal,
+            grandTotal: _grandTotal,
+            currencySymbol: _sym,
+            paymentTypeName: payName,
+            amountPaid: _paid,
+            logoBytes: logoBytes,
+            roleSettings: appSettings,
+          )
+          .catchError((_) {}); // swallow print errors silently
 
       await syncLatestOrderNumber(ref, company.id);
 
-      final bookingEnabled   = appSettings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
-      final floorPlanEnabled = appSettings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+      // Optional success sound
+      if (appSettings[SettingKeys.enableSounds]?.toLowerCase() == 'true') {
+        SystemSound.play(SystemSoundType.click);
+      }
+
+      // Single-user mode: stay logged in. Multi-user mode: auto-logout so the
+      // next cashier can log in.
+      final singleUser =
+          appSettings[SettingKeys.singleUser]?.toLowerCase() != 'false';
+      if (!singleUser && mounted) {
+        ref.invalidate(currentUserProvider);
+        ref.read(cartProvider.notifier).clearCart();
+        Navigator.pushAndRemoveUntil(
+          ctx,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (r) => false,
+        );
+        return;
+      }
+
+      final bookingEnabled =
+          appSettings[SettingKeys.featureBookingEnabled]?.toLowerCase() ==
+          'true';
+      final floorPlanEnabled =
+          appSettings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() ==
+          'true';
       final int nextIndex;
-      if (wasBooking && bookingEnabled)       nextIndex = 2;
-      else if (wasTable && floorPlanEnabled)  nextIndex = 3;
-      else if (bookingEnabled)                nextIndex = 2;
-      else if (floorPlanEnabled)              nextIndex = 3;
-      else                                    nextIndex = 0;
+      if (wasBooking && bookingEnabled)
+        nextIndex = 2;
+      else if (wasTable && floorPlanEnabled)
+        nextIndex = 3;
+      else if (bookingEnabled)
+        nextIndex = 2;
+      else if (floorPlanEnabled)
+        nextIndex = 3;
+      else
+        nextIndex = 0;
 
       if (mounted) {
         Navigator.pushAndRemoveUntil(
           ctx,
-          MaterialPageRoute(builder: (_) => MainLayout(initialIndex: nextIndex)),
+          MaterialPageRoute(
+            builder: (_) => MainLayout(initialIndex: nextIndex),
+          ),
           (r) => false,
         );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isProcessing = false);
-        ScaffoldMessenger.of(ctx)
-            .showSnackBar(SnackBar(content: Text('Error: $e')));
+        showAppSnackbar(ctx, ref, 'Checkout error: $e', isError: true);
       }
     }
   }
@@ -256,7 +294,9 @@ class _PaymentCheckoutDialogState
                     final companyId = ref.read(selectedCompanyProvider)?.id;
                     ref.read(currentCustomerProvider.notifier).setCustomer(cu);
                     if (companyId != null) {
-                      ref.read(cartProvider.notifier).setCustomer(companyId, cu);
+                      ref
+                          .read(cartProvider.notifier)
+                          .setCustomer(companyId, cu);
                     }
                     Navigator.pop(c);
                   },
@@ -291,6 +331,12 @@ class _PaymentCheckoutDialogState
         .firstOrNull;
     final markAsPaid = selectedPayType?.markAsPaid ?? true;
 
+    final showItems =
+        ref
+            .read(appSettingsProvider)[SettingKeys.showItemsOnPaymentForm]
+            ?.toLowerCase() !=
+        'false';
+
     return Dialog(
       insetPadding: const EdgeInsets.all(12),
       backgroundColor: theme.colorScheme.surface,
@@ -300,16 +346,21 @@ class _PaymentCheckoutDialogState
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ── LEFT: Order Summary ────────────────────────────────────────
-            _OrderSummaryColumn(
-              items: _cartItems,
-              subtotal: _subtotal,
-              taxTotal: _taxTotal,
-              discountTotal: _totalDiscount,
-              grandTotal: _grandTotal,
-              sym: _sym,
-            ),
-            VerticalDivider(width: 1, color: theme.colorScheme.outlineVariant),
+            // ── LEFT: Order Summary (conditionally shown) ─────────────────
+            if (showItems) ...[
+              _OrderSummaryColumn(
+                items: _cartItems,
+                subtotal: _subtotal,
+                taxTotal: _taxTotal,
+                discountTotal: _totalDiscount,
+                grandTotal: _grandTotal,
+                sym: _sym,
+              ),
+              VerticalDivider(
+                width: 1,
+                color: theme.colorScheme.outlineVariant,
+              ),
+            ],
 
             // ── CENTER: Payment Methods ────────────────────────────────────
             _PaymentMethodsColumn(
@@ -400,8 +451,9 @@ class _OrderSummaryColumn extends StatelessWidget {
             color: theme.colorScheme.surfaceContainer,
             child: Text(
               'Order Summary',
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
           // Items list
@@ -422,8 +474,9 @@ class _OrderSummaryColumn extends StatelessWidget {
                     dense: true,
                     title: Text(
                       item.productName,
-                      style: theme.textTheme.bodyMedium
-                          ?.copyWith(fontWeight: FontWeight.w500),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w500,
+                      ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -433,8 +486,9 @@ class _OrderSummaryColumn extends StatelessWidget {
                     ),
                     trailing: Text(
                       '$sym ${lineTotal.toStringAsFixed(2)}',
-                      style: theme.textTheme.bodyMedium
-                          ?.copyWith(fontWeight: FontWeight.bold),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   );
                 },
@@ -454,22 +508,30 @@ class _OrderSummaryColumn extends StatelessWidget {
               children: [
                 _SummaryRow('Subtotal', subtotal, sym, theme),
                 if (discountTotal > 0)
-                  _SummaryRow('Discounts', -discountTotal, sym, theme,
-                      color: Colors.green),
-                if (taxTotal > 0)
-                  _SummaryRow('Taxes', taxTotal, sym, theme),
+                  _SummaryRow(
+                    'Discounts',
+                    -discountTotal,
+                    sym,
+                    theme,
+                    color: Colors.green,
+                  ),
+                if (taxTotal > 0) _SummaryRow('Taxes', taxTotal, sym, theme),
                 const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Total',
-                        style: theme.textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold)),
+                    Text(
+                      'Total',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     Text(
                       '$sym ${grandTotal.toStringAsFixed(2)}',
                       style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.primary),
+                        fontWeight: FontWeight.bold,
+                        color: theme.colorScheme.primary,
+                      ),
                     ),
                   ],
                 ),
@@ -482,8 +544,13 @@ class _OrderSummaryColumn extends StatelessWidget {
   }
 }
 
-Widget _SummaryRow(String label, double amount, String sym, ThemeData theme,
-    {Color? color}) {
+Widget _SummaryRow(
+  String label,
+  double amount,
+  String sym,
+  ThemeData theme, {
+  Color? color,
+}) {
   return Padding(
     padding: const EdgeInsets.symmetric(vertical: 2),
     child: Row(
@@ -492,8 +559,9 @@ Widget _SummaryRow(String label, double amount, String sym, ThemeData theme,
         Text(label, style: theme.textTheme.bodySmall),
         Text(
           '$sym ${amount.abs().toStringAsFixed(2)}',
-          style: theme.textTheme.bodySmall
-              ?.copyWith(color: color ?? theme.colorScheme.onSurface),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: color ?? theme.colorScheme.onSurface,
+          ),
         ),
       ],
     ),
@@ -503,7 +571,7 @@ Widget _SummaryRow(String label, double amount, String sym, ThemeData theme,
 // ---------------------------------------------------------------------------
 // Center column: payment methods
 // ---------------------------------------------------------------------------
-class _PaymentMethodsColumn extends StatelessWidget {
+class _PaymentMethodsColumn extends ConsumerWidget {
   final AsyncValue<List<PaymentType>> payTypesAsync;
   final int? selectedId;
   final void Function(int) onSelect;
@@ -515,10 +583,15 @@ class _PaymentMethodsColumn extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final settings = ref.watch(appSettingsProvider);
+    final gridCols =
+        int.tryParse(settings[SettingKeys.numberOfPaymentTypeRows] ?? '0') ?? 0;
+    final useGrid = gridCols > 1;
+
     return SizedBox(
-      width: 210,
+      width: useGrid ? gridCols * 130.0 : 210,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -527,46 +600,94 @@ class _PaymentMethodsColumn extends StatelessWidget {
             color: theme.colorScheme.surfaceContainer,
             child: Text(
               'Payment Method',
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
           Expanded(
             child: payTypesAsync.when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
+              loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(
-                child: Text('Error', style: TextStyle(color: theme.colorScheme.error)),
-              ),
-              data: (types) => Material(
-                color: Colors.transparent,
-                child: ListView(
-                  padding: const EdgeInsets.all(8),
-                  children: [
-                    ...types.where((t) => t.isEnabled).map((t) {
-                      final isSelected = selectedId == t.id;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: _PaymentTypeButton(
-                          type: t,
-                          isSelected: isSelected,
-                          onTap: () => onSelect(t.id),
-                        ),
-                      );
-                    }),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () =>
-                          debugPrint('Split payments: to be implemented'),
-                      icon: const Icon(Icons.call_split, size: 18),
-                      label: const Text('Split Payments'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  'Error',
+                  style: TextStyle(color: theme.colorScheme.error),
                 ),
               ),
+              data: (types) {
+                final enabled = types.where((t) => t.isEnabled).toList();
+                final splitButton = Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                  child: OutlinedButton.icon(
+                    onPressed: () =>
+                        debugPrint('Split payments: to be implemented'),
+                    icon: const Icon(Icons.call_split, size: 18),
+                    label: const Text('Split Payments'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                );
+
+                if (useGrid) {
+                  return Material(
+                    color: Colors.transparent,
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: GridView.builder(
+                            padding: const EdgeInsets.all(8),
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: gridCols,
+                              crossAxisSpacing: 6,
+                              mainAxisSpacing: 6,
+                              childAspectRatio: 2.4,
+                            ),
+                            itemCount: enabled.length,
+                            itemBuilder: (ctx, i) {
+                              final t = enabled[i];
+                              return _PaymentTypeButton(
+                                type: t,
+                                isSelected: selectedId == t.id,
+                                onTap: () => onSelect(t.id),
+                              );
+                            },
+                          ),
+                        ),
+                        splitButton,
+                      ],
+                    ),
+                  );
+                }
+
+                return Material(
+                  color: Colors.transparent,
+                  child: ListView(
+                    padding: const EdgeInsets.all(8),
+                    children: [
+                      ...enabled.map((t) => Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: _PaymentTypeButton(
+                              type: t,
+                              isSelected: selectedId == t.id,
+                              onTap: () => onSelect(t.id),
+                            ),
+                          )),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            debugPrint('Split payments: to be implemented'),
+                        icon: const Icon(Icons.call_split, size: 18),
+                        label: const Text('Split Payments'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
             ),
           ),
         ],
@@ -667,15 +788,16 @@ class _CustomerBar extends StatelessWidget {
         children: [
           allCustomersAsync.when(
             loading: () => const SizedBox(
-              width: 18, height: 18,
+              width: 18,
+              height: 18,
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             error: (_, __) => const SizedBox.shrink(),
             data: (all) {
-              final customers =
-                  (all as List<dynamic>).whereType<Customer>()
-                      .where((c) => c.isCustomer)
-                      .toList();
+              final customers = (all as List<dynamic>)
+                  .whereType<Customer>()
+                  .where((c) => c.isCustomer)
+                  .toList();
               return TextButton.icon(
                 onPressed: () => onPick(context, customers),
                 icon: const Icon(Icons.person_outline, size: 18),
@@ -685,7 +807,10 @@ class _CustomerBar extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                 ),
               );
             },
@@ -743,8 +868,8 @@ class _TotalsDisplay extends StatelessWidget {
           ValueListenableBuilder<String>(
             valueListenable: paidNotifier,
             builder: (_, raw, __) {
-              final paid      = double.tryParse(raw) ?? 0;
-              final change    = (paid - grandTotal).clamp(0.0, double.infinity);
+              final paid = double.tryParse(raw) ?? 0;
+              final change = (paid - grandTotal).clamp(0.0, double.infinity);
               final remaining = paid < grandTotal ? grandTotal - paid : 0.0;
               return Column(
                 children: [
@@ -754,9 +879,11 @@ class _TotalsDisplay extends StatelessWidget {
                     style: theme.textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
-                    trailing: Icon(Icons.edit,
-                        size: 16,
-                        color: theme.colorScheme.onSurface.withAlpha(120)),
+                    trailing: Icon(
+                      Icons.edit,
+                      size: 16,
+                      color: theme.colorScheme.onSurface.withAlpha(120),
+                    ),
                   ),
                   const SizedBox(height: 12),
                   // Show "Remaining" for credit/tab types; show "Change" for cash
@@ -810,13 +937,18 @@ class _TotalRow extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(color: theme.colorScheme.onSurface.withAlpha(160))),
-        Row(children: [
-          if (trailing != null) ...[trailing!, const SizedBox(width: 6)],
-          Text(value, style: style ?? theme.textTheme.headlineSmall),
-        ]),
+        Text(
+          label,
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: theme.colorScheme.onSurface.withAlpha(160),
+          ),
+        ),
+        Row(
+          children: [
+            if (trailing != null) ...[trailing!, const SizedBox(width: 6)],
+            Text(value, style: style ?? theme.textTheme.headlineSmall),
+          ],
+        ),
       ],
     );
   }
@@ -865,8 +997,9 @@ class _Numpad extends StatelessWidget {
         child: Center(
           child: Text(
             key,
-            style: theme.textTheme.titleLarge
-                ?.copyWith(fontWeight: FontWeight.w600),
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ),
@@ -880,8 +1013,11 @@ class _Numpad extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         child: Center(
           child: key == '⌫'
-              ? Icon(Icons.backspace_outlined,
-                  size: 26, color: theme.colorScheme.onErrorContainer)
+              ? Icon(
+                  Icons.backspace_outlined,
+                  size: 26,
+                  color: theme.colorScheme.onErrorContainer,
+                )
               : Text(
                   key,
                   style: theme.textTheme.titleLarge?.copyWith(
@@ -908,14 +1044,24 @@ class _Numpad extends StatelessWidget {
         child: Column(
           children: [
             // Row 1: 7  8  9  ⌫
-            Expanded(child: expandedRow([
-              numKey('7'), numKey('8'), numKey('9'), actionKey('⌫'),
-            ])),
+            Expanded(
+              child: expandedRow([
+                numKey('7'),
+                numKey('8'),
+                numKey('9'),
+                actionKey('⌫'),
+              ]),
+            ),
             const SizedBox(height: _gap),
             // Row 2: 4  5  6  C
-            Expanded(child: expandedRow([
-              numKey('4'), numKey('5'), numKey('6'), actionKey('C'),
-            ])),
+            Expanded(
+              child: expandedRow([
+                numKey('4'),
+                numKey('5'),
+                numKey('6'),
+                actionKey('C'),
+              ]),
+            ),
             const SizedBox(height: _gap),
             // Rows 3+4: number grid left, Complete button right (spans both)
             Expanded(
@@ -928,13 +1074,21 @@ class _Numpad extends StatelessWidget {
                     flex: 3,
                     child: Column(
                       children: [
-                        Expanded(child: expandedRow([
-                          numKey('1'), numKey('2'), numKey('3'),
-                        ])),
+                        Expanded(
+                          child: expandedRow([
+                            numKey('1'),
+                            numKey('2'),
+                            numKey('3'),
+                          ]),
+                        ),
                         const SizedBox(height: _gap),
-                        Expanded(child: expandedRow([
-                          numKey('00'), numKey('0'), numKey('.'),
-                        ])),
+                        Expanded(
+                          child: expandedRow([
+                            numKey('00'),
+                            numKey('0'),
+                            numKey('.'),
+                          ]),
+                        ),
                       ],
                     ),
                   ),
@@ -944,10 +1098,11 @@ class _Numpad extends StatelessWidget {
                     child: ValueListenableBuilder<String>(
                       valueListenable: paidNotifier,
                       builder: (_, raw, __) {
-                        final paid   = double.tryParse(raw) ?? 0;
+                        final paid = double.tryParse(raw) ?? 0;
                         // Credit/tab types (markAsPaid == false) can complete
                         // even when paid amount is less than the grand total.
-                        final canPay = (paid >= grandTotal || !markAsPaid) &&
+                        final canPay =
+                            (paid >= grandTotal || !markAsPaid) &&
                             onComplete != null;
                         return _CompleteButton(
                           canPay: canPay,
@@ -989,7 +1144,10 @@ class _CompleteButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         child: Center(
           child: isProcessing
-              ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 3)
+              ? const CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 3,
+                )
               : Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -1043,8 +1201,7 @@ class _CustomerDetailCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: cs.surfaceContainerHigh,
-        border: const Border(
-            left: BorderSide(color: Colors.blue, width: 4)),
+        border: const Border(left: BorderSide(color: Colors.blue, width: 4)),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Row(
@@ -1056,20 +1213,30 @@ class _CustomerDetailCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(customer.name,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 13)),
+                Text(
+                  customer.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
                 if (address != null)
-                  Text('Address: $address',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: cs.onSurface.withValues(alpha: 0.65))),
+                  Text(
+                    'Address: $address',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: cs.onSurface.withValues(alpha: 0.65),
+                    ),
+                  ),
                 if (customer.taxNumber != null &&
                     customer.taxNumber!.isNotEmpty)
-                  Text('Tax No.: ${customer.taxNumber}',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: cs.onSurface.withValues(alpha: 0.65))),
+                  Text(
+                    'Tax No.: ${customer.taxNumber}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: cs.onSurface.withValues(alpha: 0.65),
+                    ),
+                  ),
               ],
             ),
           ),

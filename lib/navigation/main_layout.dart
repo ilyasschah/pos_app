@@ -80,7 +80,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
 
     Widget sidebar = Container(
       width: kSidebarW,
-      color: kNavSidebar,
+      color: context.navSidebarBg,
       child: SafeArea(
         child: Column(
           children: [
@@ -108,9 +108,9 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         );
                       },
                     ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 16.0),
-                      child: Divider(color: kNavDivider, height: 24),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: Divider(color: context.navDivider, height: 24),
                     ),
 
                     NavItem(
@@ -232,8 +232,8 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
             // BOTTOM HARDWARE BAR
             Container(
               padding: const EdgeInsets.symmetric(vertical: 8),
-              decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: kNavDivider)),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: context.navDivider)),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -285,16 +285,35 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
 
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: kNavBg,
+      backgroundColor: context.navScaffoldBg,
       drawer: isDesktop
           ? null
-          : Drawer(backgroundColor: kNavSidebar, child: sidebar),
+          : Drawer(backgroundColor: context.navSidebarBg, child: sidebar),
       body: Row(
         children: [
           if (showPermanentSidebar) sidebar,
           Expanded(
             child: ClipRect(
-              child: screens[_selectedIndex],
+              child: _selectedIndex != 0 && !showPermanentSidebar && isDesktop
+                  ? Stack(
+                      children: [
+                        screens[_selectedIndex],
+                        Positioned(
+                          top: 8,
+                          left: 8,
+                          child: Material(
+                            color: Colors.transparent,
+                            child: IconButton(
+                              icon: const Icon(Icons.menu),
+                              tooltip: 'Show navigation',
+                              onPressed: () =>
+                                  setState(() => _isSidebarVisible = true),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : screens[_selectedIndex],
             ),
           ),
         ],

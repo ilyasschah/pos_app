@@ -17,9 +17,14 @@ import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/currency/country_model.dart';
+import 'package:dio/dio.dart';
 import 'package:pos_app/printer/printer_selection_model.dart';
 import 'package:pos_app/printer/printer_selection_settings_model.dart';
 import 'package:pos_app/settings/printer_settings_screen.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ENTRY POINT
@@ -47,6 +52,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     (icon: Icons.storage,           label: 'Database'),
     (icon: Icons.vpn_key,           label: 'License'),
     (icon: Icons.info_outline,      label: 'About'),
+    (icon: Icons.public,            label: 'Countries'),
   ];
 
   static const _tabViews = [
@@ -62,6 +68,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _DatabaseTab(),
     _LicenseTab(),
     _AboutTab(),
+    _CountriesTab(),
   ];
 
   Future<void> _saveAndRestart() async {
@@ -85,9 +92,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to save settings: $e')),
-        );
+        showAppSnackbar(context, ref, 'Failed to save settings: $e', isError: true);
       }
     }
   }
@@ -217,7 +222,6 @@ class _SettingTextField extends ConsumerStatefulWidget {
   final String? hint;
   final bool obscure;
   final TextInputType keyboardType;
-  final int maxLines;
 
   const _SettingTextField({
     required this.settingKey,
@@ -225,7 +229,6 @@ class _SettingTextField extends ConsumerStatefulWidget {
     this.hint,
     this.obscure = false,
     this.keyboardType = TextInputType.text,
-    this.maxLines = 1,
   });
 
   @override
@@ -256,22 +259,11 @@ class _SettingTextFieldState extends ConsumerState<_SettingTextField> {
     try {
       await notifier.set(widget.settingKey, _ctrl.text.trim());
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${widget.label} saved'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        showAppSnackbar(context, ref, '${widget.label} saved');
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save ${widget.label}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        showAppSnackbar(context, ref, 'Failed to save ${widget.label}', isError: true);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -290,7 +282,7 @@ class _SettingTextFieldState extends ConsumerState<_SettingTextField> {
               controller: _ctrl,
               obscureText: widget.obscure,
               keyboardType: widget.keyboardType,
-              maxLines: widget.maxLines,
+              maxLines: 1,
               decoration: InputDecoration(
                 labelText: widget.label,
                 hintText: widget.hint,
@@ -1234,6 +1226,121 @@ class _CurrencyDropdown extends ConsumerWidget {
   }
 }
 
+// ─── Numeric stepper (± integer, saves to appSettingsProvider) ───────────────
+
+class _StepBtn extends StatelessWidget {
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onTap;
+  const _StepBtn({required this.icon, required this.enabled, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.all(9),
+        child: Icon(
+          icon,
+          size: 18,
+          color: enabled ? theme.colorScheme.primary : theme.disabledColor,
+        ),
+      ),
+    );
+  }
+}
+
+class _NumericStepper extends ConsumerWidget {
+  final String settingKey;
+  final int min;
+  final int max;
+
+  const _NumericStepper({
+    required this.settingKey,
+    required this.min,
+    required this.max,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final raw =
+        ref.watch(appSettingsProvider)[settingKey] ??
+        kSettingDefaults[settingKey] ??
+        '$min';
+    final value = (int.tryParse(raw) ?? min).clamp(min, max);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _StepBtn(
+            icon: Icons.remove,
+            enabled: value > min,
+            onTap: () => ref
+                .read(appSettingsProvider.notifier)
+                .set(settingKey, '${value - 1}'),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: Text(
+              '$value',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+          ),
+          _StepBtn(
+            icon: Icons.add,
+            enabled: value < max,
+            onTap: () => ref
+                .read(appSettingsProvider.notifier)
+                .set(settingKey, '${value + 1}'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StepperRow extends StatelessWidget {
+  final String label;
+  final String settingKey;
+  final int min;
+  final int max;
+
+  const _StepperRow({
+    required this.label,
+    required this.settingKey,
+    required this.min,
+    required this.max,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          ),
+          _NumericStepper(settingKey: settingKey, min: min, max: max),
+        ],
+      ),
+    );
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TAB IMPLEMENTATIONS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1249,6 +1356,405 @@ class _TabScrollView extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: cards,
+      ),
+    );
+  }
+}
+
+// ── Accent Color Picker ───────────────────────────────────────────────────────
+
+class _AccentColorPicker extends ConsumerWidget {
+  const _AccentColorPicker();
+
+  static const _colors = [
+    ('Blue',        Color(0xFF2196F3)),
+    ('Sky',         Color(0xFF03A9F4)),
+    ('Indigo',      Color(0xFF3F51B5)),
+    ('Green',       Color(0xFF4CAF50)),
+    ('Teal',        Color(0xFF009688)),
+    ('Emerald',     Color(0xFF10B981)),
+    ('Pink',        Color(0xFFE91E63)),
+    ('Rose',        Color(0xFFF43F5E)),
+    ('Purple',      Color(0xFF9C27B0)),
+    ('Violet',      Color(0xFF7C3AED)),
+    ('Orange',      Color(0xFFFF9800)),
+    ('Red',         Color(0xFFF44336)),
+    ('Amber',       Color(0xFFFFC107)),
+    ('Deep Orange', Color(0xFFFF5722)),
+  ];
+
+  static String _toHex(Color c) =>
+      '#${c.toARGB32().toRadixString(16).substring(2).toUpperCase()}';
+
+  static Color? _fromHex(String? hex) {
+    if (hex == null) return null;
+    try {
+      final clean = hex.replaceAll('#', '');
+      return Color(int.parse('FF$clean', radix: 16));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appSettingsProvider);
+    final current = _fromHex(settings[SettingKeys.themeAccentColor]);
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Accent Color',
+            style: TextStyle(
+              fontSize: 14,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: _colors.map<Widget>((entry) {
+              final (name, color) = entry;
+              final isSelected = current != null &&
+                  color.toARGB32() == current.toARGB32();
+              return GestureDetector(
+                onTap: () => ref
+                    .read(appSettingsProvider.notifier)
+                    .set(SettingKeys.themeAccentColor, _toHex(color)),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                        border: isSelected
+                            ? Border.all(
+                                color: theme.colorScheme.onSurface,
+                                width: 3,
+                              )
+                            : null,
+                        boxShadow: [
+                          BoxShadow(
+                            color: color.withValues(alpha: 0.4),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: isSelected
+                          ? const Icon(Icons.check, color: Colors.white, size: 20)
+                          : null,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      name,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Theme Mode Picker ─────────────────────────────────────────────────────────
+
+class _ThemeOpt {
+  final String key;
+  final String label;
+  final IconData icon;
+  final Color previewBg;
+  final Color previewAccent;
+  const _ThemeOpt(this.key, this.label, this.icon, this.previewBg, this.previewAccent);
+}
+
+class _ThemeModePicker extends ConsumerWidget {
+  const _ThemeModePicker();
+
+  static final _options = <_ThemeOpt>[
+    _ThemeOpt('light',         'Light',         PhosphorIconsRegular.sun,             const Color(0xFFF5F7FA), const Color(0xFF2196F3)),
+    _ThemeOpt('dark',          'Dark',           PhosphorIconsRegular.moon,            const Color(0xFF1E2530), const Color(0xFF90CAF9)),
+    _ThemeOpt('dimmed',        'Dimmed',         PhosphorIconsRegular.moonStars,       const Color(0xFF15202B), const Color(0xFF64B5F6)),
+    _ThemeOpt('night',         'Night',          PhosphorIconsRegular.eye,             const Color(0xFF000000), const Color(0xFF82B1FF)),
+    _ThemeOpt('gray',          'Gray',           PhosphorIconsRegular.circleHalf,      const Color(0xFF1E1E1E), const Color(0xFFBDBDBD)),
+    _ThemeOpt('high_contrast', 'High Contrast',  PhosphorIconsRegular.circleHalfTilt,  const Color(0xFF000000), const Color(0xFFFFFFFF)),
+  ];
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appSettingsProvider);
+    final current  = settings[SettingKeys.themeMode] ?? 'dark';
+    final opt      = _options.firstWhere((o) => o.key == current, orElse: () => _options[1]);
+    final theme    = Theme.of(context);
+    final cs       = theme.colorScheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Theme Mode', style: TextStyle(fontSize: 14, color: cs.onSurface)),
+          const SizedBox(height: 8),
+          InkWell(
+            onTap: () => _show(context, ref, current),
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              decoration: BoxDecoration(
+                color: cs.surfaceContainerHighest.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: cs.outline.withValues(alpha: 0.25)),
+              ),
+              child: Row(
+                children: [
+                  Icon(opt.icon, size: 17, color: cs.primary),
+                  const SizedBox(width: 10),
+                  Text(opt.label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                  const Spacer(),
+                  _MiniPreview(bg: opt.previewBg, accent: opt.previewAccent),
+                  const SizedBox(width: 10),
+                  Icon(PhosphorIconsRegular.caretDown, size: 14, color: cs.onSurfaceVariant),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _show(BuildContext context, WidgetRef ref, String current) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (_) => _ThemePickerDialog(
+        options: _options,
+        current: current,
+        onSelect: (key) {
+          ref.read(appSettingsProvider.notifier).set(SettingKeys.themeMode, key);
+          Navigator.pop(context);
+        },
+      ),
+    );
+  }
+}
+
+class _MiniPreview extends StatelessWidget {
+  final Color bg;
+  final Color accent;
+  const _MiniPreview({required this.bg, required this.accent});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 44,
+      height: 26,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            height: 8,
+            decoration: BoxDecoration(
+              color: bg == const Color(0xFFF5F7FA)
+                  ? const Color(0xFFE0E0E0)
+                  : Colors.black.withValues(alpha: 0.35),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+            ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 3),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          height: 2,
+                          decoration: BoxDecoration(
+                            color: accent.withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(1),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Container(
+                          height: 2,
+                          width: 12,
+                          decoration: BoxDecoration(
+                            color: accent.withValues(alpha: 0.25),
+                            borderRadius: BorderRadius.circular(1),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ThemePickerDialog extends StatelessWidget {
+  final List<_ThemeOpt> options;
+  final String current;
+  final void Function(String) onSelect;
+
+  const _ThemePickerDialog({
+    required this.options,
+    required this.current,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      child: Container(
+        width: 300,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF16202E),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.55),
+              blurRadius: 48,
+              offset: const Offset(0, 16),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+              child: Row(
+                children: [
+                  Icon(PhosphorIconsRegular.palette, size: 14, color: Colors.white38),
+                  const SizedBox(width: 7),
+                  const Text(
+                    'CHOOSE THEME',
+                    style: TextStyle(
+                      color: Colors.white38,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.9,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(height: 1, color: Colors.white.withValues(alpha: 0.06)),
+            const SizedBox(height: 4),
+            ...options.asMap().entries.map((e) {
+              final idx = e.key;
+              final opt = e.value;
+              final selected = opt.key == current;
+              return _OptionTile(opt: opt, selected: selected, onTap: () => onSelect(opt.key))
+                  .animate(delay: Duration(milliseconds: 35 * idx))
+                  .fadeIn(duration: 220.ms)
+                  .slideY(begin: 0.12, end: 0, duration: 220.ms, curve: Curves.easeOut);
+            }),
+            const SizedBox(height: 4),
+          ],
+        ),
+      )
+          .animate()
+          .scale(
+            begin: const Offset(0.93, 0.93),
+            end: const Offset(1, 1),
+            duration: 200.ms,
+            curve: Curves.easeOut,
+          )
+          .fadeIn(duration: 180.ms),
+    );
+  }
+}
+
+class _OptionTile extends StatelessWidget {
+  final _ThemeOpt opt;
+  final bool selected;
+  final VoidCallback onTap;
+  const _OptionTile({required this.opt, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      child: Material(
+        color: selected ? Colors.white.withValues(alpha: 0.08) : Colors.transparent,
+        borderRadius: BorderRadius.circular(9),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(9),
+          highlightColor: Colors.white.withValues(alpha: 0.05),
+          splashColor: Colors.white.withValues(alpha: 0.07),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Icon(
+                  opt.icon,
+                  size: 17,
+                  color: selected ? Colors.white : Colors.white54,
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  opt.label,
+                  style: TextStyle(
+                    color: selected ? Colors.white : Colors.white70,
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  ),
+                ),
+                const Spacer(),
+                _MiniPreview(bg: opt.previewBg, accent: opt.previewAccent),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 16,
+                  child: selected
+                      ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
+                      : null,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1285,6 +1791,172 @@ class _GeneralTab extends ConsumerWidget {
           ],
         ),
         _SettingsCard(
+          title: 'TAX',
+          children: [
+            const _SettingSwitch(
+              settingKey: SettingKeys.taxIncludedByDefault,
+              label: 'Tax Included in Price by Default',
+              subtitle:
+                  'All new products will default to tax-inclusive pricing',
+            ),
+          ],
+        ),
+        _SettingsCard(
+          title: 'APPEARANCE',
+          children: const [
+            _ThemeModePicker(),
+            _AccentColorPicker(),
+          ],
+        ),
+        _SettingsCard(
+          title: 'APPLICATION STYLE',
+          children: const [
+            _SettingDropdown(
+              settingKey: SettingKeys.writingDirection,
+              label: 'Writing Direction',
+              options: ['LTR', 'RTL'],
+            ),
+            _SettingDropdown(
+              settingKey: SettingKeys.posLayout,
+              label: 'POS Layout',
+              options: ['Visual', 'Standard'],
+            ),
+            _SettingSwitch(
+              settingKey: SettingKeys.enableVirtualKeyboard,
+              label: 'Enable Virtual Keyboard',
+            ),
+          ],
+        ),
+        _SettingsCard(
+          title: 'MESSAGES (NOTIFICATIONS)',
+          children: const [
+            _StepperRow(
+              label: 'Message Duration (seconds)',
+              settingKey: SettingKeys.messageDuration,
+              min: 1,
+              max: 10,
+            ),
+            _SettingDropdown(
+              settingKey: SettingKeys.messagePosition,
+              label: 'Message Position',
+              options: ['Top', 'Bottom'],
+            ),
+          ],
+        ),
+        _SettingsCard(
+          title: 'BUSINESS DAY',
+          children: const [
+            _SettingSwitch(
+              settingKey: SettingKeys.showCashInOnStart,
+              label: 'Show cash in on application start',
+            ),
+            _SettingSwitch(
+              settingKey: SettingKeys.selectBusinessDayOnStart,
+              label: 'Select business day on application start',
+            ),
+          ],
+        ),
+        _SettingsCard(
+          title: 'POS BUTTON BAR',
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+              child: Text(
+                'Select which action buttons appear on the main POS screen.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).hintColor,
+                ),
+              ),
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showSearchBtn,
+              label: 'Search',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showTransferBtn,
+              label: 'Transfer',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showCustomerBtn,
+              label: 'Customer',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showDiscountBtn,
+              label: 'Discount',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showCommentBtn,
+              label: 'Comment',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showNewSaleBtn,
+              label: 'New Sale',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showRefundBtn,
+              label: 'Refund',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showOrderNameBtn,
+              label: 'Order Name',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showCashDrawerBtn,
+              label: 'Cash Drawer',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showWarehouseBtn,
+              label: 'Warehouse Switcher',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showBookingBtn,
+              label: 'Bookings',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showTablesBtn,
+              label: 'Tables / Floor Plan',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showKitchenBtn,
+              label: 'Send to Kitchen',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showTaxBtn,
+              label: 'Tax',
+            ),
+          ],
+        ),
+        _SettingsCard(
+          title: 'API',
+          children: [
+            const _SettingTextField(
+              settingKey: SettingKeys.apiBaseUrl,
+              label: 'API Base URL',
+              hint: 'http://192.168.1.1:5002/api',
+              keyboardType: TextInputType.url,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+// ── Order & Payment ───────────────────────────────────────────────────────────
+class _OrderPaymentTab extends ConsumerWidget {
+  const _OrderPaymentTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appSettingsProvider);
+    final typeEnabled =
+        settings[SettingKeys.featureServiceTypeEnabled]?.toLowerCase() == 'true';
+    final statusEnabled =
+        settings[SettingKeys.featureServiceStatusEnabled]?.toLowerCase() == 'true';
+
+    return _TabScrollView(
+      cards: [
+        _SettingsCard(
           title: 'FEATURES',
           children: [
             _SettingSwitch(
@@ -1312,7 +1984,7 @@ class _GeneralTab extends ConsumerWidget {
                 }
               },
             ),
-            _SettingTextField(
+            const _SettingTextField(
               settingKey: SettingKeys.tablesButtonLabel,
               label: 'Tables Button Label',
               hint: 'e.g. Tables, Rooms, Resources',
@@ -1320,93 +1992,79 @@ class _GeneralTab extends ConsumerWidget {
           ],
         ),
         const _BookingSettingsCard(),
-        const _WorkflowCard(),
         _SettingsCard(
-          title: 'TAX',
-          children: [
-            const _SettingSwitch(
-              settingKey: SettingKeys.taxIncludedByDefault,
-              label: 'Tax Included in Price by Default',
-              subtitle:
-                  'All new products will default to tax-inclusive pricing',
+          title: 'BASIC OPERATIONS',
+          children: const [
+            _SettingSwitch(
+              settingKey: SettingKeys.enableSounds,
+              label: 'Sounds',
             ),
           ],
         ),
         _SettingsCard(
-          title: 'APPEARANCE',
+          title: 'ITEMS',
           children: const [
             _SettingDropdown(
-              settingKey: SettingKeys.themeMode,
-              label: 'Theme Mode',
-              options: ['dark', 'light'],
+              settingKey: SettingKeys.defaultSearch,
+              label: 'Default search',
+              options: ['Name', 'Code', 'Barcode', 'All fields'],
             ),
-            _SettingTextField(
-              settingKey: SettingKeys.themeAccentColor,
-              label: 'Accent Color',
-              hint: 'e.g. #FF5733',
+            _SettingSwitch(
+              settingKey: SettingKeys.showSearchOptions,
+              label: 'Show search options',
+            ),
+            _SettingDropdown(
+              settingKey: SettingKeys.defaultDiscountType,
+              label: 'Default discount type',
+              options: ['Percentage', 'Fixed'],
+            ),
+            _SettingSwitch(
+              settingKey: SettingKeys.separateRowForEachItem,
+              label: 'Separate row for each item',
+            ),
+            _SettingSwitch(
+              settingKey: SettingKeys.preventSaleBelowCostPrice,
+              label: 'Prevent sale below cost price',
+            ),
+            _SettingSwitch(
+              settingKey: SettingKeys.preventNegativeInventory,
+              label: 'Prevent negative inventory',
             ),
           ],
         ),
         _SettingsCard(
-          title: 'API',
-          children: [
-            const _SettingTextField(
-              settingKey: SettingKeys.apiBaseUrl,
-              label: 'API Base URL',
-              hint: 'http://192.168.1.1:5002/api',
-              keyboardType: TextInputType.url,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-// ── Order & Payment ───────────────────────────────────────────────────────────
-class _OrderPaymentTab extends ConsumerWidget {
-  const _OrderPaymentTab();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return _TabScrollView(
-      cards: [
-        _SettingsCard(
-          title: 'ORDER',
-          children: [
-            const _SettingTextField(
-              settingKey: SettingKeys.orderPrefix,
-              label: 'Order Number Prefix',
-              hint: 'e.g. ORD',
-            ),
-            const _SettingSwitch(
-              settingKey: SettingKeys.allowNegativeStock,
-              label: 'Allow Sale When Stock is Zero / Negative',
-            ),
-            const _SettingSwitch(
-              settingKey: SettingKeys.allowPriceChange,
-              label: 'Allow Cashier to Change Product Price',
-            ),
-            const _SettingDropdown(
-              settingKey: SettingKeys.roundingMode,
-              label: 'Rounding Decimal Places',
-              options: ['0', '1', '2', '3', '4'],
+          title: 'USERS',
+          children: const [
+            _SettingSwitch(
+              settingKey: SettingKeys.singleUser,
+              label: 'Single user',
             ),
           ],
         ),
         _SettingsCard(
           title: 'PAYMENT',
           children: [
-            const _SettingTextField(
-              settingKey: SettingKeys.defaultPaymentType,
-              label: 'Default Payment Type Name',
-              hint: 'e.g. Cash',
+            const _SettingSwitch(
+              settingKey: SettingKeys.displayReceiptPrintDialog,
+              label: 'Display receipt print dialog',
             ),
-            const _SettingTextField(
-              settingKey: SettingKeys.receiptFooter,
-              label: 'Receipt Footer Message',
-              hint: 'e.g. Thank you for your purchase!',
-              maxLines: 3,
+            _StepperRow(
+              label: 'Default due date (days)',
+              settingKey: SettingKeys.defaultDueDateDays,
+              min: 0,
+              max: 90,
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.mergeItemsOnReceipt,
+              label: 'Merge items on receipt',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.singleItemDiscountAllowed,
+              label: 'Single item discount allowed',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.shortcutKeysPaymentConfirmation,
+              label: 'Shortcut keys payment confirmation',
             ),
           ],
         ),
@@ -1420,6 +2078,89 @@ class _OrderPaymentTab extends ConsumerWidget {
             _SettingSwitch(
               settingKey: SettingKeys.trackUnconfirmedVoidedItems,
               label: 'Track unconfirmed voided items',
+            ),
+          ],
+        ),
+        _SettingsCard(
+          title: 'ORDER NAME',
+          children: const [
+            _SettingSwitch(
+              settingKey: SettingKeys.enableCustomOrderName,
+              label: 'Enable custom order name',
+            ),
+            _SettingSwitch(
+              settingKey: SettingKeys.orderNameRequired,
+              label: 'Order name required',
+            ),
+            _SettingSwitch(
+              settingKey: SettingKeys.requestOrderNameAutomatically,
+              label: 'Request order name automatically',
+            ),
+          ],
+        ),
+        _SettingsCard(
+          title: 'SERVICE TYPE',
+          children: [
+            const _SettingSwitch(
+              settingKey: SettingKeys.requestServiceTypeAutomatically,
+              label: 'Request service type automatically',
+            ),
+            const _SettingDropdown(
+              settingKey: SettingKeys.defaultServiceType,
+              label: 'Default service type',
+              options: ['Dine-in', 'Takeaway', 'Delivery'],
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.printLargeOrderNumberInReceipt,
+              label: 'Print large order number in receipt',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.featureServiceTypeEnabled,
+              label: 'Service Type Selector',
+              subtitle:
+                  'Show order type buttons (e.g. Dine-In, Takeaway) on the POS',
+            ),
+            Opacity(
+              opacity: typeEnabled ? 1.0 : 0.4,
+              child: IgnorePointer(
+                ignoring: !typeEnabled,
+                child: const _CustomServiceTypesEditor(),
+              ),
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.featureServiceStatusEnabled,
+              label: 'Service Status Selector',
+              subtitle: 'Show service status badge on table/booking cards',
+            ),
+            Opacity(
+              opacity: statusEnabled ? 1.0 : 0.4,
+              child: IgnorePointer(
+                ignoring: !statusEnabled,
+                child: const _CustomServiceStatusesEditor(),
+              ),
+            ),
+          ],
+        ),
+        _SettingsCard(
+          title: 'ADVANCED SETTINGS',
+          children: [
+            const _SettingSwitch(
+              settingKey: SettingKeys.resetOrderNumberOnDayClose,
+              label: 'Reset order number on day close',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showItemsOnPaymentForm,
+              label: 'Show items on payment form',
+            ),
+            _StepperRow(
+              label: 'Number of payment type rows',
+              settingKey: SettingKeys.numberOfPaymentTypeRows,
+              min: 0,
+              max: 10,
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showAllOccupiedTablesInFloorPlan,
+              label: 'Show all occupied tables in floor plan',
             ),
           ],
         ),
@@ -1916,21 +2657,11 @@ class _PrinterSlotCardState extends ConsumerState<_PrinterSlotCard> {
       );
       widget.onChanged();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Printer slot saved.'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        showAppSnackbar(context, ref, 'Printer slot saved.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Save failed: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        showAppSnackbar(context, ref, 'Save failed: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -2174,21 +2905,11 @@ class _LayoutSettingsSheetState extends ConsumerState<_LayoutSettingsSheet> {
       widget.onSaved();
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Layout settings saved.'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        showAppSnackbar(context, ref, 'Layout settings saved.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Save failed: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        showAppSnackbar(context, ref, 'Save failed: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -2733,6 +3454,376 @@ class _TimezoneCardState extends ConsumerState<_TimezoneCard> {
             ),
           ),
         ],
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COUNTRIES TAB
+// ─────────────────────────────────────────────────────────────────────────────
+class _CountriesTab extends ConsumerStatefulWidget {
+  const _CountriesTab();
+
+  @override
+  ConsumerState<_CountriesTab> createState() => _CountriesTabState();
+}
+
+class _CountriesTabState extends ConsumerState<_CountriesTab> {
+  List<Country> _countries = [];
+  bool _loading = false;
+  Country? _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final company = ref.read(selectedCompanyProvider);
+    if (company == null) return;
+    setState(() => _loading = true);
+    try {
+      final dio = createDio();
+      final res = await dio.get(
+        '/Country/GetAllCountries',
+        queryParameters: {'companyId': company.id},
+      );
+      final list = (res.data as List).map((e) => Country.fromJson(e)).toList();
+      if (mounted) setState(() { _countries = list; _selected = null; });
+    } catch (_) {
+      if (mounted) setState(() => _countries = []);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _delete(Country c) async {
+    final company = ref.read(selectedCompanyProvider);
+    if (company == null) return;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: cs.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: cs.error),
+            const SizedBox(width: 8),
+            const Text("Delete Country"),
+          ],
+        ),
+        content: Text("Delete '${c.name}'?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: cs.error,
+              foregroundColor: cs.onError,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text("Delete"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    try {
+      final dio = createDio();
+      await dio.delete(
+        '/Country/Delete',
+        queryParameters: {'id': c.id, 'companyId': company.id},
+      );
+      _load();
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final data = e.response?.data;
+      final msg = (data is Map ? data['message'] : null) ?? data?.toString() ?? "Delete failed";
+      showAppSnackbar(context, ref, msg, isError: true);
+    }
+  }
+
+  Future<void> _openForm({Country? country}) async {
+    final company = ref.read(selectedCompanyProvider);
+    if (company == null) return;
+    await showDialog(
+      context: context,
+      builder: (_) => _CountryFormDialog(companyId: company.id, country: country),
+    );
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final company = ref.watch(selectedCompanyProvider);
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    if (company == null) {
+      return Center(
+        child: Text("No company selected.", style: TextStyle(color: cs.onSurfaceVariant)),
+      );
+    }
+
+    return Column(
+      children: [
+        Container(
+          color: cs.surfaceContainerLow,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                tooltip: "Refresh",
+                onPressed: _load,
+              ),
+              const SizedBox(width: 4),
+              FilledButton.icon(
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text("New Country"),
+                onPressed: () => _openForm(),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: _loading
+              ? Center(child: CircularProgressIndicator(color: cs.primary))
+              : _countries.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.public, size: 64,
+                              color: cs.onSurfaceVariant.withValues(alpha: 0.4)),
+                          const SizedBox(height: 16),
+                          Text("No countries yet.",
+                              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 16)),
+                          const SizedBox(height: 24),
+                          FilledButton.icon(
+                            icon: const Icon(Icons.add),
+                            label: const Text("Add Country"),
+                            onPressed: () => _openForm(),
+                          ),
+                        ],
+                      ),
+                    )
+                  : SingleChildScrollView(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) => SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                            child: DataTable(
+                              headingRowColor:
+                                  WidgetStateProperty.all(cs.surfaceContainerHighest),
+                              dataRowMaxHeight: 52,
+                              dataRowMinHeight: 52,
+                              columnSpacing: 32,
+                              showCheckboxColumn: false,
+                              columns: [
+                                DataColumn(
+                                  label: Text("Name",
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: cs.onSurfaceVariant)),
+                                ),
+                                DataColumn(
+                                  label: Text("Code",
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: cs.onSurfaceVariant)),
+                                ),
+                                DataColumn(
+                                  label: Text("Actions",
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: cs.onSurfaceVariant)),
+                                ),
+                              ],
+                              rows: _countries.map((c) {
+                                final isSelected = _selected?.id == c.id;
+                                return DataRow(
+                                  selected: isSelected,
+                                  onSelectChanged: (_) => setState(
+                                      () => _selected = isSelected ? null : c),
+                                  cells: [
+                                    DataCell(Text(c.name,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w500))),
+                                    DataCell(Text(c.code ?? '–')),
+                                    DataCell(Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: Icon(Icons.edit,
+                                              color: cs.primary, size: 20),
+                                          tooltip: "Edit",
+                                          onPressed: () => _openForm(country: c),
+                                        ),
+                                        IconButton(
+                                          icon: Icon(Icons.delete_outline,
+                                              color: cs.error, size: 20),
+                                          tooltip: "Delete",
+                                          onPressed: () => _delete(c),
+                                        ),
+                                      ],
+                                    )),
+                                  ],
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CountryFormDialog extends ConsumerStatefulWidget {
+  final int companyId;
+  final Country? country;
+
+  const _CountryFormDialog({required this.companyId, this.country});
+
+  @override
+  ConsumerState<_CountryFormDialog> createState() => _CountryFormDialogState();
+}
+
+class _CountryFormDialogState extends ConsumerState<_CountryFormDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameCtrl;
+  late final TextEditingController _codeCtrl;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameCtrl = TextEditingController(text: widget.country?.name ?? '');
+    _codeCtrl = TextEditingController(text: widget.country?.code ?? '');
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _codeCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() { _saving = true; _error = null; });
+    try {
+      final dio = createDio();
+      final body = {
+        'name': _nameCtrl.text.trim(),
+        'code': _codeCtrl.text.trim().isEmpty ? null : _codeCtrl.text.trim(),
+      };
+      if (widget.country == null) {
+        await dio.post(
+          '/Country/Add',
+          data: body,
+          queryParameters: {'companyId': widget.companyId},
+        );
+      } else {
+        await dio.put(
+          '/Country/Update',
+          data: body,
+          queryParameters: {
+            'id': widget.country!.id,
+            'companyId': widget.companyId,
+          },
+        );
+      }
+      if (mounted) Navigator.of(context).pop();
+    } on DioException catch (e) {
+      setState(() => _error = e.response?.data?.toString() ?? "Save failed");
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final isEdit = widget.country != null;
+
+    return AlertDialog(
+      backgroundColor: cs.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text(isEdit ? "Edit Country" : "New Country"),
+      content: SizedBox(
+        width: 400,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_error != null) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: cs.errorContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(_error!, style: TextStyle(color: cs.onErrorContainer)),
+                ),
+                const SizedBox(height: 12),
+              ],
+              TextFormField(
+                controller: _nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: "Name *",
+                  border: OutlineInputBorder(),
+                ),
+                textCapitalization: TextCapitalization.words,
+                validator: (v) =>
+                    (v == null || v.trim().isEmpty) ? "Name is required" : null,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _codeCtrl,
+                decoration: const InputDecoration(
+                  labelText: "Code (e.g. US)",
+                  border: OutlineInputBorder(),
+                ),
+                textCapitalization: TextCapitalization.characters,
+                maxLength: 10,
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
+          child: const Text("Cancel"),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(isEdit ? "Save" : "Add"),
+        ),
       ],
     );
   }

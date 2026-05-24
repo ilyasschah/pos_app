@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/api/promotion_models.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 class PromotionEditDialog extends ConsumerStatefulWidget {
   final PromotionDto? promotion;
@@ -103,9 +104,7 @@ class _PromotionEditDialogState extends ConsumerState<PromotionEditDialog> {
       }
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) showAppSnackbar(context, ref, 'Error: $e', isError: true);
     }
   }
 
@@ -136,10 +135,15 @@ class _PromotionEditDialogState extends ConsumerState<PromotionEditDialog> {
               controller: _nameController,
               decoration: const InputDecoration(labelText: 'Promotion Name'),
             ),
-            SwitchListTile(
-              title: const Text('Is Enabled'),
-              value: _isEnabled,
-              onChanged: (v) => setState(() => _isEnabled = v),
+            Row(
+              children: [
+                const Text('Is Enabled'),
+                const Spacer(),
+                Switch(
+                  value: _isEnabled,
+                  onChanged: (v) => setState(() => _isEnabled = v),
+                ),
+              ],
             ),
             const Divider(),
             Row(
@@ -165,7 +169,7 @@ class _PromotionEditDialogState extends ConsumerState<PromotionEditDialog> {
                     title: Text('UID: ${item.uid} | Value: ${item.value}'),
                     subtitle: Text('Type: ${item.discountType}'),
                     trailing: IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
+                      icon: Icon(Icons.delete, color: Theme.of(context).colorScheme.error),
                       onPressed: () {
                         setState(() {
                           _items.removeAt(i);

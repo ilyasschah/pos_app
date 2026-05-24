@@ -26,6 +26,10 @@ final rawAppPropertiesProvider = FutureProvider.autoDispose<List<AppProperty>>((
 });
 
 class AppSettingsNotifier extends Notifier<Map<String, String>> {
+  // Optimistic writes survive build() re-runs triggered by rawAppPropertiesProvider
+  // reloads, preventing theme/setting flashes when any setting is saved.
+  final Map<String, String> _pendingOverrides = {};
+
   @override
   Map<String, String> build() {
     final map = Map<String, String>.from(kSettingDefaults);
@@ -39,6 +43,10 @@ class AppSettingsNotifier extends Notifier<Map<String, String>> {
         map[p.name] = p.value;
       }
     });
+
+    // Re-apply any optimistic writes so the theme/settings don't flash back to
+    // defaults while rawAppPropertiesProvider is reloading after a save.
+    map.addAll(_pendingOverrides);
 
     return map;
   }
@@ -76,6 +84,7 @@ class AppSettingsNotifier extends Notifier<Map<String, String>> {
       set(SettingKeys.bookingSettings, value.toJsonStr());
 
   Future<void> set(String key, String value) async {
+    _pendingOverrides[key] = value;
     state = {...state, key: value};
 
     final company = ref.read(selectedCompanyProvider);
@@ -101,6 +110,7 @@ class AppSettingsNotifier extends Notifier<Map<String, String>> {
       }
       ref.invalidate(rawAppPropertiesProvider);
     } on DioException {
+      _pendingOverrides.remove(key);
       final prev = existing?.value ?? kSettingDefaults[key] ?? '';
       state = {...state, key: prev};
       rethrow;

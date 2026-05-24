@@ -3,17 +3,25 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/company/company_provider.dart';
-// ── Colour palette ────────────────────────────────────────────────────────────
 
-const kNavBg = Color(0xFF0D1117);
-const kNavSidebar = Color(0xFF161B22);
-const kNavHover = Color(0xFF21262D);
-const kNavActiveBg = Color(0xFF1C2E23);
-const kNavAccent = Color(0xFF00C896);
-const kNavText = Color(0xFFC9D1D9);
-const kNavMuted = Color(0xFF8B949E);
-const kNavDivider = Color(0xFF30363D);
+// ── Layout constant (non-colour — safe to keep const) ─────────────────────────
 const kSidebarW = 220.0;
+
+// ── Theme helpers (replaces the old hardcoded kNav* constants) ────────────────
+// Each widget now reads from Theme.of(context) so all custom themes apply.
+
+extension NavTheme on BuildContext {
+  ColorScheme get _cs => Theme.of(this).colorScheme;
+
+  Color get navSidebarBg     => _cs.surfaceContainer;
+  Color get navHover         => _cs.surfaceContainerHigh;
+  Color get navActiveBg      => _cs.primaryContainer;
+  Color get navAccent        => _cs.primary;
+  Color get navText          => _cs.onSurface;
+  Color get navMuted         => _cs.onSurfaceVariant;
+  Color get navDivider       => _cs.outline.withValues(alpha: 0.3);
+  Color get navScaffoldBg    => Theme.of(this).scaffoldBackgroundColor;
+}
 
 // ── Section label ─────────────────────────────────────────────────────────────
 
@@ -27,8 +35,8 @@ class NavSectionLabel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
       child: Text(
         text,
-        style: const TextStyle(
-          color: kNavMuted,
+        style: TextStyle(
+          color: context.navMuted,
           fontSize: 10,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.8,
@@ -42,15 +50,15 @@ class NavSectionLabel extends StatelessWidget {
 
 class NavSidebarHeader extends ConsumerWidget {
   final String name;
-  final VoidCallback? onHideSidebar; // ✨ NEW: Pass the collapse action here
+  final VoidCallback? onHideSidebar;
 
   const NavSidebarHeader({super.key, required this.name, this.onHideSidebar});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final company = ref.watch(selectedCompanyProvider);
+    final accent  = context.navAccent;
 
-    // Safely decode the logo if it exists
     ImageProvider? logoProvider;
     if (company?.logo != null && company!.logo!.isNotEmpty) {
       try {
@@ -59,22 +67,15 @@ class NavSidebarHeader extends ConsumerWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        16,
-        24,
-        8,
-        20,
-      ), // Adjusted right padding for the button
+      padding: const EdgeInsets.fromLTRB(16, 24, 8, 20),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment
-            .start, // Align to top so long text flows down nicely
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Company Logo
           Container(
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: kNavAccent,
+              color: accent,
               borderRadius: BorderRadius.circular(10),
               image: logoProvider != null
                   ? DecorationImage(image: logoProvider, fit: BoxFit.cover)
@@ -94,8 +95,6 @@ class NavSidebarHeader extends ConsumerWidget {
                 : null,
           ),
           const SizedBox(width: 12),
-
-          // 2. Wrap text in Expanded so it drops to the next line smoothly
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -103,32 +102,29 @@ class NavSidebarHeader extends ConsumerWidget {
               children: [
                 Text(
                   name,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: context.navText,
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
-                    height: 1.2, // Gives the text breathing room when it wraps
+                    height: 1.2,
                   ),
-                  // ✨ Removed maxLines and ellipsis so it wraps perfectly!
                 ),
                 const SizedBox(height: 8),
-
-                // 3. Online Status
                 Row(
                   children: [
                     Container(
                       width: 8,
                       height: 8,
-                      decoration: const BoxDecoration(
-                        color: kNavAccent,
+                      decoration: BoxDecoration(
+                        color: accent,
                         shape: BoxShape.circle,
                       ),
                     ),
                     const SizedBox(width: 6),
-                    const Text(
+                    Text(
                       "Online",
                       style: TextStyle(
-                        color: kNavAccent,
+                        color: accent,
                         fontSize: 12,
                         fontWeight: FontWeight.w500,
                       ),
@@ -138,13 +134,11 @@ class NavSidebarHeader extends ConsumerWidget {
               ],
             ),
           ),
-
-          // 4. Hamburger button elegantly placed inside the Row
           if (onHideSidebar != null)
             IconButton(
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
-              icon: const Icon(Icons.menu_open, color: Colors.white70),
+              icon: Icon(Icons.menu_open, color: context.navMuted),
               tooltip: "Hide Sidebar",
               onPressed: onHideSidebar,
             ),
@@ -185,17 +179,18 @@ class _NavItemState extends State<NavItem> {
 
   @override
   Widget build(BuildContext context) {
-    final active = widget.isActive;
-    final textColor = widget.textColor ?? (active ? kNavAccent : kNavText);
-    final iconColor = widget.iconColor ?? (active ? kNavAccent : kNavMuted);
-    final bg = active
-        ? kNavActiveBg
-        : (_hovered ? kNavHover : Colors.transparent);
+    final active    = widget.isActive;
+    final accent    = context.navAccent;
+    final textColor = widget.textColor ?? (active ? accent : context.navText);
+    final iconColor = widget.iconColor ?? (active ? accent : context.navMuted);
+    final bg        = active
+        ? context.navActiveBg
+        : (_hovered ? context.navHover : Colors.transparent);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onExit:  (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
         child: Padding(
@@ -209,14 +204,13 @@ class _NavItemState extends State<NavItem> {
             ),
             child: Row(
               children: [
-                // Teal accent bar (active state only)
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 120),
-                  width: active ? 3 : 0,
+                  width:  active ? 3 : 0,
                   height: 16,
                   margin: EdgeInsets.only(right: active ? 8 : 0),
                   decoration: BoxDecoration(
-                    color: kNavAccent,
+                    color: accent,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -274,20 +268,20 @@ class _NavIconButtonState extends State<NavIconButton> {
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
+        onExit:  (_) => setState(() => _hovered = false),
         child: GestureDetector(
           onTap: widget.onTap,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 120),
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: _hovered ? kNavHover : Colors.transparent,
+              color: _hovered ? context.navHover : Colors.transparent,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
               widget.icon,
               size: 20,
-              color: widget.iconColor ?? kNavMuted,
+              color: widget.iconColor ?? context.navMuted,
             ),
           ),
         ),

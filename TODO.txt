@@ -1,2 +1,6 @@
 check the settigns if they realy work and effect the application
-currensies screen
+
+client screen like odoo
+
+
+time for notification 

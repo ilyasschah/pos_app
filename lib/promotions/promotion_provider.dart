@@ -15,9 +15,8 @@ final allPromotionsProvider = FutureProvider<List<PromotionDto>>((ref) async {
   }
 });
 
-final activePromotionsProvider = Provider<List<PromotionDto>>((ref) {
-  final asyncPromotions = ref.watch(allPromotionsProvider);
-  final promotions = asyncPromotions.value ?? [];
+final activePromotionsProvider = FutureProvider<List<PromotionDto>>((ref) async {
+  final promotions = await ref.watch(allPromotionsProvider.future);
 
   final now = DateTime.now();
   final currentWeekday = now.weekday;
@@ -63,8 +62,7 @@ final activePromotionsProvider = Provider<List<PromotionDto>>((ref) {
   return activePromotions;
 });
 
-int getActivePromotionCountForProduct(WidgetRef ref, int productId) {
-  final activePromotions = ref.watch(activePromotionsProvider);
+int getActivePromotionCountForProduct(List<PromotionDto> activePromotions, int productId) {
   int count = 0;
   for (var promo in activePromotions) {
     if (promo.items.any((item) => item.productId == productId)) {

@@ -27,7 +27,7 @@ class CartState {
   final int manualCartDiscountType; // 0 for %, 1 for $
   final double? customerDiscountValue;
   final int? customerDiscountType;
-  final int? selectedProductId;
+  final String? selectedCartItemId;
   final int
   serviceType; // 0 for Dine In / Appointment, 1 for Takeaway / Walk-In
   final int serviceStatus; // 1 for Active, etc.
@@ -35,6 +35,7 @@ class CartState {
   final int? activeWarehouseId;
   final int? bookingId;
   final int? bookingStaffId;
+  final String? orderName;
 
   CartState({
     this.activePosOrderId,
@@ -47,13 +48,14 @@ class CartState {
     this.manualCartDiscountType = 0,
     this.customerDiscountValue,
     this.customerDiscountType,
-    this.selectedProductId,
+    this.selectedCartItemId,
     this.serviceType = 0,
     this.serviceStatus = 1,
     this.floorPlanTableId,
     this.activeWarehouseId,
     this.bookingId,
     this.bookingStaffId,
+    this.orderName,
   });
 
   CartState copyWith({
@@ -64,7 +66,7 @@ class CartState {
     CustomerDiscountDto? selectedCustomerDiscount,
     double? manualCartDiscount,
     int? manualCartDiscountType,
-    int? selectedProductId,
+    String? selectedCartItemId,
     String? orderNumber,
     double? customerDiscountValue,
     int? customerDiscountType,
@@ -74,6 +76,7 @@ class CartState {
     int? activeWarehouseId,
     int? bookingId,
     int? bookingStaffId,
+    String? orderName,
   }) {
     return CartState(
       activePosOrderId: activePosOrderId ?? this.activePosOrderId,
@@ -89,13 +92,14 @@ class CartState {
       customerDiscountValue:
           customerDiscountValue ?? this.customerDiscountValue,
       customerDiscountType: customerDiscountType ?? this.customerDiscountType,
-      selectedProductId: selectedProductId ?? this.selectedProductId,
+      selectedCartItemId: selectedCartItemId ?? this.selectedCartItemId,
       serviceType: serviceType ?? this.serviceType,
       serviceStatus: serviceStatus ?? this.serviceStatus,
       floorPlanTableId: floorPlanTableId ?? this.floorPlanTableId,
       activeWarehouseId: activeWarehouseId ?? this.activeWarehouseId,
       bookingId: bookingId ?? this.bookingId,
       bookingStaffId: bookingStaffId ?? this.bookingStaffId,
+      orderName: orderName ?? this.orderName,
     );
   }
 }
@@ -307,7 +311,7 @@ class CartNotifier extends Notifier<CartState> {
       taxTotal;
 
   void _applyPromotions(List<CartItem> items) {
-    final activePromotions = ref.read(activePromotionsProvider);
+    final activePromotions = ref.read(activePromotionsProvider).value ?? [];
     for (var item in items) {
       double bestDiscount = 0;
       for (var promo in activePromotions) {
@@ -389,7 +393,7 @@ class CartNotifier extends Notifier<CartState> {
       manualCartDiscountType: state.manualCartDiscountType,
       customerDiscountValue: state.customerDiscountValue,
       customerDiscountType: state.customerDiscountType,
-      selectedProductId: state.selectedProductId,
+      selectedCartItemId: state.selectedCartItemId,
       serviceType: newServiceType,
       serviceStatus: state.serviceStatus,
       floorPlanTableId: null,
@@ -491,23 +495,42 @@ class CartNotifier extends Notifier<CartState> {
     );
   }
 
-  void setItemDiscount(int productId, double discount) {
+  void setItemDiscount(String cartItemId, double discount) {
     final items = List<CartItem>.from(state.items);
-    final index = items.indexWhere((i) => i.productId == productId);
+    final index = items.indexWhere((i) => i.cartItemId == cartItemId);
     if (index >= 0) {
       items[index].discount = discount;
       state = state.copyWith(items: items);
     }
   }
 
-  void setSelectedProduct(int? productId) {
-    state = state.copyWith(selectedProductId: productId);
+  void setSelectedProduct(String? cartItemId) {
+    state = state.copyWith(selectedCartItemId: cartItemId);
   }
 
-  void clearCart({bool keepCustomer = false}) {
+  void setOrderName(String? name) {
+    state = state.copyWith(orderName: name);
+  }
+
+  void clearCart({bool keepCustomer = false, String? overrideServiceType}) {
+    // Resolve the initial service type: prefer the explicit override (e.g. from
+    // the Floor Plan table dialog), then fall back to the default setting.
+    final serviceTypeName = overrideServiceType ??
+        ref.read(appSettingsProvider)[SettingKeys.defaultServiceType];
+    int initialServiceType = 0;
+    if (serviceTypeName != null) {
+      final types = ref.read(appSettingsProvider.notifier).customServiceTypes;
+      final match = types
+          .where((t) =>
+              t.name.toLowerCase() == serviceTypeName.toLowerCase())
+          .firstOrNull;
+      if (match != null) initialServiceType = match.id;
+    }
+
     state = CartState(
       items: const [],
       isLoading: false,
+      serviceType: initialServiceType,
       selectedCustomer: keepCustomer ? state.selectedCustomer : null,
       customerDiscountValue: keepCustomer ? state.customerDiscountValue : null,
       customerDiscountType: keepCustomer ? state.customerDiscountType : null,
@@ -539,8 +562,12 @@ class CartNotifier extends Notifier<CartState> {
   }) {
     if (state.activePosOrderId == null) return;
 
+    final settings = ref.read(appSettingsProvider);
+    final separateRow = settings[SettingKeys.separateRowForEachItem]?.toLowerCase() == 'true';
+    final newCartItemId = '${product.id}_${DateTime.now().microsecondsSinceEpoch}';
+
     final items = List<CartItem>.from(state.items);
-    final existingIndex = items.indexWhere((i) => i.productId == product.id);
+    final existingIndex = separateRow ? -1 : items.indexWhere((i) => i.productId == product.id);
 
     if (existingIndex >= 0) {
       if (items[existingIndex].quantity + quantity > product.stockQuantity) {
@@ -553,14 +580,17 @@ class CartNotifier extends Notifier<CartState> {
       }
       items.add(
         CartItem(
+          cartItemId: newCartItemId,
           posOrderId: state.activePosOrderId!,
           productId: product.id,
           price: product.price,
+          cost: product.cost,
           quantity: quantity,
           productName: product.name,
           appliedTaxes: product.taxes,
           comment: comment,
-          measurementUnit: measurementUnit,
+          measurementUnit: measurementUnit ?? product.measurementUnit,
+          isService: product.isService,
         ),
       );
     }
@@ -568,9 +598,9 @@ class CartNotifier extends Notifier<CartState> {
     state = state.copyWith(items: items);
   }
 
-  void incrementItem(int productId) {
+  void incrementItem(String cartItemId) {
     final items = List<CartItem>.from(state.items);
-    final index = items.indexWhere((i) => i.productId == productId);
+    final index = items.indexWhere((i) => i.cartItemId == cartItemId);
     if (index >= 0) {
       items[index].quantity += 1;
       _applyPromotions(items);
@@ -578,9 +608,9 @@ class CartNotifier extends Notifier<CartState> {
     state = state.copyWith(items: items);
   }
 
-  void decrementItem(int productId) {
+  void decrementItem(String cartItemId) {
     final items = List<CartItem>.from(state.items);
-    final index = items.indexWhere((i) => i.productId == productId);
+    final index = items.indexWhere((i) => i.cartItemId == cartItemId);
     if (index >= 0 && items[index].quantity > 1) {
       items[index].quantity -= 1;
       _applyPromotions(items);
@@ -588,16 +618,30 @@ class CartNotifier extends Notifier<CartState> {
     state = state.copyWith(items: items);
   }
 
-  void removeItem(int productId) {
+  void removeItem(String cartItemId) {
     final items = List<CartItem>.from(state.items);
-    items.removeWhere((i) => i.productId == productId);
+    items.removeWhere((i) => i.cartItemId == cartItemId);
     _applyPromotions(items);
     state = state.copyWith(items: items);
   }
 
-  void updateItemTaxes(int productId, List<MenuTax> newTaxes) {
+  void updateItemQuantity(String cartItemId, double newQuantity) {
     final items = List<CartItem>.from(state.items);
-    final index = items.indexWhere((i) => i.productId == productId);
+    final index = items.indexWhere((i) => i.cartItemId == cartItemId);
+    if (index >= 0) {
+      if (newQuantity <= 0) {
+        items.removeAt(index);
+      } else {
+        items[index].quantity = newQuantity;
+      }
+      _applyPromotions(items);
+    }
+    state = state.copyWith(items: items);
+  }
+
+  void updateItemTaxes(String cartItemId, List<MenuTax> newTaxes) {
+    final items = List<CartItem>.from(state.items);
+    final index = items.indexWhere((i) => i.cartItemId == cartItemId);
     if (index >= 0) {
       items[index].appliedTaxes = newTaxes;
     }
@@ -640,8 +684,15 @@ class CartNotifier extends Notifier<CartState> {
       final floorPlanTableId =
           order['floorPlanTableId'] ?? order['FloorPlanTableId'];
 
-      final List<CartItem> loadedItems = itemsData.map((item) {
-        return CartItem(
+      final List<CartItem> loadedItems = [];
+      for (int _li = 0; _li < itemsData.length; _li++) {
+        final item = itemsData[_li];
+        final serverId = (item['id'] ?? item['Id']) as int?;
+        final cartItemId = (serverId != null && serverId > 0)
+            ? serverId.toString()
+            : '${item['productId'] ?? item['ProductId']}_$_li';
+        loadedItems.add(CartItem(
+          cartItemId: cartItemId,
           posOrderId: posOrderId,
           productId: item['productId'] ?? item['ProductId'],
           price: (item['price'] ?? item['Price'] ?? 0).toDouble(),
@@ -657,8 +708,8 @@ class CartNotifier extends Notifier<CartState> {
                   .toList() ??
               [],
           isSaved: true,
-        );
-      }).toList();
+        ));
+      }
 
       _applyPromotions(loadedItems);
 
@@ -794,8 +845,15 @@ class CartNotifier extends Notifier<CartState> {
       final floorPlanTableId =
           order['floorPlanTableId'] ?? order['FloorPlanTableId'];
 
-      final List<CartItem> loadedItems = itemsData.map((item) {
-        return CartItem(
+      final List<CartItem> loadedItems = [];
+      for (int _li = 0; _li < itemsData.length; _li++) {
+        final item = itemsData[_li];
+        final serverId = (item['id'] ?? item['Id']) as int?;
+        final cartItemId = (serverId != null && serverId > 0)
+            ? serverId.toString()
+            : '${item['productId'] ?? item['ProductId']}_$_li';
+        loadedItems.add(CartItem(
+          cartItemId: cartItemId,
           posOrderId: posOrderId,
           productId: item['productId'] ?? item['ProductId'],
           price: (item['price'] ?? item['Price'] ?? 0).toDouble(),
@@ -811,8 +869,8 @@ class CartNotifier extends Notifier<CartState> {
                   .toList() ??
               [],
           isSaved: true,
-        );
-      }).toList();
+        ));
+      }
 
       _applyPromotions(loadedItems);
 
