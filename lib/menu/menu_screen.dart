@@ -19,6 +19,7 @@ import 'package:pos_app/product/product_group_provider.dart';
 import 'package:pos_app/cart/checkout_models.dart';
 import 'package:pos_app/cart/payment_checkout_dialog.dart';
 import 'package:pos_app/api/api_client.dart';
+import 'package:pos_app/kitchen/kitchen_push_service.dart';
 import 'package:pos_app/tax/tax_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
@@ -33,7 +34,6 @@ import 'package:pos_app/product/product_comment_model.dart';
 import 'package:pos_app/product/product_comment_provider.dart';
 // import 'package:pos_app/menu/open_orders_screen.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
-import 'package:pos_app/printer/printer_provider.dart';
 import 'package:pos_app/refund/refund_dialog.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 import 'package:pos_app/stock/stock_provider.dart';
@@ -373,6 +373,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                                 'customerId': cart.selectedCustomer?.id,
                                 'warehouseId': cart.activeWarehouseId ?? 1,
                               });
+                              KitchenPushService.notifyFromSetting(
+                                ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
+                              );
 
                               if (!context.mounted) return;
 
@@ -597,41 +600,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                         ? null
                         : () async {
                             try {
-                              // 1. Await the future directly so the data is
-                              //    guaranteed to be loaded (never reads a
-                              //    synchronous / stale AsyncValue snapshot).
-                              final selections = await ref.read(
-                                allPrinterSelectionsProvider.future,
-                              );
-
-                              // 2. Find the kitchen printer selection.
-                              final kitchenSelection = selections
-                                  .where((s) => s.key == 'kitchen_printer')
-                                  .firstOrNull;
-
-                              if (kitchenSelection == null ||
-                                  !kitchenSelection.isEnabled) {
-                                if (context.mounted) {
-                                  showAppSnackbar(context, ref, 'Kitchen printer is not configured or disabled.', isError: true);
-                                }
-                                return;
-                              }
-
-                              // 3. Await the layout settings for that selection.
-                              final settings = await ref.read(
-                                printerSelectionSettingsByIdProvider(
-                                  kitchenSelection.id,
-                                ).future,
-                              );
-
-                              if (settings == null) {
-                                if (context.mounted) {
-                                  showAppSnackbar(context, ref, 'Kitchen printer layout settings not found.', isError: true);
-                                }
-                                return;
-                              }
-
-                              // 4. Gather order context and print.
+                              final roleSettings = ref.read(appSettingsProvider);
                               final cashier = ref.read(currentUserProvider);
                               final cartItems = ref.read(cartProvider).items;
                               final serviceLabel =
@@ -651,8 +620,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                                 roundNumber: roundNum,
                                 printTime: DateTime.now(),
                                 items: cartItems,
-                                printerSelection: kitchenSelection,
-                                settings: settings,
+                                roleSettings: roleSettings,
                               );
                             } catch (e) {
                               if (context.mounted) {
@@ -772,6 +740,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                         cart.activeWarehouseId ??
                             ref.read(selectedWarehouseProvider)?.id ??
                             1,
+                      );
+                      KitchenPushService.notifyFromSetting(
+                        ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
                       );
                     } catch (_) {}
                   }
@@ -1248,6 +1219,7 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final sym = ref.watch(currencySymbolProvider);
+    final showImages = ref.watch(appSettingsProvider)[SettingKeys.showProductImages]?.toLowerCase() != 'false';
     final hasPromo = getActivePromotionCountForProduct(_activePromos, product.id) > 0;
 
     return InkWell(
@@ -1394,7 +1366,7 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
             children: [
               Expanded(
                 flex: 3,
-                child: product.imageBytes != null
+                child: showImages && product.imageBytes != null
                     ? Image.memory(product.imageBytes!, fit: BoxFit.cover)
                     : Container(
                         color: cs.surfaceContainerHighest,
@@ -1831,6 +1803,9 @@ class _CartSectionState extends ConsumerState<CartSection> {
         companyId,
         cartState.activePosOrderId!,
         cartState.activeWarehouseId ?? 1,
+      );
+      KitchenPushService.notifyFromSetting(
+        ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
       );
       ref.read(cartProvider.notifier).clearCart();
       await syncLatestOrderNumber(ref, companyId);
@@ -2895,6 +2870,9 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
               1,
         };
         await ApiClient().updatePosOrder(companyId, updateRequest);
+        KitchenPushService.notifyFromSetting(
+          ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
+        );
 
         final oldTableId = widget.cartState.floorPlanTableId;
         final newTable = _selectedRoom;

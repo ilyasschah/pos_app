@@ -1,3 +1,5 @@
+import 'package:pos_app/database/app_database.dart';
+
 class FloorPlan {
   final int id;
   final String name;
@@ -14,6 +16,14 @@ class FloorPlan {
       id: json['id'],
       name: json['name'],
       color: json['color'] ?? "Transparent",
+    );
+  }
+
+  factory FloorPlan.fromDrift(FloorPlansTableData row) {
+    return FloorPlan(
+      id: row.id,
+      name: row.name,
+      color: row.color,
     );
   }
 

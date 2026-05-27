@@ -1,26 +1,24 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
+
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan.dart';
-import '../utils/api_error_parser.dart';
+import 'package:pos_app/sync/sync_provider.dart';
 
+/// Live floor-plan list from the local Drift DB. Mutations below write
+/// through to the API and then trigger a targeted re-sync so the local
+/// stream re-emits with the new row.
 final allFloorPlansProvider =
-    FutureProvider.autoDispose<List<FloorPlan>>((ref) async {
+    StreamProvider.autoDispose<List<FloorPlan>>((ref) {
+  final db = ref.watch(appDatabaseProvider);
   final companyId = ref.watch(selectedCompanyProvider)?.id;
-  if (companyId == null) return [];
+  if (companyId == null) return const Stream.empty();
 
-  try {
-    final dio = createDio();
-    final response = await dio.get(
-      '/FloorPlans/GetAll',
-      queryParameters: {'companyId': companyId},
-    );
-    return (response.data as List).map((j) => FloorPlan.fromJson(j)).toList();
-  } on DioException catch (e, st) {
-    rethrowApiError(e, st);
-    return [];
-  }
+  final query = db.select(db.floorPlansTable)
+    ..where((t) => t.companyId.equals(companyId));
+
+  return query.watch().map((rows) => rows.map(FloorPlan.fromDrift).toList());
 });
 
 class FloorPlanState {
@@ -68,6 +66,18 @@ class FloorPlanNotifier extends Notifier<FloorPlanState> {
   void setGridSize(double size) => state = state.copyWith(gridSize: size);
   void toggleEditMode(bool value) => state = state.copyWith(isEditMode: value);
 
+  /// After a successful API mutation, pull the floor-plan delta back into
+  /// the local Drift DB. The Drift stream then re-emits and the UI updates.
+  /// Errors are swallowed — the mutation already succeeded server-side; the
+  /// row will sync on the next pullMasterData.
+  Future<void> _refreshLocal() async {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    if (companyId == null) return;
+    try {
+      await ref.read(syncManagerProvider).pullFloorPlans(companyId);
+    } catch (_) {/* row will appear on next sync */}
+  }
+
   Future<void> addFloorPlan(String name, String color) async {
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
@@ -75,7 +85,7 @@ class FloorPlanNotifier extends Notifier<FloorPlanState> {
     await dio.post('/FloorPlans/Add',
         queryParameters: {'companyId': companyId},
         data: {'name': name, 'color': color});
-    ref.invalidate(allFloorPlansProvider);
+    await _refreshLocal();
   }
 
   Future<void> updateFloorPlan(int id, String name, String color) async {
@@ -85,7 +95,7 @@ class FloorPlanNotifier extends Notifier<FloorPlanState> {
     await dio.patch('/FloorPlans/Update',
         queryParameters: {'companyId': companyId},
         data: {'id': id, 'name': name, 'color': color});
-    ref.invalidate(allFloorPlansProvider);
+    await _refreshLocal();
   }
 
   Future<void> deleteFloorPlan(int id) async {
@@ -97,7 +107,11 @@ class FloorPlanNotifier extends Notifier<FloorPlanState> {
     if (state.activeFloorPlanId == id) {
       state = FloorPlanState(activeFloorPlanId: null);
     }
-    ref.invalidate(allFloorPlansProvider);
+    // Deletion isn't reflected by `modifiedAfter` pulls — the deleted row
+    // simply won't be in subsequent responses, but the existing local row
+    // sticks. Wipe it directly here.
+    final db = ref.read(appDatabaseProvider);
+    await (db.delete(db.floorPlansTable)..where((t) => t.id.equals(id))).go();
   }
 }
 

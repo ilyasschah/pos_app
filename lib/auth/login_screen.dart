@@ -15,6 +15,7 @@ import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/settings/settings_provider.dart';
+import 'package:pos_app/sync/sync_provider.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -245,6 +246,7 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
   String _confirmPin = "";
   bool _isConfirming = false;
   bool _isLoading = false;
+  bool _isSyncing = false;
 
   void _onKeyPress(String value) {
     if (_pin.length < 4) {
@@ -284,13 +286,13 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
     }
   }
 
-  void _verifyPin() {
+  Future<void> _verifyPin() async {
     final bytes = utf8.encode(_pin);
     final digest = sha256.convert(bytes);
     final hashedAttempt = base64Encode(digest.bytes);
 
     if (hashedAttempt == widget.user.hashedPin) {
-      _loginUser();
+      await _loginUser();
     } else {
       _showError("Incorrect PIN.");
       setState(() => _pin = "");
@@ -305,7 +307,7 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
             companyId: widget.user.companyId,
             pin: _pin,
           );
-      _loginUser();
+      await _loginUser();
     } catch (e) {
       _showError("Failed to save PIN.");
       setState(() {
@@ -317,8 +319,32 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
     }
   }
 
-  void _loginUser() {
+  Future<void> _loginUser() async {
     ref.read(currentUserProvider.notifier).setUser(widget.user);
+
+    // Seed the local Drift DB before navigating into MainLayout. After this
+    // returns, every read-only provider migrated in Phase 3 has data to serve
+    // even if the network drops mid-session.
+    //
+    // Failure policy (plan section 2.3): if the seed fails but we already have
+    // data from a prior session, warn and continue. We can't easily check
+    // emptiness here without an extra round-trip, so V1 always continues —
+    // first-install failure surfaces later as empty product/floor-plan screens.
+    setState(() {
+      _isLoading = true;
+      _isSyncing = true;
+    });
+
+    try {
+      await ref.read(syncManagerProvider).pullMasterData(widget.user.companyId);
+    } catch (e) {
+      if (mounted) {
+        _showError("Sync failed — running on cached data. ($e)");
+      }
+    }
+
+    if (!mounted) return;
+
     final settings = ref.read(appSettingsProvider);
     final bookingEnabled =
         settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
@@ -354,9 +380,11 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
     final isAdmin = widget.user.accessLevel == 0;
     final avatarBg = isAdmin ? cs.primaryContainer : cs.secondaryContainer;
     final avatarFg = isAdmin ? cs.onPrimaryContainer : cs.onSecondaryContainer;
-    final title = !widget.user.hasPinForThisDevice
-        ? (_isConfirming ? "Confirm New PIN" : "Create 4-Digit PIN")
-        : "Enter PIN";
+    final title = _isSyncing
+        ? "Syncing master data…"
+        : !widget.user.hasPinForThisDevice
+            ? (_isConfirming ? "Confirm New PIN" : "Create 4-Digit PIN")
+            : "Enter PIN";
 
     return Container(
       height: 560,

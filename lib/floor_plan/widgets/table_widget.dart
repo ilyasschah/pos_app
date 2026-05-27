@@ -9,6 +9,7 @@ import 'package:pos_app/utils/status_helper.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/navigation/main_layout.dart';
+import 'package:pos_app/kitchen/kitchen_push_service.dart';
 
 class TableWidget extends ConsumerStatefulWidget {
   final FloorPlanTable table;
@@ -219,6 +220,9 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                     widget.table.id,
                     widget.table.name,
                     widget.warehouseId,
+                  );
+                  KitchenPushService.notifyFromSetting(
+                    ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
                   );
                   if (mounted) {
                     ref

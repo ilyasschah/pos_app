@@ -12,6 +12,7 @@ import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
 import 'package:pos_app/bookings/bookings_provider.dart';
 import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
+import 'package:pos_app/kitchen/kitchen_push_service.dart';
 
 final dailyOrderNumberProvider = StateProvider<int>((ref) => 1);
 
@@ -107,6 +108,11 @@ class CartState {
 class CartNotifier extends Notifier<CartState> {
   @override
   CartState build() => CartState();
+
+  void _notifyKitchen() {
+    final raw = ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps];
+    KitchenPushService.notifyFromSetting(raw);
+  }
 
   // Prefer the warehouse that was set when this order was created/loaded.
   // Fall back to the globally selected warehouse, then to 1 as a last resort.
@@ -434,6 +440,7 @@ class CartNotifier extends Notifier<CartState> {
         customerDiscountValue: state.customerDiscountValue,
         customerDiscountType: state.customerDiscountType,
       );
+      _notifyKitchen();
     } catch (e) {
       state = state.copyWith(isLoading: false);
       rethrow;
@@ -802,6 +809,7 @@ class CartNotifier extends Notifier<CartState> {
         // Preserve full order context (orderNumber, activePosOrderId, table, serviceType, etc.)
         // Only clear the locally-drafted items since they are now committed to the backend.
         state = state.copyWith(items: const []);
+        _notifyKitchen();
         return {'success': true, 'warnings': warnings};
       }
       return {'success': false, 'message': 'Failed to update order header.'};
@@ -998,6 +1006,7 @@ class CartNotifier extends Notifier<CartState> {
       );
 
       if (success) {
+        _notifyKitchen();
         clearCart();
         ref.invalidate(allBookingsProvider);
         ref.invalidate(tablesByFloorPlanProvider);
@@ -1030,6 +1039,7 @@ class CartNotifier extends Notifier<CartState> {
         state.activeWarehouseId ?? 1,
       );
       if (success) {
+        _notifyKitchen();
         clearCart();
         ref.invalidate(allBookingsProvider);
         ref.invalidate(tablesByFloorPlanProvider);

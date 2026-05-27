@@ -1006,24 +1006,18 @@ class _PCard extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return Container(
+    return Card(
       margin: const EdgeInsets.only(bottom: 14),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
+      elevation: isDark ? 0 : 1,
+      shadowColor: theme.shadowColor.withValues(alpha: 0.06),
+      color: theme.cardColor,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        border: isDark
-            ? Border.all(color: theme.dividerColor.withValues(alpha: 0.2))
-            : null,
-        boxShadow: isDark
-            ? null
-            : [
-                BoxShadow(
-                  color: theme.shadowColor.withValues(alpha: 0.06),
-                  blurRadius: 12,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+        side: isDark
+            ? BorderSide(color: theme.dividerColor.withValues(alpha: 0.2))
+            : BorderSide.none,
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

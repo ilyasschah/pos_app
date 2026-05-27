@@ -174,11 +174,15 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
 
       if (!success || !mounted) return;
 
-      // ── Close dialog immediately — cashier can start next order ──
-      Navigator.pop(ctx);
+      // ── Resolve print settings ────────────────────────────────────
+      final autoprint =
+          (appSettings[SettingKeys.autoprint] ?? '').toLowerCase() == 'true';
+      final showPrintDialog =
+          (appSettings[SettingKeys.displayReceiptPrintDialog] ?? '')
+                  .toLowerCase() ==
+              'true';
 
-      // ── Fire-and-forget: print + navigate in background ──────────
-      ReceiptPrinterService()
+      void doPrint() => ReceiptPrinterService()
           .printCartReceipt(
             company: company,
             cashier: user,
@@ -195,7 +199,41 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
             logoBytes: logoBytes,
             roleSettings: appSettings,
           )
-          .catchError((_) {}); // swallow print errors silently
+          .catchError((_) {});
+
+      if (autoprint) {
+        doPrint();
+      } else if (showPrintDialog && mounted) {
+        final wantsPrint = await showDialog<bool>(
+          context: ctx,
+          barrierDismissible: false,
+          builder: (c) => AlertDialog(
+            icon: const Icon(
+              Icons.check_circle_outline,
+              color: Colors.green,
+              size: 36,
+            ),
+            title: const Text('Transaction Successful'),
+            content: const Text('Would you like to print a receipt?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c, false),
+                child: const Text('No'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(c, true),
+                child: const Text('Print Receipt'),
+              ),
+            ],
+          ),
+        );
+        if (wantsPrint == true) doPrint();
+      }
+
+      if (!mounted) return;
+
+      // ── Close checkout dialog ─────────────────────────────────────
+      Navigator.pop(ctx);
 
       await syncLatestOrderNumber(ref, company.id);
 

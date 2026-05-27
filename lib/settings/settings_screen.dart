@@ -19,9 +19,8 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/currency/country_model.dart';
 import 'package:dio/dio.dart';
-import 'package:pos_app/printer/printer_selection_model.dart';
-import 'package:pos_app/printer/printer_selection_settings_model.dart';
 import 'package:pos_app/settings/printer_settings_screen.dart';
+import 'package:pos_app/kitchen/kitchen_push_service.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
@@ -46,6 +45,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     (icon: Icons.description,       label: 'Documents'),
     (icon: Icons.monitor_weight,    label: 'Weighing Scale'),
     (icon: Icons.display_settings,  label: 'Customer Display'),
+    (icon: Icons.kitchen,           label: 'Kitchen Display'),
     (icon: Icons.email,             label: 'Email'),
     (icon: Icons.print,             label: 'Print'),
     (icon: Icons.currency_exchange, label: 'Dual Currency'),
@@ -62,6 +62,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _DocumentsTab(),
     _WeighingScaleTab(),
     _CustomerDisplayTab(),
+    _KitchenDisplayTab(),
     _EmailTab(),
     _PrintTab(),
     _DualCurrencyTab(),
@@ -2170,25 +2171,117 @@ class _OrderPaymentTab extends ConsumerWidget {
 }
 
 // ── Products ──────────────────────────────────────────────────────────────────
+
+// Placeholder checkbox swatch — replaced once the Tax Provider is wired up.
+class _MockCheckbox extends StatelessWidget {
+  final String label;
+  const _MockCheckbox({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 18,
+          height: 18,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(3),
+            border: Border.all(
+              color: theme.colorScheme.outline.withValues(alpha: 0.5),
+              width: 1.5,
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _ProductsTab extends ConsumerWidget {
   const _ProductsTab();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appSettingsProvider);
+    final theme = Theme.of(context);
+    final autoUpdateCost =
+        settings[SettingKeys.autoUpdateCostPrice]?.toLowerCase() == 'true';
+
     return _TabScrollView(
       cards: [
         _SettingsCard(
-          title: 'DISPLAY',
-          children: [
-            const _SettingSwitch(
+          title: 'GENERAL',
+          children: const [
+            _SettingSwitch(
+              settingKey: SettingKeys.displayAndPrintTaxIncluded,
+              label: 'Display and print items with tax included',
+            ),
+            _SettingDropdown(
+              settingKey: SettingKeys.discountApplyRule,
+              label: 'Discount apply rule',
+              options: ['Before tax', 'After tax'],
+            ),
+            _SettingDropdown(
+              settingKey: SettingKeys.productSorting,
+              label: 'Sorting',
+              options: ['Name', 'Code', 'Barcode'],
+            ),
+            _SettingSwitch(
+              settingKey: SettingKeys.allowNegativePrice,
+              label: 'Allow negative price',
+            ),
+            _SettingSwitch(
               settingKey: SettingKeys.showProductImages,
               label: 'Show Product Images in POS Grid',
             ),
           ],
         ),
         _SettingsCard(
-          title: 'DEFAULTS',
+          title: 'PRODUCT DEFAULTS',
           children: [
+            // TODO: Wire up to Tax Provider to generate checkboxes dynamically
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Default tax rate',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Wrap(
+                    spacing: 20,
+                    runSpacing: 8,
+                    children: [
+                      _MockCheckbox(label: 'Standard (10%)'),
+                      _MockCheckbox(label: 'Reduced (5%)'),
+                      _MockCheckbox(label: 'Zero (0%)'),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Tax rates will be loaded from the backend',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, indent: 20, endIndent: 20),
             const _SettingTextField(
               settingKey: SettingKeys.defaultMeasurementUnit,
               label: 'Default Measurement Unit',
@@ -2198,6 +2291,36 @@ class _ProductsTab extends ConsumerWidget {
               settingKey: SettingKeys.barcodeFormat,
               label: 'Default Barcode Format',
               options: ['EAN-13', 'EAN-8', 'UPC-A', 'Code128', 'QR'],
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.costPriceBasedMarkup,
+              label: 'Cost price based markup',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.autoUpdateCostPrice,
+              label: 'Automatically update cost price on purchase',
+            ),
+            Padding(
+              padding: const EdgeInsets.only(left: 24),
+              child: Opacity(
+                opacity: autoUpdateCost ? 1.0 : 0.4,
+                child: IgnorePointer(
+                  ignoring: !autoUpdateCost,
+                  child: const _SettingSwitch(
+                    settingKey: SettingKeys.updateSalePriceOnMarkup,
+                    label: 'Update sale price based on markup',
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        _SettingsCard(
+          title: 'MOVING AVERAGE PRICE',
+          children: const [
+            _SettingSwitch(
+              settingKey: SettingKeys.enableMovingAveragePrice,
+              label: 'Enable moving average price',
             ),
           ],
         ),
@@ -2333,6 +2456,147 @@ class _CustomerDisplayTab extends ConsumerWidget {
               settingKey: SettingKeys.customerDisplayWelcomeMessage,
               label: 'Welcome Message',
               hint: 'e.g. Welcome!',
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+// ── Kitchen Display ───────────────────────────────────────────────────────────
+class _KitchenDisplayTab extends ConsumerStatefulWidget {
+  const _KitchenDisplayTab();
+
+  @override
+  ConsumerState<_KitchenDisplayTab> createState() => _KitchenDisplayTabState();
+}
+
+class _KitchenDisplayTabState extends ConsumerState<_KitchenDisplayTab> {
+  final _ipController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
+
+  List<String> _parseIps(String? raw) =>
+      (raw ?? '').split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+
+  void _addIp() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    final ip = _ipController.text.trim();
+    final existing = _parseIps(ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps]);
+    if (existing.contains(ip)) return;
+    final updated = [...existing, ip].join(',');
+    ref.read(appSettingsProvider.notifier).set(SettingKeys.kitchenDisplayIps, updated);
+    _ipController.clear();
+  }
+
+  void _removeIp(String ip) {
+    final existing = _parseIps(ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps]);
+    final updated = existing.where((e) => e != ip).join(',');
+    ref.read(appSettingsProvider.notifier).set(SettingKeys.kitchenDisplayIps, updated);
+  }
+
+  void _testIp(String ip) {
+    KitchenPushService.notify([ip]);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Ping sent to $ip — check the KDS screen for a refresh.'),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ipController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final ips = _parseIps(ref.watch(appSettingsProvider)[SettingKeys.kitchenDisplayIps]);
+
+    return _TabScrollView(
+      cards: [
+        _SettingsCard(
+          title: 'KITCHEN DISPLAY TABLETS',
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                'Each Kitchen Display tablet runs an HTTP server on port ${KitchenPushService.kdsPort}. '
+                'The POS app will ping every IP below after any order change so the KDS refreshes instantly.',
+                style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+              ),
+            ),
+            const Divider(height: 1),
+            // ── existing IPs ──
+            if (ips.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                child: Text(
+                  'No kitchen displays configured.',
+                  style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                ),
+              ),
+            ...ips.map((ip) => ListTile(
+                  leading: Icon(Icons.tablet_android, color: cs.primary),
+                  title: Text(ip, style: theme.textTheme.bodyMedium),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: Icon(Icons.wifi_tethering, color: cs.secondary, size: 20),
+                        tooltip: 'Test ping',
+                        onPressed: () => _testIp(ip),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.delete_outline, color: cs.error, size: 20),
+                        tooltip: 'Remove',
+                        onPressed: () => _removeIp(ip),
+                      ),
+                    ],
+                  ),
+                )),
+            const Divider(height: 1),
+            // ── add new IP ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: Form(
+                key: _formKey,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: _ipController,
+                        decoration: InputDecoration(
+                          labelText: 'KDS IP address',
+                          hintText: '192.168.1.100',
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                          prefixIcon: const Icon(Icons.lan_outlined, size: 18),
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return 'Enter an IP address';
+                          final parts = v.trim().split('.');
+                          if (parts.length != 4) return 'Invalid IP (e.g. 192.168.1.100)';
+                          if (parts.any((p) => int.tryParse(p) == null)) return 'Invalid IP';
+                          return null;
+                        },
+                        onFieldSubmitted: (_) => _addIp(),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    FilledButton.icon(
+                      onPressed: _addIp,
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('Add'),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
@@ -2603,421 +2867,6 @@ class _FeatureBullet extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Printer Slot Card ─────────────────────────────────────────────────────────
-class _PrinterSlotCard extends ConsumerStatefulWidget {
-  final PrinterSelectionModel selection;
-  final VoidCallback onChanged;
-
-  const _PrinterSlotCard({required this.selection, required this.onChanged});
-
-  @override
-  ConsumerState<_PrinterSlotCard> createState() => _PrinterSlotCardState();
-}
-
-class _PrinterSlotCardState extends ConsumerState<_PrinterSlotCard> {
-  late TextEditingController _nameCtrl;
-  late bool _isEnabled;
-  bool _isSaving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _nameCtrl = TextEditingController(text: widget.selection.printerName ?? '');
-    _isEnabled = widget.selection.isEnabled;
-  }
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _saveSelection() async {
-    final company = ref.read(selectedCompanyProvider);
-    if (company == null) return;
-    setState(() => _isSaving = true);
-    try {
-      final dio = createDio();
-      await dio.put(
-        '/PosPrinterSelections/Update/${widget.selection.id}',
-        queryParameters: {
-          'key': widget.selection.key,
-          'printerName': _nameCtrl.text.trim().isEmpty
-              ? null
-              : _nameCtrl.text.trim(),
-          'isEnabled': _isEnabled,
-        },
-      );
-      widget.onChanged();
-      if (mounted) {
-        showAppSnackbar(context, ref, 'Printer slot saved.');
-      }
-    } catch (e) {
-      if (mounted) {
-        showAppSnackbar(context, ref, 'Save failed: $e', isError: true);
-      }
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  Future<void> _openLayoutSheet() async {
-    final company = ref.read(selectedCompanyProvider);
-    if (company == null) return;
-    PrinterSelectionSettingsModel? settings;
-    try {
-      final dio = createDio();
-      final res = await dio.get(
-        '/PosPrinterSelectionSettings/GetBySelectionId/${widget.selection.id}',
-        queryParameters: {'companyId': company.id},
-      );
-      final list = res.data as List?;
-      if (list != null && list.isNotEmpty) {
-        settings = PrinterSelectionSettingsModel.fromJson(list.first);
-      }
-    } catch (_) {}
-    if (!mounted) return;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => _LayoutSettingsSheet(
-        selectionId: widget.selection.id,
-        settings: settings,
-        onSaved: widget.onChanged,
-      ),
-    );
-  }
-
-  static String _slotLabel(String key) => switch (key) {
-    'receipt_printer' => 'Receipt Printer',
-    'kitchen_printer' => 'Kitchen Printer',
-    'laddition_printer' => "L'Addition Printer",
-    _ => key,
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.print_outlined, color: cs.primary),
-                const SizedBox(width: 8),
-                Text(
-                  _slotLabel(widget.selection.key),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  decoration: ShapeDecoration(
-                    color: cs.surfaceContainerHighest,
-                    shape: const StadiumBorder(),
-                  ),
-                  child: Text(
-                    widget.selection.key,
-                    style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
-                  ),
-                ),
-                const Spacer(),
-                Switch(
-                  value: _isEnabled,
-                  onChanged: (v) {
-                    setState(() => _isEnabled = v);
-                    _saveSelection();
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _nameCtrl,
-              decoration: InputDecoration(
-                labelText: 'Printer Name',
-                hintText: 'Leave empty to use default printer',
-                border: const OutlineInputBorder(),
-                suffixIcon: _isSaving
-                    ? const Padding(
-                        padding: EdgeInsets.all(12),
-                        child: SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      )
-                    : IconButton(
-                        icon: const Icon(Icons.save_outlined),
-                        onPressed: _saveSelection,
-                        tooltip: 'Save',
-                      ),
-              ),
-              onSubmitted: (_) => _saveSelection(),
-            ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                icon: const Icon(Icons.tune, size: 16),
-                label: const Text('Edit Layout'),
-                onPressed: _openLayoutSheet,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ── Layout Settings Bottom Sheet ──────────────────────────────────────────────
-class _LayoutSettingsSheet extends ConsumerStatefulWidget {
-  final int selectionId;
-  final PrinterSelectionSettingsModel? settings;
-  final VoidCallback onSaved;
-
-  const _LayoutSettingsSheet({
-    required this.selectionId,
-    this.settings,
-    required this.onSaved,
-  });
-
-  @override
-  ConsumerState<_LayoutSettingsSheet> createState() =>
-      _LayoutSettingsSheetState();
-}
-
-class _LayoutSettingsSheetState extends ConsumerState<_LayoutSettingsSheet> {
-  late TextEditingController _headerCtrl;
-  late TextEditingController _footerCtrl;
-  late TextEditingController _copiesCtrl;
-  late int _paperWidth;
-  late bool _printBarcode;
-  late bool _cutPaper;
-  late bool _openCashDrawer;
-  bool _isSaving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final s = widget.settings;
-    _headerCtrl = TextEditingController(text: s?.header ?? '');
-    _footerCtrl = TextEditingController(text: s?.footer ?? '');
-    _copiesCtrl = TextEditingController(
-      text: (s?.numberOfCopies ?? 1).toString(),
-    );
-    _paperWidth = s?.paperWidth ?? 80;
-    _printBarcode = s?.printBarcode ?? true;
-    _cutPaper = s?.cutPaper ?? true;
-    _openCashDrawer = s?.openCashDrawer ?? true;
-  }
-
-  @override
-  void dispose() {
-    _headerCtrl.dispose();
-    _footerCtrl.dispose();
-    _copiesCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    final company = ref.read(selectedCompanyProvider);
-    if (company == null) return;
-    setState(() => _isSaving = true);
-    final copies = int.tryParse(_copiesCtrl.text) ?? 1;
-    final header = _headerCtrl.text.trim().isEmpty
-        ? null
-        : _headerCtrl.text.trim();
-    final footer = _footerCtrl.text.trim().isEmpty
-        ? null
-        : _footerCtrl.text.trim();
-
-    try {
-      final dio = createDio();
-      final s = widget.settings;
-
-      if (s == null) {
-        await dio.post(
-          '/PosPrinterSelectionSettings/Add',
-          queryParameters: {'companyId': company.id},
-          data: {
-            'posPrinterSelectionId': widget.selectionId,
-            'paperWidth': _paperWidth,
-            'header': header,
-            'footer': footer,
-            'cutPaper': _cutPaper,
-            'openCashDrawer': _openCashDrawer,
-            'printBarcode': _printBarcode,
-            'numberOfCopies': copies,
-          },
-        );
-      } else {
-        final updated = PrinterSelectionSettingsModel(
-          id: s.id,
-          posPrinterSelectionId: s.posPrinterSelectionId,
-          paperWidth: _paperWidth,
-          header: header,
-          footer: footer,
-          feedLines: s.feedLines,
-          cutPaper: _cutPaper,
-          printBitmap: s.printBitmap,
-          openCashDrawer: _openCashDrawer,
-          cashDrawerCommand: s.cashDrawerCommand,
-          headerAlignment: s.headerAlignment,
-          footerAlignment: s.footerAlignment,
-          isFormattingEnabled: s.isFormattingEnabled,
-          printerType: s.printerType,
-          numberOfCopies: copies,
-          codePage: s.codePage,
-          characterSet: s.characterSet,
-          margin: s.margin,
-          leftMargin: s.leftMargin,
-          topMargin: s.topMargin,
-          rightMargin: s.rightMargin,
-          bottomMargin: s.bottomMargin,
-          printBarcode: _printBarcode,
-          fontName: s.fontName,
-          fontSizePercent: s.fontSizePercent,
-          printLogoFullWidth: s.printLogoFullWidth,
-        );
-        await dio.put(
-          '/PosPrinterSelectionSettings/Update/${s.id}',
-          queryParameters: updated.toQueryParams(),
-        );
-      }
-
-      widget.onSaved();
-      if (mounted) {
-        Navigator.pop(context);
-        showAppSnackbar(context, ref, 'Layout settings saved.');
-      }
-    } catch (e) {
-      if (mounted) {
-        showAppSnackbar(context, ref, 'Save failed: $e', isError: true);
-      }
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return DraggableScrollableSheet(
-      initialChildSize: 0.7,
-      maxChildSize: 0.95,
-      minChildSize: 0.4,
-      expand: false,
-      builder: (ctx, scrollCtrl) => ListView(
-        controller: scrollCtrl,
-        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-        children: [
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 20),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.outlineVariant,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          Text(
-            'Layout Settings',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 20),
-          DropdownButtonFormField<int>(
-            initialValue: _paperWidth == 58 ? 58 : 80,
-            decoration: const InputDecoration(
-              labelText: 'Paper Width',
-              border: OutlineInputBorder(),
-            ),
-            items: const [
-              DropdownMenuItem(value: 80, child: Text('80 mm')),
-              DropdownMenuItem(value: 58, child: Text('58 mm')),
-            ],
-            onChanged: (v) => setState(() => _paperWidth = v ?? 80),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _headerCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Header Text',
-              hintText: 'e.g. MY RESTAURANT',
-              border: OutlineInputBorder(),
-            ),
-            maxLines: 2,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _footerCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Footer Text',
-              hintText: 'e.g. Thank you for your visit!',
-              border: OutlineInputBorder(),
-            ),
-            maxLines: 2,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _copiesCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Number of Copies',
-              border: OutlineInputBorder(),
-            ),
-            keyboardType: TextInputType.number,
-          ),
-          const SizedBox(height: 8),
-          SwitchListTile(
-            value: _printBarcode,
-            onChanged: (v) => setState(() => _printBarcode = v),
-            title: const Text('Print Barcode'),
-            contentPadding: EdgeInsets.zero,
-          ),
-          SwitchListTile(
-            value: _cutPaper,
-            onChanged: (v) => setState(() => _cutPaper = v),
-            title: const Text('Cut Paper After Print'),
-            contentPadding: EdgeInsets.zero,
-          ),
-          SwitchListTile(
-            value: _openCashDrawer,
-            onChanged: (v) => setState(() => _openCashDrawer = v),
-            title: const Text('Open Cash Drawer'),
-            contentPadding: EdgeInsets.zero,
-          ),
-          const SizedBox(height: 24),
-          ElevatedButton(
-            onPressed: _isSaving ? null : _save,
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-            child: _isSaving
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Save Layout'),
           ),
         ],
       ),

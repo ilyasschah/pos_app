@@ -1,23 +1,18 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
-import 'package:pos_app/api/api_client.dart';
+
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/tax/tax_model.dart';
-import 'package:pos_app/utils/api_error_parser.dart';
 
-final allTaxesProvider = FutureProvider.autoDispose<List<Tax>>((ref) async {
-  final company = ref.watch(selectedCompanyProvider);
-  if (company == null) return [];
+/// Live stream of taxes for the currently-selected company, sourced from the
+/// local Drift DB. Updates automatically when SyncManager pulls fresh rows.
+final allTaxesProvider = StreamProvider.autoDispose<List<Tax>>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return const Stream.empty();
 
-  try {
-    final dio = createDio();
-    final response = await dio.get(
-      '/Taxes/GetAllTaxes',
-      queryParameters: {'companyId': company.id},
-    );
-    return (response.data as List).map((j) => Tax.fromJson(j)).toList();
-  } on DioException catch (e, st) {
-    rethrowApiError(e, st);
-    return [];
-  }
+  final query = db.select(db.taxesTable)
+    ..where((t) => t.companyId.equals(companyId));
+
+  return query.watch().map((rows) => rows.map(Tax.fromDrift).toList());
 });

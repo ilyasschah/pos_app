@@ -27,11 +27,17 @@ ThemeData _buildTheme(String mode, Color seed) {
     case 'light':
       return ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.light),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: seed,
+          brightness: Brightness.light,
+        ),
       );
 
     case 'dimmed':
-      final cs = ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark);
+      final cs = ColorScheme.fromSeed(
+        seedColor: seed,
+        brightness: Brightness.dark,
+      );
       return ThemeData(
         useMaterial3: true,
         colorScheme: cs.copyWith(
@@ -47,7 +53,10 @@ ThemeData _buildTheme(String mode, Color seed) {
       );
 
     case 'night':
-      final cs = ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark);
+      final cs = ColorScheme.fromSeed(
+        seedColor: seed,
+        brightness: Brightness.dark,
+      );
       return ThemeData(
         useMaterial3: true,
         colorScheme: cs.copyWith(
@@ -77,7 +86,10 @@ ThemeData _buildTheme(String mode, Color seed) {
       );
 
     case 'high_contrast':
-      final cs = ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark);
+      final cs = ColorScheme.fromSeed(
+        seedColor: seed,
+        brightness: Brightness.dark,
+      );
       return ThemeData(
         useMaterial3: true,
         colorScheme: cs.copyWith(
@@ -99,7 +111,10 @@ ThemeData _buildTheme(String mode, Color seed) {
     default: // 'dark'
       return ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: seed,
+          brightness: Brightness.dark,
+        ),
       );
   }
 }
@@ -117,7 +132,9 @@ class _MyAppState extends ConsumerState<MyApp> {
   @override
   void initState() {
     super.initState();
-    _deviceRegisteredFuture = ref.read(authStorageProvider).isDeviceRegistered();
+    _deviceRegisteredFuture = ref
+        .read(authStorageProvider)
+        .isDeviceRegistered();
   }
 
   Color _parseAccentColor(String? hex) {
@@ -132,11 +149,12 @@ class _MyAppState extends ConsumerState<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    final settings    = ref.watch(appSettingsProvider);
-    final isRtl       = settings[SettingKeys.writingDirection]?.toUpperCase() == 'RTL';
-    final seed        = _parseAccentColor(settings[SettingKeys.themeAccentColor]);
+    final settings = ref.watch(appSettingsProvider);
+    final isRtl =
+        settings[SettingKeys.writingDirection]?.toUpperCase() == 'RTL';
+    final seed = _parseAccentColor(settings[SettingKeys.themeAccentColor]);
     final themeString = settings[SettingKeys.themeMode] ?? 'dark';
-    final themeData   = _buildTheme(themeString, seed);
+    final themeData = _buildTheme(themeString, seed);
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,

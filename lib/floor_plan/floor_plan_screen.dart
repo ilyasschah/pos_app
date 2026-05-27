@@ -27,8 +27,19 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
   void initState() {
     super.initState();
     _refreshTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      ref.invalidate(allFloorPlansProvider);
-      ref.invalidate(tablesByFloorPlanProvider);
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        try {
+          ref.invalidate(allFloorPlansProvider);
+        } catch (_) {}
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          try {
+            ref.invalidate(tablesByFloorPlanProvider);
+          } catch (_) {}
+        });
+      });
     });
   }
 
@@ -145,8 +156,15 @@ class _FloorPlanScreenState extends ConsumerState<FloorPlanScreen> {
                 color: cs.onSurfaceVariant),
             tooltip: 'Refresh',
             onPressed: () {
-              ref.invalidate(allFloorPlansProvider);
-              ref.invalidate(tablesByFloorPlanProvider);
+              try {
+                ref.invalidate(allFloorPlansProvider);
+              } catch (_) {}
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                try {
+                  ref.invalidate(tablesByFloorPlanProvider);
+                } catch (_) {}
+              });
             },
           ),
           Builder(

@@ -1,3 +1,5 @@
+import 'package:pos_app/database/app_database.dart';
+
 class FloorPlanTable {
   final int id;
   final int floorPlanId;
@@ -35,6 +37,24 @@ class FloorPlanTable {
       isRound: json['isRound'],
       status: json['status'] ?? 0,
       assignedUserId: json['assignedUserId'] as int?,
+    );
+  }
+
+  /// `assignedUserId` is derived from the latest PosOrder for this table —
+  /// it's NOT on the FloorPlanTable entity itself, so it isn't in the Drift
+  /// schema. After Phase 4 (when orders move to Drift) we can compute it
+  /// from a join. For now it stays null when sourced from Drift.
+  factory FloorPlanTable.fromDrift(FloorPlanTablesTableData row) {
+    return FloorPlanTable(
+      id: row.id,
+      floorPlanId: row.floorPlanId,
+      name: row.name,
+      positionX: row.positionX,
+      positionY: row.positionY,
+      width: row.width,
+      height: row.height,
+      isRound: row.isRound,
+      status: row.status,
     );
   }
 

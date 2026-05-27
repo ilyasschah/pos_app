@@ -44,6 +44,14 @@ class SettingKeys {
   static const showProductImages = 'Products.ShowImages';
   static const defaultMeasurementUnit = 'Products.DefaultMeasurementUnit';
   static const barcodeFormat = 'Products.BarcodeFormat';
+  static const displayAndPrintTaxIncluded = 'Products.DisplayAndPrintTaxIncluded';
+  static const discountApplyRule = 'Products.DiscountApplyRule';
+  static const productSorting = 'Products.Sorting';
+  static const allowNegativePrice = 'Products.AllowNegativePrice';
+  static const costPriceBasedMarkup = 'Products.CostPriceBasedMarkup';
+  static const autoUpdateCostPrice = 'Products.AutoUpdateCostPrice';
+  static const updateSalePriceOnMarkup = 'Products.UpdateSalePriceOnMarkup';
+  static const enableMovingAveragePrice = 'Products.EnableMovingAveragePrice';
 
   // Documents
   static const defaultDocumentType = 'Documents.DefaultDocumentType';
@@ -244,6 +252,9 @@ class SettingKeys {
   static const numberOfPaymentTypeRows        = 'Order.NumberOfPaymentTypeRows';
   static const showAllOccupiedTablesInFloorPlan = 'Feature.FloorPlan.ShowAllOccupied';
 
+  // Kitchen Display
+  static const kitchenDisplayIps = 'Kitchen.DisplayIps';
+
   // Button Bar
   static const showSearchBtn     = 'ButtonBar.ShowSearch';
   static const showTransferBtn   = 'ButtonBar.ShowTransfer';
@@ -277,6 +288,14 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.showProductImages: 'true',
   SettingKeys.defaultMeasurementUnit: 'pcs',
   SettingKeys.barcodeFormat: 'EAN-13',
+  SettingKeys.displayAndPrintTaxIncluded: 'true',
+  SettingKeys.discountApplyRule: 'After tax',
+  SettingKeys.productSorting: 'Name',
+  SettingKeys.allowNegativePrice: 'true',
+  SettingKeys.costPriceBasedMarkup: 'false',
+  SettingKeys.autoUpdateCostPrice: 'true',
+  SettingKeys.updateSalePriceOnMarkup: 'false',
+  SettingKeys.enableMovingAveragePrice: 'false',
   SettingKeys.defaultDocumentType: 'Sales',
   SettingKeys.invoicePrefix: 'INV',
   SettingKeys.autoGenerateNumber: 'true',
@@ -438,6 +457,9 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.showItemsOnPaymentForm:            'true',
   SettingKeys.numberOfPaymentTypeRows:           '0',
   SettingKeys.showAllOccupiedTablesInFloorPlan:  'true',
+
+  // Kitchen Display
+  SettingKeys.kitchenDisplayIps:                 '',
 
   // Application Style
   SettingKeys.writingDirection:         'LTR',

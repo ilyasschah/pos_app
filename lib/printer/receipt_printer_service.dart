@@ -4,8 +4,6 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/cart/checkout_models.dart';
 import 'package:pos_app/company/company_model.dart';
-import 'package:pos_app/printer/printer_selection_model.dart';
-import 'package:pos_app/printer/printer_selection_settings_model.dart';
 import 'package:pos_app/reports/z_report_model.dart';
 import 'package:printing/printing.dart';
 
@@ -372,36 +370,16 @@ class ReceiptPrinterService {
     required DateTime printTime,
     required List<CartItem> items,
     List<List<String>> itemComments = const [],
-    required PrinterSelectionModel printerSelection,
-    required PrinterSelectionSettingsModel settings,
+    Map<String, String> roleSettings = const {},
   }) async {
-    final fmt =
-        settings.paperWidth == 58 ? PdfPageFormat.roll57 : PdfPageFormat.roll80;
-    final margins = pw.EdgeInsets.only(
-      top: settings.topMargin * PdfPageFormat.mm,
-      bottom: settings.bottomMargin * PdfPageFormat.mm,
-      left: settings.leftMargin * PdfPageFormat.mm,
-      right: settings.rightMargin * PdfPageFormat.mm,
-    );
-    final copies = settings.numberOfCopies < 1 ? 1 : settings.numberOfCopies;
-    final fontScale = settings.fontSizePercent / 100;
-    final printerName = printerSelection.printerName;
-
-    pw.Font font;
-    pw.Font boldFont;
-    switch (settings.fontName) {
-      case 'Courier':
-      case 'Monospace':
-        font = pw.Font.courier();
-        boldFont = pw.Font.courierBold();
-      case 'Times New Roman':
-      case 'Times':
-        font = pw.Font.times();
-        boldFont = pw.Font.timesBold();
-      default:
-        font = await PdfGoogleFonts.notoSansRegular();
-        boldFont = await PdfGoogleFonts.notoSansBold();
-    }
+    const role = 'Kitchen';
+    final fmt = _paperFmt(roleSettings['$role.PaperSize']);
+    final margins = _margins(roleSettings, role);
+    final copies = _copies(roleSettings, role);
+    final fontScale = _fontScale(roleSettings, role);
+    final font = await _font(roleSettings, role);
+    final boldFont = await _fontBold(roleSettings, role);
+    final printerName = roleSettings['$role.PrinterName'];
 
     pw.TextStyle ts(
       double size, {

@@ -1,3 +1,5 @@
+import 'package:pos_app/database/app_database.dart';
+
 class Tax {
   final int id;
   final String name;
@@ -26,6 +28,18 @@ class Tax {
       isFixed: json['isFixed'] ?? false,
       isTaxOnTotal: json['isTaxOnTotal'] ?? true,
       isEnabled: json['isEnabled'] ?? true,
+    );
+  }
+
+  /// Reconstruct from a Drift row. The Drift schema stores a minimal subset
+  /// (id/name/rate); fields not on the table fall back to their defaults.
+  /// If the admin tax screen needs `code`/`isFixed`/etc, expand TaxesTable
+  /// in a follow-up Drift migration.
+  factory Tax.fromDrift(TaxesTableData row) {
+    return Tax(
+      id: row.id,
+      name: row.name,
+      rate: row.rate,
     );
   }
 }
