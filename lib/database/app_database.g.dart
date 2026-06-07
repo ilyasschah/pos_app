@@ -6402,6 +6402,29 @@ class $CustomersTableTable extends CustomersTable
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _syncStatusMeta = const VerificationMeta(
+    'syncStatus',
+  );
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+    'sync_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('synced'),
+  );
+  static const VerificationMeta _syncErrorMeta = const VerificationMeta(
+    'syncError',
+  );
+  @override
+  late final GeneratedColumn<String> syncError = GeneratedColumn<String>(
+    'sync_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -6426,6 +6449,8 @@ class $CustomersTableTable extends CustomersTable
     citySubdivisionName,
     isTaxExempt,
     lastModified,
+    syncStatus,
+    syncError,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -6598,6 +6623,18 @@ class $CustomersTableTable extends CustomersTable
     } else if (isInserting) {
       context.missing(_lastModifiedMeta);
     }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+        _syncStatusMeta,
+        syncStatus.isAcceptableOrUnknown(data['sync_status']!, _syncStatusMeta),
+      );
+    }
+    if (data.containsKey('sync_error')) {
+      context.handle(
+        _syncErrorMeta,
+        syncError.isAcceptableOrUnknown(data['sync_error']!, _syncErrorMeta),
+      );
+    }
     return context;
   }
 
@@ -6695,6 +6732,14 @@ class $CustomersTableTable extends CustomersTable
         DriftSqlType.dateTime,
         data['${effectivePrefix}last_modified'],
       )!,
+      syncStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_status'],
+      )!,
+      syncError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_error'],
+      ),
     );
   }
 
@@ -6728,6 +6773,8 @@ class CustomersTableData extends DataClass
   final String? citySubdivisionName;
   final bool isTaxExempt;
   final DateTime lastModified;
+  final String syncStatus;
+  final String? syncError;
   const CustomersTableData({
     required this.id,
     required this.companyId,
@@ -6751,6 +6798,8 @@ class CustomersTableData extends DataClass
     this.citySubdivisionName,
     required this.isTaxExempt,
     required this.lastModified,
+    required this.syncStatus,
+    this.syncError,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -6805,6 +6854,10 @@ class CustomersTableData extends DataClass
     }
     map['is_tax_exempt'] = Variable<bool>(isTaxExempt);
     map['last_modified'] = Variable<DateTime>(lastModified);
+    map['sync_status'] = Variable<String>(syncStatus);
+    if (!nullToAbsent || syncError != null) {
+      map['sync_error'] = Variable<String>(syncError);
+    }
     return map;
   }
 
@@ -6856,6 +6909,10 @@ class CustomersTableData extends DataClass
           : Value(citySubdivisionName),
       isTaxExempt: Value(isTaxExempt),
       lastModified: Value(lastModified),
+      syncStatus: Value(syncStatus),
+      syncError: syncError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(syncError),
     );
   }
 
@@ -6893,6 +6950,8 @@ class CustomersTableData extends DataClass
       ),
       isTaxExempt: serializer.fromJson<bool>(json['isTaxExempt']),
       lastModified: serializer.fromJson<DateTime>(json['lastModified']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
+      syncError: serializer.fromJson<String?>(json['syncError']),
     );
   }
   @override
@@ -6921,6 +6980,8 @@ class CustomersTableData extends DataClass
       'citySubdivisionName': serializer.toJson<String?>(citySubdivisionName),
       'isTaxExempt': serializer.toJson<bool>(isTaxExempt),
       'lastModified': serializer.toJson<DateTime>(lastModified),
+      'syncStatus': serializer.toJson<String>(syncStatus),
+      'syncError': serializer.toJson<String?>(syncError),
     };
   }
 
@@ -6947,6 +7008,8 @@ class CustomersTableData extends DataClass
     Value<String?> citySubdivisionName = const Value.absent(),
     bool? isTaxExempt,
     DateTime? lastModified,
+    String? syncStatus,
+    Value<String?> syncError = const Value.absent(),
   }) => CustomersTableData(
     id: id ?? this.id,
     companyId: companyId ?? this.companyId,
@@ -6980,6 +7043,8 @@ class CustomersTableData extends DataClass
         : this.citySubdivisionName,
     isTaxExempt: isTaxExempt ?? this.isTaxExempt,
     lastModified: lastModified ?? this.lastModified,
+    syncStatus: syncStatus ?? this.syncStatus,
+    syncError: syncError.present ? syncError.value : this.syncError,
   );
   CustomersTableData copyWithCompanion(CustomersTableCompanion data) {
     return CustomersTableData(
@@ -7029,6 +7094,10 @@ class CustomersTableData extends DataClass
       lastModified: data.lastModified.present
           ? data.lastModified.value
           : this.lastModified,
+      syncStatus: data.syncStatus.present
+          ? data.syncStatus.value
+          : this.syncStatus,
+      syncError: data.syncError.present ? data.syncError.value : this.syncError,
     );
   }
 
@@ -7056,7 +7125,9 @@ class CustomersTableData extends DataClass
           ..write('plotIdentification: $plotIdentification, ')
           ..write('citySubdivisionName: $citySubdivisionName, ')
           ..write('isTaxExempt: $isTaxExempt, ')
-          ..write('lastModified: $lastModified')
+          ..write('lastModified: $lastModified, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('syncError: $syncError')
           ..write(')'))
         .toString();
   }
@@ -7085,6 +7156,8 @@ class CustomersTableData extends DataClass
     citySubdivisionName,
     isTaxExempt,
     lastModified,
+    syncStatus,
+    syncError,
   ]);
   @override
   bool operator ==(Object other) =>
@@ -7111,7 +7184,9 @@ class CustomersTableData extends DataClass
           other.plotIdentification == this.plotIdentification &&
           other.citySubdivisionName == this.citySubdivisionName &&
           other.isTaxExempt == this.isTaxExempt &&
-          other.lastModified == this.lastModified);
+          other.lastModified == this.lastModified &&
+          other.syncStatus == this.syncStatus &&
+          other.syncError == this.syncError);
 }
 
 class CustomersTableCompanion extends UpdateCompanion<CustomersTableData> {
@@ -7137,6 +7212,8 @@ class CustomersTableCompanion extends UpdateCompanion<CustomersTableData> {
   final Value<String?> citySubdivisionName;
   final Value<bool> isTaxExempt;
   final Value<DateTime> lastModified;
+  final Value<String> syncStatus;
+  final Value<String?> syncError;
   const CustomersTableCompanion({
     this.id = const Value.absent(),
     this.companyId = const Value.absent(),
@@ -7160,6 +7237,8 @@ class CustomersTableCompanion extends UpdateCompanion<CustomersTableData> {
     this.citySubdivisionName = const Value.absent(),
     this.isTaxExempt = const Value.absent(),
     this.lastModified = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.syncError = const Value.absent(),
   });
   CustomersTableCompanion.insert({
     this.id = const Value.absent(),
@@ -7184,6 +7263,8 @@ class CustomersTableCompanion extends UpdateCompanion<CustomersTableData> {
     this.citySubdivisionName = const Value.absent(),
     this.isTaxExempt = const Value.absent(),
     required DateTime lastModified,
+    this.syncStatus = const Value.absent(),
+    this.syncError = const Value.absent(),
   }) : companyId = Value(companyId),
        name = Value(name),
        lastModified = Value(lastModified);
@@ -7210,6 +7291,8 @@ class CustomersTableCompanion extends UpdateCompanion<CustomersTableData> {
     Expression<String>? citySubdivisionName,
     Expression<bool>? isTaxExempt,
     Expression<DateTime>? lastModified,
+    Expression<String>? syncStatus,
+    Expression<String>? syncError,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -7236,6 +7319,8 @@ class CustomersTableCompanion extends UpdateCompanion<CustomersTableData> {
         'city_subdivision_name': citySubdivisionName,
       if (isTaxExempt != null) 'is_tax_exempt': isTaxExempt,
       if (lastModified != null) 'last_modified': lastModified,
+      if (syncStatus != null) 'sync_status': syncStatus,
+      if (syncError != null) 'sync_error': syncError,
     });
   }
 
@@ -7262,6 +7347,8 @@ class CustomersTableCompanion extends UpdateCompanion<CustomersTableData> {
     Value<String?>? citySubdivisionName,
     Value<bool>? isTaxExempt,
     Value<DateTime>? lastModified,
+    Value<String>? syncStatus,
+    Value<String?>? syncError,
   }) {
     return CustomersTableCompanion(
       id: id ?? this.id,
@@ -7286,6 +7373,8 @@ class CustomersTableCompanion extends UpdateCompanion<CustomersTableData> {
       citySubdivisionName: citySubdivisionName ?? this.citySubdivisionName,
       isTaxExempt: isTaxExempt ?? this.isTaxExempt,
       lastModified: lastModified ?? this.lastModified,
+      syncStatus: syncStatus ?? this.syncStatus,
+      syncError: syncError ?? this.syncError,
     );
   }
 
@@ -7362,6 +7451,12 @@ class CustomersTableCompanion extends UpdateCompanion<CustomersTableData> {
     if (lastModified.present) {
       map['last_modified'] = Variable<DateTime>(lastModified.value);
     }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
+    if (syncError.present) {
+      map['sync_error'] = Variable<String>(syncError.value);
+    }
     return map;
   }
 
@@ -7389,7 +7484,9 @@ class CustomersTableCompanion extends UpdateCompanion<CustomersTableData> {
           ..write('plotIdentification: $plotIdentification, ')
           ..write('citySubdivisionName: $citySubdivisionName, ')
           ..write('isTaxExempt: $isTaxExempt, ')
-          ..write('lastModified: $lastModified')
+          ..write('lastModified: $lastModified, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('syncError: $syncError')
           ..write(')'))
         .toString();
   }
@@ -9679,6 +9776,18 @@ class $PosOrdersTableTable extends PosOrdersTable
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _discountTypeMeta = const VerificationMeta(
+    'discountType',
+  );
+  @override
+  late final GeneratedColumn<int> discountType = GeneratedColumn<int>(
+    'discount_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _warehouseIdMeta = const VerificationMeta(
     'warehouseId',
   );
@@ -9772,6 +9881,7 @@ class $PosOrdersTableTable extends PosOrdersTable
     status,
     total,
     discount,
+    discountType,
     warehouseId,
     paymentTypeId,
     amountPaid,
@@ -9884,6 +9994,15 @@ class $PosOrdersTableTable extends PosOrdersTable
       context.handle(
         _discountMeta,
         discount.isAcceptableOrUnknown(data['discount']!, _discountMeta),
+      );
+    }
+    if (data.containsKey('discount_type')) {
+      context.handle(
+        _discountTypeMeta,
+        discountType.isAcceptableOrUnknown(
+          data['discount_type']!,
+          _discountTypeMeta,
+        ),
       );
     }
     if (data.containsKey('warehouse_id')) {
@@ -10002,6 +10121,10 @@ class $PosOrdersTableTable extends PosOrdersTable
         DriftSqlType.double,
         data['${effectivePrefix}discount'],
       )!,
+      discountType: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}discount_type'],
+      )!,
       warehouseId: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}warehouse_id'],
@@ -10054,6 +10177,7 @@ class PosOrdersTableData extends DataClass
   final int status;
   final double? total;
   final double discount;
+  final int discountType;
   final int warehouseId;
   final int? paymentTypeId;
   final double? amountPaid;
@@ -10075,6 +10199,7 @@ class PosOrdersTableData extends DataClass
     required this.status,
     this.total,
     required this.discount,
+    required this.discountType,
     required this.warehouseId,
     this.paymentTypeId,
     this.amountPaid,
@@ -10109,6 +10234,7 @@ class PosOrdersTableData extends DataClass
       map['total'] = Variable<double>(total);
     }
     map['discount'] = Variable<double>(discount);
+    map['discount_type'] = Variable<int>(discountType);
     map['warehouse_id'] = Variable<int>(warehouseId);
     if (!nullToAbsent || paymentTypeId != null) {
       map['payment_type_id'] = Variable<int>(paymentTypeId);
@@ -10152,6 +10278,7 @@ class PosOrdersTableData extends DataClass
           ? const Value.absent()
           : Value(total),
       discount: Value(discount),
+      discountType: Value(discountType),
       warehouseId: Value(warehouseId),
       paymentTypeId: paymentTypeId == null && nullToAbsent
           ? const Value.absent()
@@ -10189,6 +10316,7 @@ class PosOrdersTableData extends DataClass
       status: serializer.fromJson<int>(json['status']),
       total: serializer.fromJson<double?>(json['total']),
       discount: serializer.fromJson<double>(json['discount']),
+      discountType: serializer.fromJson<int>(json['discountType']),
       warehouseId: serializer.fromJson<int>(json['warehouseId']),
       paymentTypeId: serializer.fromJson<int?>(json['paymentTypeId']),
       amountPaid: serializer.fromJson<double?>(json['amountPaid']),
@@ -10215,6 +10343,7 @@ class PosOrdersTableData extends DataClass
       'status': serializer.toJson<int>(status),
       'total': serializer.toJson<double?>(total),
       'discount': serializer.toJson<double>(discount),
+      'discountType': serializer.toJson<int>(discountType),
       'warehouseId': serializer.toJson<int>(warehouseId),
       'paymentTypeId': serializer.toJson<int?>(paymentTypeId),
       'amountPaid': serializer.toJson<double?>(amountPaid),
@@ -10239,6 +10368,7 @@ class PosOrdersTableData extends DataClass
     int? status,
     Value<double?> total = const Value.absent(),
     double? discount,
+    int? discountType,
     int? warehouseId,
     Value<int?> paymentTypeId = const Value.absent(),
     Value<double?> amountPaid = const Value.absent(),
@@ -10260,6 +10390,7 @@ class PosOrdersTableData extends DataClass
     status: status ?? this.status,
     total: total.present ? total.value : this.total,
     discount: discount ?? this.discount,
+    discountType: discountType ?? this.discountType,
     warehouseId: warehouseId ?? this.warehouseId,
     paymentTypeId: paymentTypeId.present
         ? paymentTypeId.value
@@ -10289,6 +10420,9 @@ class PosOrdersTableData extends DataClass
       status: data.status.present ? data.status.value : this.status,
       total: data.total.present ? data.total.value : this.total,
       discount: data.discount.present ? data.discount.value : this.discount,
+      discountType: data.discountType.present
+          ? data.discountType.value
+          : this.discountType,
       warehouseId: data.warehouseId.present
           ? data.warehouseId.value
           : this.warehouseId,
@@ -10327,6 +10461,7 @@ class PosOrdersTableData extends DataClass
           ..write('status: $status, ')
           ..write('total: $total, ')
           ..write('discount: $discount, ')
+          ..write('discountType: $discountType, ')
           ..write('warehouseId: $warehouseId, ')
           ..write('paymentTypeId: $paymentTypeId, ')
           ..write('amountPaid: $amountPaid, ')
@@ -10339,7 +10474,7 @@ class PosOrdersTableData extends DataClass
   }
 
   @override
-  int get hashCode => Object.hash(
+  int get hashCode => Object.hashAll([
     localId,
     serverId,
     companyId,
@@ -10353,6 +10488,7 @@ class PosOrdersTableData extends DataClass
     status,
     total,
     discount,
+    discountType,
     warehouseId,
     paymentTypeId,
     amountPaid,
@@ -10360,7 +10496,7 @@ class PosOrdersTableData extends DataClass
     syncStatus,
     syncError,
     lastModified,
-  );
+  ]);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -10378,6 +10514,7 @@ class PosOrdersTableData extends DataClass
           other.status == this.status &&
           other.total == this.total &&
           other.discount == this.discount &&
+          other.discountType == this.discountType &&
           other.warehouseId == this.warehouseId &&
           other.paymentTypeId == this.paymentTypeId &&
           other.amountPaid == this.amountPaid &&
@@ -10401,6 +10538,7 @@ class PosOrdersTableCompanion extends UpdateCompanion<PosOrdersTableData> {
   final Value<int> status;
   final Value<double?> total;
   final Value<double> discount;
+  final Value<int> discountType;
   final Value<int> warehouseId;
   final Value<int?> paymentTypeId;
   final Value<double?> amountPaid;
@@ -10423,6 +10561,7 @@ class PosOrdersTableCompanion extends UpdateCompanion<PosOrdersTableData> {
     this.status = const Value.absent(),
     this.total = const Value.absent(),
     this.discount = const Value.absent(),
+    this.discountType = const Value.absent(),
     this.warehouseId = const Value.absent(),
     this.paymentTypeId = const Value.absent(),
     this.amountPaid = const Value.absent(),
@@ -10446,6 +10585,7 @@ class PosOrdersTableCompanion extends UpdateCompanion<PosOrdersTableData> {
     this.status = const Value.absent(),
     this.total = const Value.absent(),
     this.discount = const Value.absent(),
+    this.discountType = const Value.absent(),
     required int warehouseId,
     this.paymentTypeId = const Value.absent(),
     this.amountPaid = const Value.absent(),
@@ -10475,6 +10615,7 @@ class PosOrdersTableCompanion extends UpdateCompanion<PosOrdersTableData> {
     Expression<int>? status,
     Expression<double>? total,
     Expression<double>? discount,
+    Expression<int>? discountType,
     Expression<int>? warehouseId,
     Expression<int>? paymentTypeId,
     Expression<double>? amountPaid,
@@ -10498,6 +10639,7 @@ class PosOrdersTableCompanion extends UpdateCompanion<PosOrdersTableData> {
       if (status != null) 'status': status,
       if (total != null) 'total': total,
       if (discount != null) 'discount': discount,
+      if (discountType != null) 'discount_type': discountType,
       if (warehouseId != null) 'warehouse_id': warehouseId,
       if (paymentTypeId != null) 'payment_type_id': paymentTypeId,
       if (amountPaid != null) 'amount_paid': amountPaid,
@@ -10523,6 +10665,7 @@ class PosOrdersTableCompanion extends UpdateCompanion<PosOrdersTableData> {
     Value<int>? status,
     Value<double?>? total,
     Value<double>? discount,
+    Value<int>? discountType,
     Value<int>? warehouseId,
     Value<int?>? paymentTypeId,
     Value<double?>? amountPaid,
@@ -10546,6 +10689,7 @@ class PosOrdersTableCompanion extends UpdateCompanion<PosOrdersTableData> {
       status: status ?? this.status,
       total: total ?? this.total,
       discount: discount ?? this.discount,
+      discountType: discountType ?? this.discountType,
       warehouseId: warehouseId ?? this.warehouseId,
       paymentTypeId: paymentTypeId ?? this.paymentTypeId,
       amountPaid: amountPaid ?? this.amountPaid,
@@ -10599,6 +10743,9 @@ class PosOrdersTableCompanion extends UpdateCompanion<PosOrdersTableData> {
     if (discount.present) {
       map['discount'] = Variable<double>(discount.value);
     }
+    if (discountType.present) {
+      map['discount_type'] = Variable<int>(discountType.value);
+    }
     if (warehouseId.present) {
       map['warehouse_id'] = Variable<int>(warehouseId.value);
     }
@@ -10642,6 +10789,7 @@ class PosOrdersTableCompanion extends UpdateCompanion<PosOrdersTableData> {
           ..write('status: $status, ')
           ..write('total: $total, ')
           ..write('discount: $discount, ')
+          ..write('discountType: $discountType, ')
           ..write('warehouseId: $warehouseId, ')
           ..write('paymentTypeId: $paymentTypeId, ')
           ..write('amountPaid: $amountPaid, ')
@@ -11368,6 +11516,437 @@ class PosOrderItemsTableCompanion
           ..write('taxesJson: $taxesJson, ')
           ..write('comment: $comment, ')
           ..write('warehouseId: $warehouseId, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $PosOrderItemTaxesTableTable extends PosOrderItemTaxesTable
+    with TableInfo<$PosOrderItemTaxesTableTable, PosOrderItemTaxesTableData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PosOrderItemTaxesTableTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _localIdMeta = const VerificationMeta(
+    'localId',
+  );
+  @override
+  late final GeneratedColumn<String> localId = GeneratedColumn<String>(
+    'local_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _orderIdMeta = const VerificationMeta(
+    'orderId',
+  );
+  @override
+  late final GeneratedColumn<String> orderId = GeneratedColumn<String>(
+    'order_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'REFERENCES pos_orders (local_id) ON DELETE CASCADE',
+    ),
+  );
+  static const VerificationMeta _productIdMeta = const VerificationMeta(
+    'productId',
+  );
+  @override
+  late final GeneratedColumn<int> productId = GeneratedColumn<int>(
+    'product_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _taxRateIdMeta = const VerificationMeta(
+    'taxRateId',
+  );
+  @override
+  late final GeneratedColumn<int> taxRateId = GeneratedColumn<int>(
+    'tax_rate_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _taxAmountMeta = const VerificationMeta(
+    'taxAmount',
+  );
+  @override
+  late final GeneratedColumn<double> taxAmount = GeneratedColumn<double>(
+    'tax_amount',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _syncStatusMeta = const VerificationMeta(
+    'syncStatus',
+  );
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+    'sync_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('pending'),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    localId,
+    orderId,
+    productId,
+    taxRateId,
+    taxAmount,
+    syncStatus,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'pos_order_item_taxes';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<PosOrderItemTaxesTableData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('local_id')) {
+      context.handle(
+        _localIdMeta,
+        localId.isAcceptableOrUnknown(data['local_id']!, _localIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_localIdMeta);
+    }
+    if (data.containsKey('order_id')) {
+      context.handle(
+        _orderIdMeta,
+        orderId.isAcceptableOrUnknown(data['order_id']!, _orderIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_orderIdMeta);
+    }
+    if (data.containsKey('product_id')) {
+      context.handle(
+        _productIdMeta,
+        productId.isAcceptableOrUnknown(data['product_id']!, _productIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_productIdMeta);
+    }
+    if (data.containsKey('tax_rate_id')) {
+      context.handle(
+        _taxRateIdMeta,
+        taxRateId.isAcceptableOrUnknown(data['tax_rate_id']!, _taxRateIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_taxRateIdMeta);
+    }
+    if (data.containsKey('tax_amount')) {
+      context.handle(
+        _taxAmountMeta,
+        taxAmount.isAcceptableOrUnknown(data['tax_amount']!, _taxAmountMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_taxAmountMeta);
+    }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+        _syncStatusMeta,
+        syncStatus.isAcceptableOrUnknown(data['sync_status']!, _syncStatusMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {localId};
+  @override
+  PosOrderItemTaxesTableData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PosOrderItemTaxesTableData(
+      localId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_id'],
+      )!,
+      orderId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}order_id'],
+      )!,
+      productId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}product_id'],
+      )!,
+      taxRateId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}tax_rate_id'],
+      )!,
+      taxAmount: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}tax_amount'],
+      )!,
+      syncStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_status'],
+      )!,
+    );
+  }
+
+  @override
+  $PosOrderItemTaxesTableTable createAlias(String alias) {
+    return $PosOrderItemTaxesTableTable(attachedDatabase, alias);
+  }
+}
+
+class PosOrderItemTaxesTableData extends DataClass
+    implements Insertable<PosOrderItemTaxesTableData> {
+  final String localId;
+  final String orderId;
+  final int productId;
+  final int taxRateId;
+  final double taxAmount;
+  final String syncStatus;
+  const PosOrderItemTaxesTableData({
+    required this.localId,
+    required this.orderId,
+    required this.productId,
+    required this.taxRateId,
+    required this.taxAmount,
+    required this.syncStatus,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['local_id'] = Variable<String>(localId);
+    map['order_id'] = Variable<String>(orderId);
+    map['product_id'] = Variable<int>(productId);
+    map['tax_rate_id'] = Variable<int>(taxRateId);
+    map['tax_amount'] = Variable<double>(taxAmount);
+    map['sync_status'] = Variable<String>(syncStatus);
+    return map;
+  }
+
+  PosOrderItemTaxesTableCompanion toCompanion(bool nullToAbsent) {
+    return PosOrderItemTaxesTableCompanion(
+      localId: Value(localId),
+      orderId: Value(orderId),
+      productId: Value(productId),
+      taxRateId: Value(taxRateId),
+      taxAmount: Value(taxAmount),
+      syncStatus: Value(syncStatus),
+    );
+  }
+
+  factory PosOrderItemTaxesTableData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PosOrderItemTaxesTableData(
+      localId: serializer.fromJson<String>(json['localId']),
+      orderId: serializer.fromJson<String>(json['orderId']),
+      productId: serializer.fromJson<int>(json['productId']),
+      taxRateId: serializer.fromJson<int>(json['taxRateId']),
+      taxAmount: serializer.fromJson<double>(json['taxAmount']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'localId': serializer.toJson<String>(localId),
+      'orderId': serializer.toJson<String>(orderId),
+      'productId': serializer.toJson<int>(productId),
+      'taxRateId': serializer.toJson<int>(taxRateId),
+      'taxAmount': serializer.toJson<double>(taxAmount),
+      'syncStatus': serializer.toJson<String>(syncStatus),
+    };
+  }
+
+  PosOrderItemTaxesTableData copyWith({
+    String? localId,
+    String? orderId,
+    int? productId,
+    int? taxRateId,
+    double? taxAmount,
+    String? syncStatus,
+  }) => PosOrderItemTaxesTableData(
+    localId: localId ?? this.localId,
+    orderId: orderId ?? this.orderId,
+    productId: productId ?? this.productId,
+    taxRateId: taxRateId ?? this.taxRateId,
+    taxAmount: taxAmount ?? this.taxAmount,
+    syncStatus: syncStatus ?? this.syncStatus,
+  );
+  PosOrderItemTaxesTableData copyWithCompanion(
+    PosOrderItemTaxesTableCompanion data,
+  ) {
+    return PosOrderItemTaxesTableData(
+      localId: data.localId.present ? data.localId.value : this.localId,
+      orderId: data.orderId.present ? data.orderId.value : this.orderId,
+      productId: data.productId.present ? data.productId.value : this.productId,
+      taxRateId: data.taxRateId.present ? data.taxRateId.value : this.taxRateId,
+      taxAmount: data.taxAmount.present ? data.taxAmount.value : this.taxAmount,
+      syncStatus: data.syncStatus.present
+          ? data.syncStatus.value
+          : this.syncStatus,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PosOrderItemTaxesTableData(')
+          ..write('localId: $localId, ')
+          ..write('orderId: $orderId, ')
+          ..write('productId: $productId, ')
+          ..write('taxRateId: $taxRateId, ')
+          ..write('taxAmount: $taxAmount, ')
+          ..write('syncStatus: $syncStatus')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    localId,
+    orderId,
+    productId,
+    taxRateId,
+    taxAmount,
+    syncStatus,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PosOrderItemTaxesTableData &&
+          other.localId == this.localId &&
+          other.orderId == this.orderId &&
+          other.productId == this.productId &&
+          other.taxRateId == this.taxRateId &&
+          other.taxAmount == this.taxAmount &&
+          other.syncStatus == this.syncStatus);
+}
+
+class PosOrderItemTaxesTableCompanion
+    extends UpdateCompanion<PosOrderItemTaxesTableData> {
+  final Value<String> localId;
+  final Value<String> orderId;
+  final Value<int> productId;
+  final Value<int> taxRateId;
+  final Value<double> taxAmount;
+  final Value<String> syncStatus;
+  final Value<int> rowid;
+  const PosOrderItemTaxesTableCompanion({
+    this.localId = const Value.absent(),
+    this.orderId = const Value.absent(),
+    this.productId = const Value.absent(),
+    this.taxRateId = const Value.absent(),
+    this.taxAmount = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PosOrderItemTaxesTableCompanion.insert({
+    required String localId,
+    required String orderId,
+    required int productId,
+    required int taxRateId,
+    required double taxAmount,
+    this.syncStatus = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : localId = Value(localId),
+       orderId = Value(orderId),
+       productId = Value(productId),
+       taxRateId = Value(taxRateId),
+       taxAmount = Value(taxAmount);
+  static Insertable<PosOrderItemTaxesTableData> custom({
+    Expression<String>? localId,
+    Expression<String>? orderId,
+    Expression<int>? productId,
+    Expression<int>? taxRateId,
+    Expression<double>? taxAmount,
+    Expression<String>? syncStatus,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (localId != null) 'local_id': localId,
+      if (orderId != null) 'order_id': orderId,
+      if (productId != null) 'product_id': productId,
+      if (taxRateId != null) 'tax_rate_id': taxRateId,
+      if (taxAmount != null) 'tax_amount': taxAmount,
+      if (syncStatus != null) 'sync_status': syncStatus,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PosOrderItemTaxesTableCompanion copyWith({
+    Value<String>? localId,
+    Value<String>? orderId,
+    Value<int>? productId,
+    Value<int>? taxRateId,
+    Value<double>? taxAmount,
+    Value<String>? syncStatus,
+    Value<int>? rowid,
+  }) {
+    return PosOrderItemTaxesTableCompanion(
+      localId: localId ?? this.localId,
+      orderId: orderId ?? this.orderId,
+      productId: productId ?? this.productId,
+      taxRateId: taxRateId ?? this.taxRateId,
+      taxAmount: taxAmount ?? this.taxAmount,
+      syncStatus: syncStatus ?? this.syncStatus,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (localId.present) {
+      map['local_id'] = Variable<String>(localId.value);
+    }
+    if (orderId.present) {
+      map['order_id'] = Variable<String>(orderId.value);
+    }
+    if (productId.present) {
+      map['product_id'] = Variable<int>(productId.value);
+    }
+    if (taxRateId.present) {
+      map['tax_rate_id'] = Variable<int>(taxRateId.value);
+    }
+    if (taxAmount.present) {
+      map['tax_amount'] = Variable<double>(taxAmount.value);
+    }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PosOrderItemTaxesTableCompanion(')
+          ..write('localId: $localId, ')
+          ..write('orderId: $orderId, ')
+          ..write('productId: $productId, ')
+          ..write('taxRateId: $taxRateId, ')
+          ..write('taxAmount: $taxAmount, ')
           ..write('syncStatus: $syncStatus, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -16355,6 +16934,1062 @@ class BarcodesTableCompanion extends UpdateCompanion<BarcodesTableData> {
   }
 }
 
+class $CustomerDiscountsTableTable extends CustomerDiscountsTable
+    with TableInfo<$CustomerDiscountsTableTable, CustomerDiscountsTableData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CustomerDiscountsTableTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _companyIdMeta = const VerificationMeta(
+    'companyId',
+  );
+  @override
+  late final GeneratedColumn<int> companyId = GeneratedColumn<int>(
+    'company_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _customerIdMeta = const VerificationMeta(
+    'customerId',
+  );
+  @override
+  late final GeneratedColumn<int> customerId = GeneratedColumn<int>(
+    'customer_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _typeMeta = const VerificationMeta('type');
+  @override
+  late final GeneratedColumn<int> type = GeneratedColumn<int>(
+    'type',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _uidMeta = const VerificationMeta('uid');
+  @override
+  late final GeneratedColumn<int> uid = GeneratedColumn<int>(
+    'uid',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _valueMeta = const VerificationMeta('value');
+  @override
+  late final GeneratedColumn<double> value = GeneratedColumn<double>(
+    'value',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _lastModifiedMeta = const VerificationMeta(
+    'lastModified',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastModified = GeneratedColumn<DateTime>(
+    'last_modified',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _syncStatusMeta = const VerificationMeta(
+    'syncStatus',
+  );
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+    'sync_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('synced'),
+  );
+  static const VerificationMeta _syncErrorMeta = const VerificationMeta(
+    'syncError',
+  );
+  @override
+  late final GeneratedColumn<String> syncError = GeneratedColumn<String>(
+    'sync_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    companyId,
+    customerId,
+    type,
+    uid,
+    value,
+    lastModified,
+    syncStatus,
+    syncError,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'customer_discounts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CustomerDiscountsTableData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('company_id')) {
+      context.handle(
+        _companyIdMeta,
+        companyId.isAcceptableOrUnknown(data['company_id']!, _companyIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_companyIdMeta);
+    }
+    if (data.containsKey('customer_id')) {
+      context.handle(
+        _customerIdMeta,
+        customerId.isAcceptableOrUnknown(data['customer_id']!, _customerIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_customerIdMeta);
+    }
+    if (data.containsKey('type')) {
+      context.handle(
+        _typeMeta,
+        type.isAcceptableOrUnknown(data['type']!, _typeMeta),
+      );
+    }
+    if (data.containsKey('uid')) {
+      context.handle(
+        _uidMeta,
+        uid.isAcceptableOrUnknown(data['uid']!, _uidMeta),
+      );
+    }
+    if (data.containsKey('value')) {
+      context.handle(
+        _valueMeta,
+        value.isAcceptableOrUnknown(data['value']!, _valueMeta),
+      );
+    }
+    if (data.containsKey('last_modified')) {
+      context.handle(
+        _lastModifiedMeta,
+        lastModified.isAcceptableOrUnknown(
+          data['last_modified']!,
+          _lastModifiedMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_lastModifiedMeta);
+    }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+        _syncStatusMeta,
+        syncStatus.isAcceptableOrUnknown(data['sync_status']!, _syncStatusMeta),
+      );
+    }
+    if (data.containsKey('sync_error')) {
+      context.handle(
+        _syncErrorMeta,
+        syncError.isAcceptableOrUnknown(data['sync_error']!, _syncErrorMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  CustomerDiscountsTableData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CustomerDiscountsTableData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      companyId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}company_id'],
+      )!,
+      customerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}customer_id'],
+      )!,
+      type: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}type'],
+      )!,
+      uid: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}uid'],
+      )!,
+      value: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}value'],
+      )!,
+      lastModified: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_modified'],
+      )!,
+      syncStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_status'],
+      )!,
+      syncError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_error'],
+      ),
+    );
+  }
+
+  @override
+  $CustomerDiscountsTableTable createAlias(String alias) {
+    return $CustomerDiscountsTableTable(attachedDatabase, alias);
+  }
+}
+
+class CustomerDiscountsTableData extends DataClass
+    implements Insertable<CustomerDiscountsTableData> {
+  final int id;
+  final int companyId;
+  final int customerId;
+  final int type;
+  final int uid;
+  final double value;
+  final DateTime lastModified;
+  final String syncStatus;
+  final String? syncError;
+  const CustomerDiscountsTableData({
+    required this.id,
+    required this.companyId,
+    required this.customerId,
+    required this.type,
+    required this.uid,
+    required this.value,
+    required this.lastModified,
+    required this.syncStatus,
+    this.syncError,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['company_id'] = Variable<int>(companyId);
+    map['customer_id'] = Variable<int>(customerId);
+    map['type'] = Variable<int>(type);
+    map['uid'] = Variable<int>(uid);
+    map['value'] = Variable<double>(value);
+    map['last_modified'] = Variable<DateTime>(lastModified);
+    map['sync_status'] = Variable<String>(syncStatus);
+    if (!nullToAbsent || syncError != null) {
+      map['sync_error'] = Variable<String>(syncError);
+    }
+    return map;
+  }
+
+  CustomerDiscountsTableCompanion toCompanion(bool nullToAbsent) {
+    return CustomerDiscountsTableCompanion(
+      id: Value(id),
+      companyId: Value(companyId),
+      customerId: Value(customerId),
+      type: Value(type),
+      uid: Value(uid),
+      value: Value(value),
+      lastModified: Value(lastModified),
+      syncStatus: Value(syncStatus),
+      syncError: syncError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(syncError),
+    );
+  }
+
+  factory CustomerDiscountsTableData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CustomerDiscountsTableData(
+      id: serializer.fromJson<int>(json['id']),
+      companyId: serializer.fromJson<int>(json['companyId']),
+      customerId: serializer.fromJson<int>(json['customerId']),
+      type: serializer.fromJson<int>(json['type']),
+      uid: serializer.fromJson<int>(json['uid']),
+      value: serializer.fromJson<double>(json['value']),
+      lastModified: serializer.fromJson<DateTime>(json['lastModified']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
+      syncError: serializer.fromJson<String?>(json['syncError']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'companyId': serializer.toJson<int>(companyId),
+      'customerId': serializer.toJson<int>(customerId),
+      'type': serializer.toJson<int>(type),
+      'uid': serializer.toJson<int>(uid),
+      'value': serializer.toJson<double>(value),
+      'lastModified': serializer.toJson<DateTime>(lastModified),
+      'syncStatus': serializer.toJson<String>(syncStatus),
+      'syncError': serializer.toJson<String?>(syncError),
+    };
+  }
+
+  CustomerDiscountsTableData copyWith({
+    int? id,
+    int? companyId,
+    int? customerId,
+    int? type,
+    int? uid,
+    double? value,
+    DateTime? lastModified,
+    String? syncStatus,
+    Value<String?> syncError = const Value.absent(),
+  }) => CustomerDiscountsTableData(
+    id: id ?? this.id,
+    companyId: companyId ?? this.companyId,
+    customerId: customerId ?? this.customerId,
+    type: type ?? this.type,
+    uid: uid ?? this.uid,
+    value: value ?? this.value,
+    lastModified: lastModified ?? this.lastModified,
+    syncStatus: syncStatus ?? this.syncStatus,
+    syncError: syncError.present ? syncError.value : this.syncError,
+  );
+  CustomerDiscountsTableData copyWithCompanion(
+    CustomerDiscountsTableCompanion data,
+  ) {
+    return CustomerDiscountsTableData(
+      id: data.id.present ? data.id.value : this.id,
+      companyId: data.companyId.present ? data.companyId.value : this.companyId,
+      customerId: data.customerId.present
+          ? data.customerId.value
+          : this.customerId,
+      type: data.type.present ? data.type.value : this.type,
+      uid: data.uid.present ? data.uid.value : this.uid,
+      value: data.value.present ? data.value.value : this.value,
+      lastModified: data.lastModified.present
+          ? data.lastModified.value
+          : this.lastModified,
+      syncStatus: data.syncStatus.present
+          ? data.syncStatus.value
+          : this.syncStatus,
+      syncError: data.syncError.present ? data.syncError.value : this.syncError,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CustomerDiscountsTableData(')
+          ..write('id: $id, ')
+          ..write('companyId: $companyId, ')
+          ..write('customerId: $customerId, ')
+          ..write('type: $type, ')
+          ..write('uid: $uid, ')
+          ..write('value: $value, ')
+          ..write('lastModified: $lastModified, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('syncError: $syncError')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    companyId,
+    customerId,
+    type,
+    uid,
+    value,
+    lastModified,
+    syncStatus,
+    syncError,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CustomerDiscountsTableData &&
+          other.id == this.id &&
+          other.companyId == this.companyId &&
+          other.customerId == this.customerId &&
+          other.type == this.type &&
+          other.uid == this.uid &&
+          other.value == this.value &&
+          other.lastModified == this.lastModified &&
+          other.syncStatus == this.syncStatus &&
+          other.syncError == this.syncError);
+}
+
+class CustomerDiscountsTableCompanion
+    extends UpdateCompanion<CustomerDiscountsTableData> {
+  final Value<int> id;
+  final Value<int> companyId;
+  final Value<int> customerId;
+  final Value<int> type;
+  final Value<int> uid;
+  final Value<double> value;
+  final Value<DateTime> lastModified;
+  final Value<String> syncStatus;
+  final Value<String?> syncError;
+  const CustomerDiscountsTableCompanion({
+    this.id = const Value.absent(),
+    this.companyId = const Value.absent(),
+    this.customerId = const Value.absent(),
+    this.type = const Value.absent(),
+    this.uid = const Value.absent(),
+    this.value = const Value.absent(),
+    this.lastModified = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.syncError = const Value.absent(),
+  });
+  CustomerDiscountsTableCompanion.insert({
+    this.id = const Value.absent(),
+    required int companyId,
+    required int customerId,
+    this.type = const Value.absent(),
+    this.uid = const Value.absent(),
+    this.value = const Value.absent(),
+    required DateTime lastModified,
+    this.syncStatus = const Value.absent(),
+    this.syncError = const Value.absent(),
+  }) : companyId = Value(companyId),
+       customerId = Value(customerId),
+       lastModified = Value(lastModified);
+  static Insertable<CustomerDiscountsTableData> custom({
+    Expression<int>? id,
+    Expression<int>? companyId,
+    Expression<int>? customerId,
+    Expression<int>? type,
+    Expression<int>? uid,
+    Expression<double>? value,
+    Expression<DateTime>? lastModified,
+    Expression<String>? syncStatus,
+    Expression<String>? syncError,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (companyId != null) 'company_id': companyId,
+      if (customerId != null) 'customer_id': customerId,
+      if (type != null) 'type': type,
+      if (uid != null) 'uid': uid,
+      if (value != null) 'value': value,
+      if (lastModified != null) 'last_modified': lastModified,
+      if (syncStatus != null) 'sync_status': syncStatus,
+      if (syncError != null) 'sync_error': syncError,
+    });
+  }
+
+  CustomerDiscountsTableCompanion copyWith({
+    Value<int>? id,
+    Value<int>? companyId,
+    Value<int>? customerId,
+    Value<int>? type,
+    Value<int>? uid,
+    Value<double>? value,
+    Value<DateTime>? lastModified,
+    Value<String>? syncStatus,
+    Value<String?>? syncError,
+  }) {
+    return CustomerDiscountsTableCompanion(
+      id: id ?? this.id,
+      companyId: companyId ?? this.companyId,
+      customerId: customerId ?? this.customerId,
+      type: type ?? this.type,
+      uid: uid ?? this.uid,
+      value: value ?? this.value,
+      lastModified: lastModified ?? this.lastModified,
+      syncStatus: syncStatus ?? this.syncStatus,
+      syncError: syncError ?? this.syncError,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (companyId.present) {
+      map['company_id'] = Variable<int>(companyId.value);
+    }
+    if (customerId.present) {
+      map['customer_id'] = Variable<int>(customerId.value);
+    }
+    if (type.present) {
+      map['type'] = Variable<int>(type.value);
+    }
+    if (uid.present) {
+      map['uid'] = Variable<int>(uid.value);
+    }
+    if (value.present) {
+      map['value'] = Variable<double>(value.value);
+    }
+    if (lastModified.present) {
+      map['last_modified'] = Variable<DateTime>(lastModified.value);
+    }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
+    if (syncError.present) {
+      map['sync_error'] = Variable<String>(syncError.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CustomerDiscountsTableCompanion(')
+          ..write('id: $id, ')
+          ..write('companyId: $companyId, ')
+          ..write('customerId: $customerId, ')
+          ..write('type: $type, ')
+          ..write('uid: $uid, ')
+          ..write('value: $value, ')
+          ..write('lastModified: $lastModified, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('syncError: $syncError')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $LoyaltyCardsTableTable extends LoyaltyCardsTable
+    with TableInfo<$LoyaltyCardsTableTable, LoyaltyCardsTableData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $LoyaltyCardsTableTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _companyIdMeta = const VerificationMeta(
+    'companyId',
+  );
+  @override
+  late final GeneratedColumn<int> companyId = GeneratedColumn<int>(
+    'company_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _customerIdMeta = const VerificationMeta(
+    'customerId',
+  );
+  @override
+  late final GeneratedColumn<int> customerId = GeneratedColumn<int>(
+    'customer_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _cardNumberMeta = const VerificationMeta(
+    'cardNumber',
+  );
+  @override
+  late final GeneratedColumn<String> cardNumber = GeneratedColumn<String>(
+    'card_number',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _pointsMeta = const VerificationMeta('points');
+  @override
+  late final GeneratedColumn<double> points = GeneratedColumn<double>(
+    'points',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _lastModifiedMeta = const VerificationMeta(
+    'lastModified',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastModified = GeneratedColumn<DateTime>(
+    'last_modified',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _syncStatusMeta = const VerificationMeta(
+    'syncStatus',
+  );
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+    'sync_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('synced'),
+  );
+  static const VerificationMeta _syncErrorMeta = const VerificationMeta(
+    'syncError',
+  );
+  @override
+  late final GeneratedColumn<String> syncError = GeneratedColumn<String>(
+    'sync_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    companyId,
+    customerId,
+    cardNumber,
+    points,
+    lastModified,
+    syncStatus,
+    syncError,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'loyalty_cards';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<LoyaltyCardsTableData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('company_id')) {
+      context.handle(
+        _companyIdMeta,
+        companyId.isAcceptableOrUnknown(data['company_id']!, _companyIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_companyIdMeta);
+    }
+    if (data.containsKey('customer_id')) {
+      context.handle(
+        _customerIdMeta,
+        customerId.isAcceptableOrUnknown(data['customer_id']!, _customerIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_customerIdMeta);
+    }
+    if (data.containsKey('card_number')) {
+      context.handle(
+        _cardNumberMeta,
+        cardNumber.isAcceptableOrUnknown(data['card_number']!, _cardNumberMeta),
+      );
+    }
+    if (data.containsKey('points')) {
+      context.handle(
+        _pointsMeta,
+        points.isAcceptableOrUnknown(data['points']!, _pointsMeta),
+      );
+    }
+    if (data.containsKey('last_modified')) {
+      context.handle(
+        _lastModifiedMeta,
+        lastModified.isAcceptableOrUnknown(
+          data['last_modified']!,
+          _lastModifiedMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_lastModifiedMeta);
+    }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+        _syncStatusMeta,
+        syncStatus.isAcceptableOrUnknown(data['sync_status']!, _syncStatusMeta),
+      );
+    }
+    if (data.containsKey('sync_error')) {
+      context.handle(
+        _syncErrorMeta,
+        syncError.isAcceptableOrUnknown(data['sync_error']!, _syncErrorMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  LoyaltyCardsTableData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return LoyaltyCardsTableData(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      companyId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}company_id'],
+      )!,
+      customerId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}customer_id'],
+      )!,
+      cardNumber: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}card_number'],
+      ),
+      points: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}points'],
+      )!,
+      lastModified: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_modified'],
+      )!,
+      syncStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_status'],
+      )!,
+      syncError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_error'],
+      ),
+    );
+  }
+
+  @override
+  $LoyaltyCardsTableTable createAlias(String alias) {
+    return $LoyaltyCardsTableTable(attachedDatabase, alias);
+  }
+}
+
+class LoyaltyCardsTableData extends DataClass
+    implements Insertable<LoyaltyCardsTableData> {
+  final int id;
+  final int companyId;
+  final int customerId;
+  final String? cardNumber;
+  final double points;
+  final DateTime lastModified;
+  final String syncStatus;
+  final String? syncError;
+  const LoyaltyCardsTableData({
+    required this.id,
+    required this.companyId,
+    required this.customerId,
+    this.cardNumber,
+    required this.points,
+    required this.lastModified,
+    required this.syncStatus,
+    this.syncError,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['company_id'] = Variable<int>(companyId);
+    map['customer_id'] = Variable<int>(customerId);
+    if (!nullToAbsent || cardNumber != null) {
+      map['card_number'] = Variable<String>(cardNumber);
+    }
+    map['points'] = Variable<double>(points);
+    map['last_modified'] = Variable<DateTime>(lastModified);
+    map['sync_status'] = Variable<String>(syncStatus);
+    if (!nullToAbsent || syncError != null) {
+      map['sync_error'] = Variable<String>(syncError);
+    }
+    return map;
+  }
+
+  LoyaltyCardsTableCompanion toCompanion(bool nullToAbsent) {
+    return LoyaltyCardsTableCompanion(
+      id: Value(id),
+      companyId: Value(companyId),
+      customerId: Value(customerId),
+      cardNumber: cardNumber == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cardNumber),
+      points: Value(points),
+      lastModified: Value(lastModified),
+      syncStatus: Value(syncStatus),
+      syncError: syncError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(syncError),
+    );
+  }
+
+  factory LoyaltyCardsTableData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return LoyaltyCardsTableData(
+      id: serializer.fromJson<int>(json['id']),
+      companyId: serializer.fromJson<int>(json['companyId']),
+      customerId: serializer.fromJson<int>(json['customerId']),
+      cardNumber: serializer.fromJson<String?>(json['cardNumber']),
+      points: serializer.fromJson<double>(json['points']),
+      lastModified: serializer.fromJson<DateTime>(json['lastModified']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
+      syncError: serializer.fromJson<String?>(json['syncError']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'companyId': serializer.toJson<int>(companyId),
+      'customerId': serializer.toJson<int>(customerId),
+      'cardNumber': serializer.toJson<String?>(cardNumber),
+      'points': serializer.toJson<double>(points),
+      'lastModified': serializer.toJson<DateTime>(lastModified),
+      'syncStatus': serializer.toJson<String>(syncStatus),
+      'syncError': serializer.toJson<String?>(syncError),
+    };
+  }
+
+  LoyaltyCardsTableData copyWith({
+    int? id,
+    int? companyId,
+    int? customerId,
+    Value<String?> cardNumber = const Value.absent(),
+    double? points,
+    DateTime? lastModified,
+    String? syncStatus,
+    Value<String?> syncError = const Value.absent(),
+  }) => LoyaltyCardsTableData(
+    id: id ?? this.id,
+    companyId: companyId ?? this.companyId,
+    customerId: customerId ?? this.customerId,
+    cardNumber: cardNumber.present ? cardNumber.value : this.cardNumber,
+    points: points ?? this.points,
+    lastModified: lastModified ?? this.lastModified,
+    syncStatus: syncStatus ?? this.syncStatus,
+    syncError: syncError.present ? syncError.value : this.syncError,
+  );
+  LoyaltyCardsTableData copyWithCompanion(LoyaltyCardsTableCompanion data) {
+    return LoyaltyCardsTableData(
+      id: data.id.present ? data.id.value : this.id,
+      companyId: data.companyId.present ? data.companyId.value : this.companyId,
+      customerId: data.customerId.present
+          ? data.customerId.value
+          : this.customerId,
+      cardNumber: data.cardNumber.present
+          ? data.cardNumber.value
+          : this.cardNumber,
+      points: data.points.present ? data.points.value : this.points,
+      lastModified: data.lastModified.present
+          ? data.lastModified.value
+          : this.lastModified,
+      syncStatus: data.syncStatus.present
+          ? data.syncStatus.value
+          : this.syncStatus,
+      syncError: data.syncError.present ? data.syncError.value : this.syncError,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LoyaltyCardsTableData(')
+          ..write('id: $id, ')
+          ..write('companyId: $companyId, ')
+          ..write('customerId: $customerId, ')
+          ..write('cardNumber: $cardNumber, ')
+          ..write('points: $points, ')
+          ..write('lastModified: $lastModified, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('syncError: $syncError')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    companyId,
+    customerId,
+    cardNumber,
+    points,
+    lastModified,
+    syncStatus,
+    syncError,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is LoyaltyCardsTableData &&
+          other.id == this.id &&
+          other.companyId == this.companyId &&
+          other.customerId == this.customerId &&
+          other.cardNumber == this.cardNumber &&
+          other.points == this.points &&
+          other.lastModified == this.lastModified &&
+          other.syncStatus == this.syncStatus &&
+          other.syncError == this.syncError);
+}
+
+class LoyaltyCardsTableCompanion
+    extends UpdateCompanion<LoyaltyCardsTableData> {
+  final Value<int> id;
+  final Value<int> companyId;
+  final Value<int> customerId;
+  final Value<String?> cardNumber;
+  final Value<double> points;
+  final Value<DateTime> lastModified;
+  final Value<String> syncStatus;
+  final Value<String?> syncError;
+  const LoyaltyCardsTableCompanion({
+    this.id = const Value.absent(),
+    this.companyId = const Value.absent(),
+    this.customerId = const Value.absent(),
+    this.cardNumber = const Value.absent(),
+    this.points = const Value.absent(),
+    this.lastModified = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.syncError = const Value.absent(),
+  });
+  LoyaltyCardsTableCompanion.insert({
+    this.id = const Value.absent(),
+    required int companyId,
+    required int customerId,
+    this.cardNumber = const Value.absent(),
+    this.points = const Value.absent(),
+    required DateTime lastModified,
+    this.syncStatus = const Value.absent(),
+    this.syncError = const Value.absent(),
+  }) : companyId = Value(companyId),
+       customerId = Value(customerId),
+       lastModified = Value(lastModified);
+  static Insertable<LoyaltyCardsTableData> custom({
+    Expression<int>? id,
+    Expression<int>? companyId,
+    Expression<int>? customerId,
+    Expression<String>? cardNumber,
+    Expression<double>? points,
+    Expression<DateTime>? lastModified,
+    Expression<String>? syncStatus,
+    Expression<String>? syncError,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (companyId != null) 'company_id': companyId,
+      if (customerId != null) 'customer_id': customerId,
+      if (cardNumber != null) 'card_number': cardNumber,
+      if (points != null) 'points': points,
+      if (lastModified != null) 'last_modified': lastModified,
+      if (syncStatus != null) 'sync_status': syncStatus,
+      if (syncError != null) 'sync_error': syncError,
+    });
+  }
+
+  LoyaltyCardsTableCompanion copyWith({
+    Value<int>? id,
+    Value<int>? companyId,
+    Value<int>? customerId,
+    Value<String?>? cardNumber,
+    Value<double>? points,
+    Value<DateTime>? lastModified,
+    Value<String>? syncStatus,
+    Value<String?>? syncError,
+  }) {
+    return LoyaltyCardsTableCompanion(
+      id: id ?? this.id,
+      companyId: companyId ?? this.companyId,
+      customerId: customerId ?? this.customerId,
+      cardNumber: cardNumber ?? this.cardNumber,
+      points: points ?? this.points,
+      lastModified: lastModified ?? this.lastModified,
+      syncStatus: syncStatus ?? this.syncStatus,
+      syncError: syncError ?? this.syncError,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (companyId.present) {
+      map['company_id'] = Variable<int>(companyId.value);
+    }
+    if (customerId.present) {
+      map['customer_id'] = Variable<int>(customerId.value);
+    }
+    if (cardNumber.present) {
+      map['card_number'] = Variable<String>(cardNumber.value);
+    }
+    if (points.present) {
+      map['points'] = Variable<double>(points.value);
+    }
+    if (lastModified.present) {
+      map['last_modified'] = Variable<DateTime>(lastModified.value);
+    }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
+    if (syncError.present) {
+      map['sync_error'] = Variable<String>(syncError.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('LoyaltyCardsTableCompanion(')
+          ..write('id: $id, ')
+          ..write('companyId: $companyId, ')
+          ..write('customerId: $customerId, ')
+          ..write('cardNumber: $cardNumber, ')
+          ..write('points: $points, ')
+          ..write('lastModified: $lastModified, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('syncError: $syncError')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -16388,6 +18023,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $PosOrdersTableTable posOrdersTable = $PosOrdersTableTable(this);
   late final $PosOrderItemsTableTable posOrderItemsTable =
       $PosOrderItemsTableTable(this);
+  late final $PosOrderItemTaxesTableTable posOrderItemTaxesTable =
+      $PosOrderItemTaxesTableTable(this);
   late final $CashMovementsTableTable cashMovementsTable =
       $CashMovementsTableTable(this);
   late final $ZReportsTableTable zReportsTable = $ZReportsTableTable(this);
@@ -16400,6 +18037,46 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $DocumentItemsTableTable(this);
   late final $PaymentsTableTable paymentsTable = $PaymentsTableTable(this);
   late final $BarcodesTableTable barcodesTable = $BarcodesTableTable(this);
+  late final $CustomerDiscountsTableTable customerDiscountsTable =
+      $CustomerDiscountsTableTable(this);
+  late final $LoyaltyCardsTableTable loyaltyCardsTable =
+      $LoyaltyCardsTableTable(this);
+  late final Index idxProductsGroupId = Index(
+    'idx_products_group_id',
+    'CREATE INDEX idx_products_group_id ON products (product_group_id)',
+  );
+  late final Index idxProductsBarcode = Index(
+    'idx_products_barcode',
+    'CREATE INDEX idx_products_barcode ON products (barcode)',
+  );
+  late final Index idxPosOrdersSyncStatus = Index(
+    'idx_pos_orders_sync_status',
+    'CREATE INDEX idx_pos_orders_sync_status ON pos_orders (sync_status)',
+  );
+  late final Index idxPosOrdersStatus = Index(
+    'idx_pos_orders_status',
+    'CREATE INDEX idx_pos_orders_status ON pos_orders (status)',
+  );
+  late final Index idxPosOrderItemsOrderId = Index(
+    'idx_pos_order_items_order_id',
+    'CREATE INDEX idx_pos_order_items_order_id ON pos_order_items (order_id)',
+  );
+  late final Index idxPosOrderItemTaxesOrderId = Index(
+    'idx_pos_order_item_taxes_order_id',
+    'CREATE INDEX idx_pos_order_item_taxes_order_id ON pos_order_item_taxes (order_id)',
+  );
+  late final Index idxCustomerDiscountsCustomerId = Index(
+    'idx_customer_discounts_customer_id',
+    'CREATE INDEX idx_customer_discounts_customer_id ON customer_discounts (customer_id)',
+  );
+  late final Index idxLoyaltyCardsCustomerId = Index(
+    'idx_loyalty_cards_customer_id',
+    'CREATE INDEX idx_loyalty_cards_customer_id ON loyalty_cards (customer_id)',
+  );
+  late final Index idxLoyaltyCardsSyncStatus = Index(
+    'idx_loyalty_cards_sync_status',
+    'CREATE INDEX idx_loyalty_cards_sync_status ON loyalty_cards (sync_status)',
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -16422,6 +18099,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     companiesTable,
     posOrdersTable,
     posOrderItemsTable,
+    posOrderItemTaxesTable,
     cashMovementsTable,
     zReportsTable,
     syncMetaTable,
@@ -16431,6 +18109,17 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     documentItemsTable,
     paymentsTable,
     barcodesTable,
+    customerDiscountsTable,
+    loyaltyCardsTable,
+    idxProductsGroupId,
+    idxProductsBarcode,
+    idxPosOrdersSyncStatus,
+    idxPosOrdersStatus,
+    idxPosOrderItemsOrderId,
+    idxPosOrderItemTaxesOrderId,
+    idxCustomerDiscountsCustomerId,
+    idxLoyaltyCardsCustomerId,
+    idxLoyaltyCardsSyncStatus,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -16440,6 +18129,13 @@ abstract class _$AppDatabase extends GeneratedDatabase {
         limitUpdateKind: UpdateKind.delete,
       ),
       result: [TableUpdate('pos_order_items', kind: UpdateKind.delete)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'pos_orders',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('pos_order_item_taxes', kind: UpdateKind.delete)],
     ),
     WritePropagation(
       on: TableUpdateQuery.onTableName(
@@ -19561,6 +21257,8 @@ typedef $$CustomersTableTableCreateCompanionBuilder =
       Value<String?> citySubdivisionName,
       Value<bool> isTaxExempt,
       required DateTime lastModified,
+      Value<String> syncStatus,
+      Value<String?> syncError,
     });
 typedef $$CustomersTableTableUpdateCompanionBuilder =
     CustomersTableCompanion Function({
@@ -19586,6 +21284,8 @@ typedef $$CustomersTableTableUpdateCompanionBuilder =
       Value<String?> citySubdivisionName,
       Value<bool> isTaxExempt,
       Value<DateTime> lastModified,
+      Value<String> syncStatus,
+      Value<String?> syncError,
     });
 
 class $$CustomersTableTableFilterComposer
@@ -19704,6 +21404,16 @@ class $$CustomersTableTableFilterComposer
 
   ColumnFilters<DateTime> get lastModified => $composableBuilder(
     column: $table.lastModified,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncError => $composableBuilder(
+    column: $table.syncError,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -19826,6 +21536,16 @@ class $$CustomersTableTableOrderingComposer
     column: $table.lastModified,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get syncError => $composableBuilder(
+    column: $table.syncError,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$CustomersTableTableAnnotationComposer
@@ -19926,6 +21646,14 @@ class $$CustomersTableTableAnnotationComposer
     column: $table.lastModified,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get syncError =>
+      $composableBuilder(column: $table.syncError, builder: (column) => column);
 }
 
 class $$CustomersTableTableTableManager
@@ -19987,6 +21715,8 @@ class $$CustomersTableTableTableManager
                 Value<String?> citySubdivisionName = const Value.absent(),
                 Value<bool> isTaxExempt = const Value.absent(),
                 Value<DateTime> lastModified = const Value.absent(),
+                Value<String> syncStatus = const Value.absent(),
+                Value<String?> syncError = const Value.absent(),
               }) => CustomersTableCompanion(
                 id: id,
                 companyId: companyId,
@@ -20010,6 +21740,8 @@ class $$CustomersTableTableTableManager
                 citySubdivisionName: citySubdivisionName,
                 isTaxExempt: isTaxExempt,
                 lastModified: lastModified,
+                syncStatus: syncStatus,
+                syncError: syncError,
               ),
           createCompanionCallback:
               ({
@@ -20035,6 +21767,8 @@ class $$CustomersTableTableTableManager
                 Value<String?> citySubdivisionName = const Value.absent(),
                 Value<bool> isTaxExempt = const Value.absent(),
                 required DateTime lastModified,
+                Value<String> syncStatus = const Value.absent(),
+                Value<String?> syncError = const Value.absent(),
               }) => CustomersTableCompanion.insert(
                 id: id,
                 companyId: companyId,
@@ -20058,6 +21792,8 @@ class $$CustomersTableTableTableManager
                 citySubdivisionName: citySubdivisionName,
                 isTaxExempt: isTaxExempt,
                 lastModified: lastModified,
+                syncStatus: syncStatus,
+                syncError: syncError,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
@@ -21211,6 +22947,7 @@ typedef $$PosOrdersTableTableCreateCompanionBuilder =
       Value<int> status,
       Value<double?> total,
       Value<double> discount,
+      Value<int> discountType,
       required int warehouseId,
       Value<int?> paymentTypeId,
       Value<double?> amountPaid,
@@ -21235,6 +22972,7 @@ typedef $$PosOrdersTableTableUpdateCompanionBuilder =
       Value<int> status,
       Value<double?> total,
       Value<double> discount,
+      Value<int> discountType,
       Value<int> warehouseId,
       Value<int?> paymentTypeId,
       Value<double?> amountPaid,
@@ -21282,6 +23020,37 @@ final class $$PosOrdersTableTableReferences
 
     final cache = $_typedResult.readTableOrNull(
       _posOrderItemsTableRefsTable($_db),
+    );
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: cache),
+    );
+  }
+
+  static MultiTypedResultKey<
+    $PosOrderItemTaxesTableTable,
+    List<PosOrderItemTaxesTableData>
+  >
+  _posOrderItemTaxesTableRefsTable(_$AppDatabase db) =>
+      MultiTypedResultKey.fromTable(
+        db.posOrderItemTaxesTable,
+        aliasName: $_aliasNameGenerator(
+          db.posOrdersTable.localId,
+          db.posOrderItemTaxesTable.orderId,
+        ),
+      );
+
+  $$PosOrderItemTaxesTableTableProcessedTableManager
+  get posOrderItemTaxesTableRefs {
+    final manager =
+        $$PosOrderItemTaxesTableTableTableManager(
+          $_db,
+          $_db.posOrderItemTaxesTable,
+        ).filter(
+          (f) => f.orderId.localId.sqlEquals($_itemColumn<String>('local_id')!),
+        );
+
+    final cache = $_typedResult.readTableOrNull(
+      _posOrderItemTaxesTableRefsTable($_db),
     );
     return ProcessedTableManager(
       manager.$state.copyWith(prefetchedData: cache),
@@ -21363,6 +23132,11 @@ class $$PosOrdersTableTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<int> get discountType => $composableBuilder(
+    column: $table.discountType,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<int> get warehouseId => $composableBuilder(
     column: $table.warehouseId,
     builder: (column) => ColumnFilters(column),
@@ -21420,6 +23194,32 @@ class $$PosOrdersTableTableFilterComposer
                 $removeJoinBuilderFromRootComposer,
           ),
     );
+    return f(composer);
+  }
+
+  Expression<bool> posOrderItemTaxesTableRefs(
+    Expression<bool> Function($$PosOrderItemTaxesTableTableFilterComposer f) f,
+  ) {
+    final $$PosOrderItemTaxesTableTableFilterComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.localId,
+          referencedTable: $db.posOrderItemTaxesTable,
+          getReferencedColumn: (t) => t.orderId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$PosOrderItemTaxesTableTableFilterComposer(
+                $db: $db,
+                $table: $db.posOrderItemTaxesTable,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
     return f(composer);
   }
 }
@@ -21495,6 +23295,11 @@ class $$PosOrdersTableTableOrderingComposer
 
   ColumnOrderings<double> get discount => $composableBuilder(
     column: $table.discount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get discountType => $composableBuilder(
+    column: $table.discountType,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -21586,6 +23391,11 @@ class $$PosOrdersTableTableAnnotationComposer
   GeneratedColumn<double> get discount =>
       $composableBuilder(column: $table.discount, builder: (column) => column);
 
+  GeneratedColumn<int> get discountType => $composableBuilder(
+    column: $table.discountType,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<int> get warehouseId => $composableBuilder(
     column: $table.warehouseId,
     builder: (column) => column,
@@ -21644,6 +23454,32 @@ class $$PosOrdersTableTableAnnotationComposer
         );
     return f(composer);
   }
+
+  Expression<T> posOrderItemTaxesTableRefs<T extends Object>(
+    Expression<T> Function($$PosOrderItemTaxesTableTableAnnotationComposer a) f,
+  ) {
+    final $$PosOrderItemTaxesTableTableAnnotationComposer composer =
+        $composerBuilder(
+          composer: this,
+          getCurrentColumn: (t) => t.localId,
+          referencedTable: $db.posOrderItemTaxesTable,
+          getReferencedColumn: (t) => t.orderId,
+          builder:
+              (
+                joinBuilder, {
+                $addJoinBuilderToRootComposer,
+                $removeJoinBuilderFromRootComposer,
+              }) => $$PosOrderItemTaxesTableTableAnnotationComposer(
+                $db: $db,
+                $table: $db.posOrderItemTaxesTable,
+                $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+                joinBuilder: joinBuilder,
+                $removeJoinBuilderFromRootComposer:
+                    $removeJoinBuilderFromRootComposer,
+              ),
+        );
+    return f(composer);
+  }
 }
 
 class $$PosOrdersTableTableTableManager
@@ -21659,7 +23495,10 @@ class $$PosOrdersTableTableTableManager
           $$PosOrdersTableTableUpdateCompanionBuilder,
           (PosOrdersTableData, $$PosOrdersTableTableReferences),
           PosOrdersTableData,
-          PrefetchHooks Function({bool posOrderItemsTableRefs})
+          PrefetchHooks Function({
+            bool posOrderItemsTableRefs,
+            bool posOrderItemTaxesTableRefs,
+          })
         > {
   $$PosOrdersTableTableTableManager(
     _$AppDatabase db,
@@ -21689,6 +23528,7 @@ class $$PosOrdersTableTableTableManager
                 Value<int> status = const Value.absent(),
                 Value<double?> total = const Value.absent(),
                 Value<double> discount = const Value.absent(),
+                Value<int> discountType = const Value.absent(),
                 Value<int> warehouseId = const Value.absent(),
                 Value<int?> paymentTypeId = const Value.absent(),
                 Value<double?> amountPaid = const Value.absent(),
@@ -21711,6 +23551,7 @@ class $$PosOrdersTableTableTableManager
                 status: status,
                 total: total,
                 discount: discount,
+                discountType: discountType,
                 warehouseId: warehouseId,
                 paymentTypeId: paymentTypeId,
                 amountPaid: amountPaid,
@@ -21735,6 +23576,7 @@ class $$PosOrdersTableTableTableManager
                 Value<int> status = const Value.absent(),
                 Value<double?> total = const Value.absent(),
                 Value<double> discount = const Value.absent(),
+                Value<int> discountType = const Value.absent(),
                 required int warehouseId,
                 Value<int?> paymentTypeId = const Value.absent(),
                 Value<double?> amountPaid = const Value.absent(),
@@ -21757,6 +23599,7 @@ class $$PosOrdersTableTableTableManager
                 status: status,
                 total: total,
                 discount: discount,
+                discountType: discountType,
                 warehouseId: warehouseId,
                 paymentTypeId: paymentTypeId,
                 amountPaid: amountPaid,
@@ -21774,40 +23617,66 @@ class $$PosOrdersTableTableTableManager
                 ),
               )
               .toList(),
-          prefetchHooksCallback: ({posOrderItemsTableRefs = false}) {
-            return PrefetchHooks(
-              db: db,
-              explicitlyWatchedTables: [
-                if (posOrderItemsTableRefs) db.posOrderItemsTable,
-              ],
-              addJoins: null,
-              getPrefetchedDataCallback: (items) async {
-                return [
-                  if (posOrderItemsTableRefs)
-                    await $_getPrefetchedData<
-                      PosOrdersTableData,
-                      $PosOrdersTableTable,
-                      PosOrderItemsTableData
-                    >(
-                      currentTable: table,
-                      referencedTable: $$PosOrdersTableTableReferences
-                          ._posOrderItemsTableRefsTable(db),
-                      managerFromTypedResult: (p0) =>
-                          $$PosOrdersTableTableReferences(
-                            db,
-                            table,
-                            p0,
-                          ).posOrderItemsTableRefs,
-                      referencedItemsForCurrentItem: (item, referencedItems) =>
-                          referencedItems.where(
-                            (e) => e.orderId == item.localId,
-                          ),
-                      typedResults: items,
-                    ),
-                ];
+          prefetchHooksCallback:
+              ({
+                posOrderItemsTableRefs = false,
+                posOrderItemTaxesTableRefs = false,
+              }) {
+                return PrefetchHooks(
+                  db: db,
+                  explicitlyWatchedTables: [
+                    if (posOrderItemsTableRefs) db.posOrderItemsTable,
+                    if (posOrderItemTaxesTableRefs) db.posOrderItemTaxesTable,
+                  ],
+                  addJoins: null,
+                  getPrefetchedDataCallback: (items) async {
+                    return [
+                      if (posOrderItemsTableRefs)
+                        await $_getPrefetchedData<
+                          PosOrdersTableData,
+                          $PosOrdersTableTable,
+                          PosOrderItemsTableData
+                        >(
+                          currentTable: table,
+                          referencedTable: $$PosOrdersTableTableReferences
+                              ._posOrderItemsTableRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$PosOrdersTableTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).posOrderItemsTableRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.orderId == item.localId,
+                              ),
+                          typedResults: items,
+                        ),
+                      if (posOrderItemTaxesTableRefs)
+                        await $_getPrefetchedData<
+                          PosOrdersTableData,
+                          $PosOrdersTableTable,
+                          PosOrderItemTaxesTableData
+                        >(
+                          currentTable: table,
+                          referencedTable: $$PosOrdersTableTableReferences
+                              ._posOrderItemTaxesTableRefsTable(db),
+                          managerFromTypedResult: (p0) =>
+                              $$PosOrdersTableTableReferences(
+                                db,
+                                table,
+                                p0,
+                              ).posOrderItemTaxesTableRefs,
+                          referencedItemsForCurrentItem:
+                              (item, referencedItems) => referencedItems.where(
+                                (e) => e.orderId == item.localId,
+                              ),
+                          typedResults: items,
+                        ),
+                    ];
+                  },
+                );
               },
-            );
-          },
         ),
       );
 }
@@ -21824,7 +23693,10 @@ typedef $$PosOrdersTableTableProcessedTableManager =
       $$PosOrdersTableTableUpdateCompanionBuilder,
       (PosOrdersTableData, $$PosOrdersTableTableReferences),
       PosOrdersTableData,
-      PrefetchHooks Function({bool posOrderItemsTableRefs})
+      PrefetchHooks Function({
+        bool posOrderItemsTableRefs,
+        bool posOrderItemTaxesTableRefs,
+      })
     >;
 typedef $$PosOrderItemsTableTableCreateCompanionBuilder =
     PosOrderItemsTableCompanion Function({
@@ -22301,6 +24173,371 @@ typedef $$PosOrderItemsTableTableProcessedTableManager =
       $$PosOrderItemsTableTableUpdateCompanionBuilder,
       (PosOrderItemsTableData, $$PosOrderItemsTableTableReferences),
       PosOrderItemsTableData,
+      PrefetchHooks Function({bool orderId})
+    >;
+typedef $$PosOrderItemTaxesTableTableCreateCompanionBuilder =
+    PosOrderItemTaxesTableCompanion Function({
+      required String localId,
+      required String orderId,
+      required int productId,
+      required int taxRateId,
+      required double taxAmount,
+      Value<String> syncStatus,
+      Value<int> rowid,
+    });
+typedef $$PosOrderItemTaxesTableTableUpdateCompanionBuilder =
+    PosOrderItemTaxesTableCompanion Function({
+      Value<String> localId,
+      Value<String> orderId,
+      Value<int> productId,
+      Value<int> taxRateId,
+      Value<double> taxAmount,
+      Value<String> syncStatus,
+      Value<int> rowid,
+    });
+
+final class $$PosOrderItemTaxesTableTableReferences
+    extends
+        BaseReferences<
+          _$AppDatabase,
+          $PosOrderItemTaxesTableTable,
+          PosOrderItemTaxesTableData
+        > {
+  $$PosOrderItemTaxesTableTableReferences(
+    super.$_db,
+    super.$_table,
+    super.$_typedResult,
+  );
+
+  static $PosOrdersTableTable _orderIdTable(_$AppDatabase db) =>
+      db.posOrdersTable.createAlias(
+        $_aliasNameGenerator(
+          db.posOrderItemTaxesTable.orderId,
+          db.posOrdersTable.localId,
+        ),
+      );
+
+  $$PosOrdersTableTableProcessedTableManager get orderId {
+    final $_column = $_itemColumn<String>('order_id')!;
+
+    final manager = $$PosOrdersTableTableTableManager(
+      $_db,
+      $_db.posOrdersTable,
+    ).filter((f) => f.localId.sqlEquals($_column));
+    final item = $_typedResult.readTableOrNull(_orderIdTable($_db));
+    if (item == null) return manager;
+    return ProcessedTableManager(
+      manager.$state.copyWith(prefetchedData: [item]),
+    );
+  }
+}
+
+class $$PosOrderItemTaxesTableTableFilterComposer
+    extends Composer<_$AppDatabase, $PosOrderItemTaxesTableTable> {
+  $$PosOrderItemTaxesTableTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get localId => $composableBuilder(
+    column: $table.localId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get productId => $composableBuilder(
+    column: $table.productId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get taxRateId => $composableBuilder(
+    column: $table.taxRateId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get taxAmount => $composableBuilder(
+    column: $table.taxAmount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  $$PosOrdersTableTableFilterComposer get orderId {
+    final $$PosOrdersTableTableFilterComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.orderId,
+      referencedTable: $db.posOrdersTable,
+      getReferencedColumn: (t) => t.localId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PosOrdersTableTableFilterComposer(
+            $db: $db,
+            $table: $db.posOrdersTable,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$PosOrderItemTaxesTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $PosOrderItemTaxesTableTable> {
+  $$PosOrderItemTaxesTableTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get localId => $composableBuilder(
+    column: $table.localId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get productId => $composableBuilder(
+    column: $table.productId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get taxRateId => $composableBuilder(
+    column: $table.taxRateId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get taxAmount => $composableBuilder(
+    column: $table.taxAmount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  $$PosOrdersTableTableOrderingComposer get orderId {
+    final $$PosOrdersTableTableOrderingComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.orderId,
+      referencedTable: $db.posOrdersTable,
+      getReferencedColumn: (t) => t.localId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PosOrdersTableTableOrderingComposer(
+            $db: $db,
+            $table: $db.posOrdersTable,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$PosOrderItemTaxesTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PosOrderItemTaxesTableTable> {
+  $$PosOrderItemTaxesTableTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get localId =>
+      $composableBuilder(column: $table.localId, builder: (column) => column);
+
+  GeneratedColumn<int> get productId =>
+      $composableBuilder(column: $table.productId, builder: (column) => column);
+
+  GeneratedColumn<int> get taxRateId =>
+      $composableBuilder(column: $table.taxRateId, builder: (column) => column);
+
+  GeneratedColumn<double> get taxAmount =>
+      $composableBuilder(column: $table.taxAmount, builder: (column) => column);
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => column,
+  );
+
+  $$PosOrdersTableTableAnnotationComposer get orderId {
+    final $$PosOrdersTableTableAnnotationComposer composer = $composerBuilder(
+      composer: this,
+      getCurrentColumn: (t) => t.orderId,
+      referencedTable: $db.posOrdersTable,
+      getReferencedColumn: (t) => t.localId,
+      builder:
+          (
+            joinBuilder, {
+            $addJoinBuilderToRootComposer,
+            $removeJoinBuilderFromRootComposer,
+          }) => $$PosOrdersTableTableAnnotationComposer(
+            $db: $db,
+            $table: $db.posOrdersTable,
+            $addJoinBuilderToRootComposer: $addJoinBuilderToRootComposer,
+            joinBuilder: joinBuilder,
+            $removeJoinBuilderFromRootComposer:
+                $removeJoinBuilderFromRootComposer,
+          ),
+    );
+    return composer;
+  }
+}
+
+class $$PosOrderItemTaxesTableTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $PosOrderItemTaxesTableTable,
+          PosOrderItemTaxesTableData,
+          $$PosOrderItemTaxesTableTableFilterComposer,
+          $$PosOrderItemTaxesTableTableOrderingComposer,
+          $$PosOrderItemTaxesTableTableAnnotationComposer,
+          $$PosOrderItemTaxesTableTableCreateCompanionBuilder,
+          $$PosOrderItemTaxesTableTableUpdateCompanionBuilder,
+          (PosOrderItemTaxesTableData, $$PosOrderItemTaxesTableTableReferences),
+          PosOrderItemTaxesTableData,
+          PrefetchHooks Function({bool orderId})
+        > {
+  $$PosOrderItemTaxesTableTableTableManager(
+    _$AppDatabase db,
+    $PosOrderItemTaxesTableTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PosOrderItemTaxesTableTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$PosOrderItemTaxesTableTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$PosOrderItemTaxesTableTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> localId = const Value.absent(),
+                Value<String> orderId = const Value.absent(),
+                Value<int> productId = const Value.absent(),
+                Value<int> taxRateId = const Value.absent(),
+                Value<double> taxAmount = const Value.absent(),
+                Value<String> syncStatus = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PosOrderItemTaxesTableCompanion(
+                localId: localId,
+                orderId: orderId,
+                productId: productId,
+                taxRateId: taxRateId,
+                taxAmount: taxAmount,
+                syncStatus: syncStatus,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String localId,
+                required String orderId,
+                required int productId,
+                required int taxRateId,
+                required double taxAmount,
+                Value<String> syncStatus = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PosOrderItemTaxesTableCompanion.insert(
+                localId: localId,
+                orderId: orderId,
+                productId: productId,
+                taxRateId: taxRateId,
+                taxAmount: taxAmount,
+                syncStatus: syncStatus,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable(table),
+                  $$PosOrderItemTaxesTableTableReferences(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: ({orderId = false}) {
+            return PrefetchHooks(
+              db: db,
+              explicitlyWatchedTables: [],
+              addJoins:
+                  <
+                    T extends TableManagerState<
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic,
+                      dynamic
+                    >
+                  >(state) {
+                    if (orderId) {
+                      state =
+                          state.withJoin(
+                                currentTable: table,
+                                currentColumn: table.orderId,
+                                referencedTable:
+                                    $$PosOrderItemTaxesTableTableReferences
+                                        ._orderIdTable(db),
+                                referencedColumn:
+                                    $$PosOrderItemTaxesTableTableReferences
+                                        ._orderIdTable(db)
+                                        .localId,
+                              )
+                              as T;
+                    }
+
+                    return state;
+                  },
+              getPrefetchedDataCallback: (items) async {
+                return [];
+              },
+            );
+          },
+        ),
+      );
+}
+
+typedef $$PosOrderItemTaxesTableTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $PosOrderItemTaxesTableTable,
+      PosOrderItemTaxesTableData,
+      $$PosOrderItemTaxesTableTableFilterComposer,
+      $$PosOrderItemTaxesTableTableOrderingComposer,
+      $$PosOrderItemTaxesTableTableAnnotationComposer,
+      $$PosOrderItemTaxesTableTableCreateCompanionBuilder,
+      $$PosOrderItemTaxesTableTableUpdateCompanionBuilder,
+      (PosOrderItemTaxesTableData, $$PosOrderItemTaxesTableTableReferences),
+      PosOrderItemTaxesTableData,
       PrefetchHooks Function({bool orderId})
     >;
 typedef $$CashMovementsTableTableCreateCompanionBuilder =
@@ -25310,6 +27547,573 @@ typedef $$BarcodesTableTableProcessedTableManager =
       BarcodesTableData,
       PrefetchHooks Function()
     >;
+typedef $$CustomerDiscountsTableTableCreateCompanionBuilder =
+    CustomerDiscountsTableCompanion Function({
+      Value<int> id,
+      required int companyId,
+      required int customerId,
+      Value<int> type,
+      Value<int> uid,
+      Value<double> value,
+      required DateTime lastModified,
+      Value<String> syncStatus,
+      Value<String?> syncError,
+    });
+typedef $$CustomerDiscountsTableTableUpdateCompanionBuilder =
+    CustomerDiscountsTableCompanion Function({
+      Value<int> id,
+      Value<int> companyId,
+      Value<int> customerId,
+      Value<int> type,
+      Value<int> uid,
+      Value<double> value,
+      Value<DateTime> lastModified,
+      Value<String> syncStatus,
+      Value<String?> syncError,
+    });
+
+class $$CustomerDiscountsTableTableFilterComposer
+    extends Composer<_$AppDatabase, $CustomerDiscountsTableTable> {
+  $$CustomerDiscountsTableTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get companyId => $composableBuilder(
+    column: $table.companyId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get customerId => $composableBuilder(
+    column: $table.customerId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastModified => $composableBuilder(
+    column: $table.lastModified,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncError => $composableBuilder(
+    column: $table.syncError,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CustomerDiscountsTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $CustomerDiscountsTableTable> {
+  $$CustomerDiscountsTableTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get companyId => $composableBuilder(
+    column: $table.companyId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get customerId => $composableBuilder(
+    column: $table.customerId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get uid => $composableBuilder(
+    column: $table.uid,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastModified => $composableBuilder(
+    column: $table.lastModified,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get syncError => $composableBuilder(
+    column: $table.syncError,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CustomerDiscountsTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $CustomerDiscountsTableTable> {
+  $$CustomerDiscountsTableTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get companyId =>
+      $composableBuilder(column: $table.companyId, builder: (column) => column);
+
+  GeneratedColumn<int> get customerId => $composableBuilder(
+    column: $table.customerId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get type =>
+      $composableBuilder(column: $table.type, builder: (column) => column);
+
+  GeneratedColumn<int> get uid =>
+      $composableBuilder(column: $table.uid, builder: (column) => column);
+
+  GeneratedColumn<double> get value =>
+      $composableBuilder(column: $table.value, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastModified => $composableBuilder(
+    column: $table.lastModified,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get syncError =>
+      $composableBuilder(column: $table.syncError, builder: (column) => column);
+}
+
+class $$CustomerDiscountsTableTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $CustomerDiscountsTableTable,
+          CustomerDiscountsTableData,
+          $$CustomerDiscountsTableTableFilterComposer,
+          $$CustomerDiscountsTableTableOrderingComposer,
+          $$CustomerDiscountsTableTableAnnotationComposer,
+          $$CustomerDiscountsTableTableCreateCompanionBuilder,
+          $$CustomerDiscountsTableTableUpdateCompanionBuilder,
+          (
+            CustomerDiscountsTableData,
+            BaseReferences<
+              _$AppDatabase,
+              $CustomerDiscountsTableTable,
+              CustomerDiscountsTableData
+            >,
+          ),
+          CustomerDiscountsTableData,
+          PrefetchHooks Function()
+        > {
+  $$CustomerDiscountsTableTableTableManager(
+    _$AppDatabase db,
+    $CustomerDiscountsTableTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CustomerDiscountsTableTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$CustomerDiscountsTableTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$CustomerDiscountsTableTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> companyId = const Value.absent(),
+                Value<int> customerId = const Value.absent(),
+                Value<int> type = const Value.absent(),
+                Value<int> uid = const Value.absent(),
+                Value<double> value = const Value.absent(),
+                Value<DateTime> lastModified = const Value.absent(),
+                Value<String> syncStatus = const Value.absent(),
+                Value<String?> syncError = const Value.absent(),
+              }) => CustomerDiscountsTableCompanion(
+                id: id,
+                companyId: companyId,
+                customerId: customerId,
+                type: type,
+                uid: uid,
+                value: value,
+                lastModified: lastModified,
+                syncStatus: syncStatus,
+                syncError: syncError,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int companyId,
+                required int customerId,
+                Value<int> type = const Value.absent(),
+                Value<int> uid = const Value.absent(),
+                Value<double> value = const Value.absent(),
+                required DateTime lastModified,
+                Value<String> syncStatus = const Value.absent(),
+                Value<String?> syncError = const Value.absent(),
+              }) => CustomerDiscountsTableCompanion.insert(
+                id: id,
+                companyId: companyId,
+                customerId: customerId,
+                type: type,
+                uid: uid,
+                value: value,
+                lastModified: lastModified,
+                syncStatus: syncStatus,
+                syncError: syncError,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CustomerDiscountsTableTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $CustomerDiscountsTableTable,
+      CustomerDiscountsTableData,
+      $$CustomerDiscountsTableTableFilterComposer,
+      $$CustomerDiscountsTableTableOrderingComposer,
+      $$CustomerDiscountsTableTableAnnotationComposer,
+      $$CustomerDiscountsTableTableCreateCompanionBuilder,
+      $$CustomerDiscountsTableTableUpdateCompanionBuilder,
+      (
+        CustomerDiscountsTableData,
+        BaseReferences<
+          _$AppDatabase,
+          $CustomerDiscountsTableTable,
+          CustomerDiscountsTableData
+        >,
+      ),
+      CustomerDiscountsTableData,
+      PrefetchHooks Function()
+    >;
+typedef $$LoyaltyCardsTableTableCreateCompanionBuilder =
+    LoyaltyCardsTableCompanion Function({
+      Value<int> id,
+      required int companyId,
+      required int customerId,
+      Value<String?> cardNumber,
+      Value<double> points,
+      required DateTime lastModified,
+      Value<String> syncStatus,
+      Value<String?> syncError,
+    });
+typedef $$LoyaltyCardsTableTableUpdateCompanionBuilder =
+    LoyaltyCardsTableCompanion Function({
+      Value<int> id,
+      Value<int> companyId,
+      Value<int> customerId,
+      Value<String?> cardNumber,
+      Value<double> points,
+      Value<DateTime> lastModified,
+      Value<String> syncStatus,
+      Value<String?> syncError,
+    });
+
+class $$LoyaltyCardsTableTableFilterComposer
+    extends Composer<_$AppDatabase, $LoyaltyCardsTableTable> {
+  $$LoyaltyCardsTableTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get companyId => $composableBuilder(
+    column: $table.companyId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get customerId => $composableBuilder(
+    column: $table.customerId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get cardNumber => $composableBuilder(
+    column: $table.cardNumber,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get points => $composableBuilder(
+    column: $table.points,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastModified => $composableBuilder(
+    column: $table.lastModified,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncError => $composableBuilder(
+    column: $table.syncError,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$LoyaltyCardsTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $LoyaltyCardsTableTable> {
+  $$LoyaltyCardsTableTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get companyId => $composableBuilder(
+    column: $table.companyId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get customerId => $composableBuilder(
+    column: $table.customerId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get cardNumber => $composableBuilder(
+    column: $table.cardNumber,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get points => $composableBuilder(
+    column: $table.points,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastModified => $composableBuilder(
+    column: $table.lastModified,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get syncError => $composableBuilder(
+    column: $table.syncError,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$LoyaltyCardsTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $LoyaltyCardsTableTable> {
+  $$LoyaltyCardsTableTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get companyId =>
+      $composableBuilder(column: $table.companyId, builder: (column) => column);
+
+  GeneratedColumn<int> get customerId => $composableBuilder(
+    column: $table.customerId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get cardNumber => $composableBuilder(
+    column: $table.cardNumber,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get points =>
+      $composableBuilder(column: $table.points, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastModified => $composableBuilder(
+    column: $table.lastModified,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get syncError =>
+      $composableBuilder(column: $table.syncError, builder: (column) => column);
+}
+
+class $$LoyaltyCardsTableTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $LoyaltyCardsTableTable,
+          LoyaltyCardsTableData,
+          $$LoyaltyCardsTableTableFilterComposer,
+          $$LoyaltyCardsTableTableOrderingComposer,
+          $$LoyaltyCardsTableTableAnnotationComposer,
+          $$LoyaltyCardsTableTableCreateCompanionBuilder,
+          $$LoyaltyCardsTableTableUpdateCompanionBuilder,
+          (
+            LoyaltyCardsTableData,
+            BaseReferences<
+              _$AppDatabase,
+              $LoyaltyCardsTableTable,
+              LoyaltyCardsTableData
+            >,
+          ),
+          LoyaltyCardsTableData,
+          PrefetchHooks Function()
+        > {
+  $$LoyaltyCardsTableTableTableManager(
+    _$AppDatabase db,
+    $LoyaltyCardsTableTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$LoyaltyCardsTableTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$LoyaltyCardsTableTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$LoyaltyCardsTableTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> companyId = const Value.absent(),
+                Value<int> customerId = const Value.absent(),
+                Value<String?> cardNumber = const Value.absent(),
+                Value<double> points = const Value.absent(),
+                Value<DateTime> lastModified = const Value.absent(),
+                Value<String> syncStatus = const Value.absent(),
+                Value<String?> syncError = const Value.absent(),
+              }) => LoyaltyCardsTableCompanion(
+                id: id,
+                companyId: companyId,
+                customerId: customerId,
+                cardNumber: cardNumber,
+                points: points,
+                lastModified: lastModified,
+                syncStatus: syncStatus,
+                syncError: syncError,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int companyId,
+                required int customerId,
+                Value<String?> cardNumber = const Value.absent(),
+                Value<double> points = const Value.absent(),
+                required DateTime lastModified,
+                Value<String> syncStatus = const Value.absent(),
+                Value<String?> syncError = const Value.absent(),
+              }) => LoyaltyCardsTableCompanion.insert(
+                id: id,
+                companyId: companyId,
+                customerId: customerId,
+                cardNumber: cardNumber,
+                points: points,
+                lastModified: lastModified,
+                syncStatus: syncStatus,
+                syncError: syncError,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$LoyaltyCardsTableTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $LoyaltyCardsTableTable,
+      LoyaltyCardsTableData,
+      $$LoyaltyCardsTableTableFilterComposer,
+      $$LoyaltyCardsTableTableOrderingComposer,
+      $$LoyaltyCardsTableTableAnnotationComposer,
+      $$LoyaltyCardsTableTableCreateCompanionBuilder,
+      $$LoyaltyCardsTableTableUpdateCompanionBuilder,
+      (
+        LoyaltyCardsTableData,
+        BaseReferences<
+          _$AppDatabase,
+          $LoyaltyCardsTableTable,
+          LoyaltyCardsTableData
+        >,
+      ),
+      LoyaltyCardsTableData,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -25348,6 +28152,11 @@ class $AppDatabaseManager {
       $$PosOrdersTableTableTableManager(_db, _db.posOrdersTable);
   $$PosOrderItemsTableTableTableManager get posOrderItemsTable =>
       $$PosOrderItemsTableTableTableManager(_db, _db.posOrderItemsTable);
+  $$PosOrderItemTaxesTableTableTableManager get posOrderItemTaxesTable =>
+      $$PosOrderItemTaxesTableTableTableManager(
+        _db,
+        _db.posOrderItemTaxesTable,
+      );
   $$CashMovementsTableTableTableManager get cashMovementsTable =>
       $$CashMovementsTableTableTableManager(_db, _db.cashMovementsTable);
   $$ZReportsTableTableTableManager get zReportsTable =>
@@ -25366,4 +28175,11 @@ class $AppDatabaseManager {
       $$PaymentsTableTableTableManager(_db, _db.paymentsTable);
   $$BarcodesTableTableTableManager get barcodesTable =>
       $$BarcodesTableTableTableManager(_db, _db.barcodesTable);
+  $$CustomerDiscountsTableTableTableManager get customerDiscountsTable =>
+      $$CustomerDiscountsTableTableTableManager(
+        _db,
+        _db.customerDiscountsTable,
+      );
+  $$LoyaltyCardsTableTableTableManager get loyaltyCardsTable =>
+      $$LoyaltyCardsTableTableTableManager(_db, _db.loyaltyCardsTable);
 }

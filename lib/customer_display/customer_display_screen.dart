@@ -475,6 +475,7 @@ class _Thumb extends StatelessWidget {
         inner = Image.memory(
           base64Decode(image!),
           fit: BoxFit.cover,
+          cacheWidth: 50,
           errorBuilder: (_, __, ___) => _initials(),
         );
       } catch (_) {
@@ -803,6 +804,7 @@ class _Logo extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.contain,
+        cacheWidth: size.round(),
         errorBuilder: (_, __, ___) => SizedBox(width: size, height: size),
       );
     } catch (_) {

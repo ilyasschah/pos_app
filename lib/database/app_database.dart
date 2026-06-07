@@ -14,6 +14,8 @@ part 'app_database.g.dart';
 // watermark we compare against `modifiedAfter` on delta pulls.
 // ============================================================================
 
+@TableIndex(name: 'idx_products_group_id', columns: {#productGroupId})
+@TableIndex(name: 'idx_products_barcode',  columns: {#barcode})
 class ProductsTable extends Table {
   @override
   String get tableName => 'products';
@@ -257,6 +259,9 @@ class CustomersTable extends Table {
   TextColumn get citySubdivisionName => text().nullable()();
   BoolColumn get isTaxExempt => boolean().withDefault(const Constant(false))();
   DateTimeColumn get lastModified => dateTime()();
+  // Offline CRUD queue: 'synced' | 'pending_create' | 'pending_update' | 'pending_delete'
+  TextColumn get syncStatus => text().withDefault(const Constant('synced'))();
+  TextColumn get syncError => text().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -345,6 +350,8 @@ class PromotionItemsTable extends Table {
 // drives the push pipeline: pending → synced | failed.
 // ============================================================================
 
+@TableIndex(name: 'idx_pos_orders_sync_status', columns: {#syncStatus})
+@TableIndex(name: 'idx_pos_orders_status',      columns: {#status})
 class PosOrdersTable extends Table {
   @override
   String get tableName => 'pos_orders';
@@ -362,6 +369,8 @@ class PosOrdersTable extends Table {
   IntColumn get status => integer().withDefault(const Constant(0))();
   RealColumn get total => real().nullable()();
   RealColumn get discount => real().withDefault(const Constant(0))();
+  // 0 = Percentage, 1 = Fixed — mirrors CartState.manualCartDiscountType.
+  IntColumn get discountType => integer().withDefault(const Constant(0))();
   IntColumn get warehouseId => integer()();
 
   // ---- Schema v3 (Phase 4) — checkout finalisation fields ----
@@ -382,6 +391,7 @@ class PosOrdersTable extends Table {
   Set<Column> get primaryKey => {localId};
 }
 
+@TableIndex(name: 'idx_pos_order_items_order_id', columns: {#orderId})
 class PosOrderItemsTable extends Table {
   @override
   String get tableName => 'pos_order_items';
@@ -402,6 +412,27 @@ class PosOrderItemsTable extends Table {
   TextColumn get comment => text().nullable()();
   IntColumn get warehouseId => integer()();
 
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant('pending'))();
+
+  @override
+  Set<Column> get primaryKey => {localId};
+}
+
+// Offline tax breakdown — one row per item × tax-rate per saved order.
+// Populated inside saveOpenOrder so the receipt and sync paths have itemised
+// tax amounts without re-computing them from CartItem state.
+@TableIndex(name: 'idx_pos_order_item_taxes_order_id', columns: {#orderId})
+class PosOrderItemTaxesTable extends Table {
+  @override
+  String get tableName => 'pos_order_item_taxes';
+
+  TextColumn get localId => text()();
+  TextColumn get orderId =>
+      text().references(PosOrdersTable, #localId, onDelete: KeyAction.cascade)();
+  IntColumn get productId => integer()();
+  IntColumn get taxRateId => integer()();
+  RealColumn get taxAmount => real()();
   TextColumn get syncStatus =>
       text().withDefault(const Constant('pending'))();
 
@@ -603,6 +634,58 @@ class BarcodesTable extends Table {
 }
 
 // ============================================================================
+// CUSTOMER DISCOUNTS — per-customer discount rules.
+// Cached locally so the edit form works offline. syncStatus drives the push
+// pipeline for CRUD ops the same way as products/customers.
+// ============================================================================
+
+@TableIndex(name: 'idx_customer_discounts_customer_id', columns: {#customerId})
+class CustomerDiscountsTable extends Table {
+  @override
+  String get tableName => 'customer_discounts';
+
+  IntColumn get id => integer()();            // positive = server id; negative = temp local id
+  IntColumn get companyId => integer()();
+  IntColumn get customerId => integer()();
+  IntColumn get type => integer().withDefault(const Constant(0))();   // 0=percentage, 1=fixed
+  IntColumn get uid => integer().withDefault(const Constant(0))();
+  RealColumn get value => real().withDefault(const Constant(0))();
+  DateTimeColumn get lastModified => dateTime()();
+  // 'synced' | 'pending_create' | 'pending_update' | 'pending_delete'
+  TextColumn get syncStatus => text().withDefault(const Constant('synced'))();
+  TextColumn get syncError => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+// ============================================================================
+// LOYALTY CARDS — per-customer points cards, offline-first.
+// `id` is positive (server-assigned) once synced; negative while pending_create.
+// `syncStatus` drives pushPendingLoyaltyCardOps in SyncManager.
+// ============================================================================
+
+@TableIndex(name: 'idx_loyalty_cards_customer_id', columns: {#customerId})
+@TableIndex(name: 'idx_loyalty_cards_sync_status', columns: {#syncStatus})
+class LoyaltyCardsTable extends Table {
+  @override
+  String get tableName => 'loyalty_cards';
+
+  IntColumn get id => integer()();
+  IntColumn get companyId => integer()();
+  IntColumn get customerId => integer()();
+  TextColumn get cardNumber => text().nullable()();
+  RealColumn get points => real().withDefault(const Constant(0))();
+  DateTimeColumn get lastModified => dateTime()();
+  // 'synced' | 'pending_create' | 'pending_update' | 'pending_delete'
+  TextColumn get syncStatus => text().withDefault(const Constant('synced'))();
+  TextColumn get syncError => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+// ============================================================================
 // SYNC METADATA — one row per entity; holds the watermark we send as
 // `modifiedAfter` on the next delta pull.
 // ============================================================================
@@ -661,6 +744,7 @@ class PendingUserOpsTable extends Table {
     CompaniesTable,
     PosOrdersTable,
     PosOrderItemsTable,
+    PosOrderItemTaxesTable,
     CashMovementsTable,
     ZReportsTable,
     SyncMetaTable,
@@ -670,13 +754,15 @@ class PendingUserOpsTable extends Table {
     DocumentItemsTable,
     PaymentsTable,
     BarcodesTable,
+    CustomerDiscountsTable,
+    LoyaltyCardsTable,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 18;
+  int get schemaVersion => 22;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -898,6 +984,100 @@ class AppDatabase extends _$AppDatabase {
             await customStatement(
                 'ALTER TABLE users ADD COLUMN username TEXT');
             await customStatement('ALTER TABLE users ADD COLUMN email TEXT');
+          }
+
+          // v19: Performance indexes.
+          // onCreate already applies them via m.createAll(); onUpgrade must
+          // create them explicitly for existing installations.
+          if (from < 19) {
+            await customStatement(
+                'CREATE INDEX IF NOT EXISTS idx_products_group_id'
+                ' ON products (product_group_id)');
+            await customStatement(
+                'CREATE INDEX IF NOT EXISTS idx_products_barcode'
+                ' ON products (barcode)');
+            await customStatement(
+                'CREATE INDEX IF NOT EXISTS idx_pos_orders_sync_status'
+                ' ON pos_orders (sync_status)');
+            await customStatement(
+                'CREATE INDEX IF NOT EXISTS idx_pos_orders_status'
+                ' ON pos_orders (status)');
+            await customStatement(
+                'CREATE INDEX IF NOT EXISTS idx_pos_order_items_order_id'
+                ' ON pos_order_items (order_id)');
+          }
+
+          // v20: Customers become offline-first; customer discounts are cached
+          // locally so the edit form and POS discount lookup work offline.
+          if (from < 20) {
+            await customStatement(
+                "ALTER TABLE customers ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'synced'");
+            await customStatement(
+                'ALTER TABLE customers ADD COLUMN sync_error TEXT');
+            await customStatement('''
+              CREATE TABLE IF NOT EXISTS customer_discounts (
+                id INTEGER NOT NULL PRIMARY KEY,
+                company_id INTEGER NOT NULL,
+                customer_id INTEGER NOT NULL,
+                type INTEGER NOT NULL DEFAULT 0,
+                uid INTEGER NOT NULL DEFAULT 0,
+                value REAL NOT NULL DEFAULT 0.0,
+                last_modified INTEGER NOT NULL DEFAULT 0,
+                sync_status TEXT NOT NULL DEFAULT \'synced\',
+                sync_error TEXT
+              )
+            ''');
+            await customStatement(
+                'CREATE INDEX IF NOT EXISTS idx_customer_discounts_customer_id'
+                ' ON customer_discounts (customer_id)');
+          }
+
+          // v21: Loyalty cards — offline-first customer points cards.
+          // Negative temp IDs are used for pending_create rows.
+          if (from < 21) {
+            await customStatement('''
+              CREATE TABLE IF NOT EXISTS loyalty_cards (
+                id INTEGER NOT NULL PRIMARY KEY,
+                company_id INTEGER NOT NULL,
+                customer_id INTEGER NOT NULL,
+                card_number TEXT,
+                points REAL NOT NULL DEFAULT 0,
+                last_modified INTEGER NOT NULL,
+                sync_status TEXT NOT NULL DEFAULT \'synced\',
+                sync_error TEXT
+              )
+            ''');
+            await customStatement(
+                'CREATE INDEX IF NOT EXISTS idx_loyalty_cards_customer_id'
+                ' ON loyalty_cards (customer_id)');
+            await customStatement(
+                'CREATE INDEX IF NOT EXISTS idx_loyalty_cards_sync_status'
+                ' ON loyalty_cards (sync_status)');
+          }
+
+          // v22: Dual-discount persistence.
+          //  • pos_orders gains a discount_type column so the cart-level
+          //    discount type (0=%, 1=Fixed) survives save/reload.
+          //  • pos_order_item_taxes stores offline per-item tax breakdowns
+          //    so receipts and sync don't need to recompute them.
+          if (from < 22) {
+            await customStatement(
+                'ALTER TABLE pos_orders'
+                ' ADD COLUMN discount_type INTEGER NOT NULL DEFAULT 0');
+            await customStatement('''
+              CREATE TABLE IF NOT EXISTS pos_order_item_taxes (
+                local_id TEXT NOT NULL PRIMARY KEY,
+                order_id TEXT NOT NULL
+                  REFERENCES pos_orders(local_id) ON DELETE CASCADE,
+                product_id INTEGER NOT NULL,
+                tax_rate_id INTEGER NOT NULL,
+                tax_amount REAL NOT NULL,
+                sync_status TEXT NOT NULL DEFAULT 'pending'
+              )
+            ''');
+            await customStatement(
+                'CREATE INDEX IF NOT EXISTS idx_pos_order_item_taxes_order_id'
+                ' ON pos_order_item_taxes (order_id)');
           }
         },
         beforeOpen: (details) async {
@@ -1162,16 +1342,27 @@ class AppDatabase extends _$AppDatabase {
   /// first time and updates it on every subsequent re-save.
   Future<void> saveOpenOrder(
     PosOrdersTableCompanion order,
-    List<PosOrderItemsTableCompanion> newItems,
-  ) {
+    List<PosOrderItemsTableCompanion> newItems, {
+    List<PosOrderItemTaxesTableCompanion> itemTaxes = const [],
+  }) {
     return transaction(() async {
       await into(posOrdersTable).insertOnConflictUpdate(order);
+
       await (delete(posOrderItemsTable)
             ..where((t) => t.orderId.equals(order.localId.value)))
           .go();
       if (newItems.isNotEmpty) {
         await batch((b) {
           b.insertAll(posOrderItemsTable, newItems);
+        });
+      }
+
+      await (delete(posOrderItemTaxesTable)
+            ..where((t) => t.orderId.equals(order.localId.value)))
+          .go();
+      if (itemTaxes.isNotEmpty) {
+        await batch((b) {
+          b.insertAll(posOrderItemTaxesTable, itemTaxes);
         });
       }
     });

@@ -122,6 +122,7 @@ class _SecurityKeysTab extends ConsumerWidget {
       'Management.Company': 'My company',
       'Management.Stock.QuickInventory': 'Quick inventory',
       'Management.Stock.ShowCostPrices': 'View cost prices',
+      'Management.LoyaltyCards': 'Loyalty cards',
     };
     return names[key] ?? key;
   }

@@ -564,9 +564,13 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                           showAppSnackbar(context, ref, 'Please select an item first', isError: true);
                           return;
                         }
-                        final item = cartState.items.firstWhere(
-                          (i) => i.cartItemId == selectedCartItemId,
-                        );
+                        final item = cartState.items
+                            .where((i) => i.cartItemId == selectedCartItemId)
+                            .firstOrNull;
+                        if (item == null) {
+                          showAppSnackbar(context, ref, 'Please add a product to the cart and select it', isError: true);
+                          return;
+                        }
                         showDialog(
                           context: context,
                           builder: (_) => _ItemTaxDialog(item: item),
@@ -1380,9 +1384,9 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
               // 3-tier fallback: disk file (FileImage, cached by path) →
               // base64 bytes (legacy/admin-edit flow) → folder icon.
               child: group.imageFile != null
-                  ? Image.file(group.imageFile!, fit: BoxFit.cover)
+                  ? Image.file(group.imageFile!, fit: BoxFit.cover, cacheWidth: 150)
                   : group.imageBytes != null
-                      ? Image.memory(group.imageBytes!, fit: BoxFit.cover)
+                      ? Image.memory(group.imageBytes!, fit: BoxFit.cover, cacheWidth: 150)
                       : Container(
                       color: accent.withValues(alpha: 0.1),
                       child: Center(
@@ -1576,9 +1580,9 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
                 // Flutter's image cache reuses the decoded copy across the
                 // whole grid — Image.memory(Uint8List) bypasses that cache.
                 child: showImages && product.imageFile != null
-                    ? Image.file(product.imageFile!, fit: BoxFit.cover)
+                    ? Image.file(product.imageFile!, fit: BoxFit.cover, cacheWidth: 150)
                     : showImages && product.imageBytes != null
-                        ? Image.memory(product.imageBytes!, fit: BoxFit.cover)
+                        ? Image.memory(product.imageBytes!, fit: BoxFit.cover, cacheWidth: 150)
                         : Container(
                             color: cs.surfaceContainerHighest,
                             child: Center(

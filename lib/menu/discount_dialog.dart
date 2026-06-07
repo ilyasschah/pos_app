@@ -38,16 +38,17 @@ class _DiscountDialogState extends ConsumerState<DiscountDialog>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final cartState = ref.read(cartProvider);
       _cartValueCtrl.text = cartState.manualCartDiscount.toString();
-      // Restore existing cart discount type only if a discount is already applied
-      if (cartState.manualCartDiscount > 0) {
-        _cartDiscountType = cartState.manualCartDiscountType;
-      }
+      // Always restore the saved type — not just when discount > 0.
+      _cartDiscountType = cartState.manualCartDiscountType;
 
       if (cartState.selectedCartItemId != null) {
         final item = cartState.items
             .where((i) => i.cartItemId == cartState.selectedCartItemId)
             .firstOrNull;
-        if (item != null) _itemValueCtrl.text = item.discount.toString();
+        if (item != null) {
+          _itemValueCtrl.text = item.discount.toString();
+          _itemDiscountType = item.discountType;
+        }
       }
       setState(() {});
     });
@@ -108,7 +109,7 @@ class _DiscountDialogState extends ConsumerState<DiscountDialog>
       return;
     }
 
-    ref.read(cartProvider.notifier).setItemDiscount(selectedCartItemId, finalDiscount);
+    ref.read(cartProvider.notifier).setItemDiscount(selectedCartItemId, finalDiscount, _itemDiscountType);
     Navigator.pop(context);
   }
 

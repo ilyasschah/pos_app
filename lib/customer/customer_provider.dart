@@ -14,6 +14,7 @@ final allCustomersProvider = StreamProvider.autoDispose<List<Customer>>((ref) {
 
   final query = db.select(db.customersTable)
     ..where((t) => t.companyId.equals(companyId))
+    ..where((t) => t.syncStatus.isNotIn(['pending_delete']))
     ..orderBy([(t) => OrderingTerm.asc(t.name)]);
 
   return query.watch().map((rows) => rows.map(Customer.fromDrift).toList());

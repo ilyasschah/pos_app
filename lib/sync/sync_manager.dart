@@ -45,6 +45,7 @@ class SyncManager {
   static const _kPromotions = 'promotions';
   static const _kProductComments = 'product_comments';
   static const _kDocuments       = 'documents';
+  static const _kLoyaltyCards    = 'loyalty_cards';
 
   // ==========================================================================
   // PUBLIC ENTRYPOINT
@@ -76,6 +77,9 @@ class SyncManager {
     await pushPendingCashMovements(companyId);
     await pushPendingZReports(companyId);
     await pushPendingUserOps(companyId);
+    await pushPendingCustomerOps(companyId);
+    await pushPendingCustomerDiscountOps(companyId);
+    await pushPendingLoyaltyCardOps(companyId);
     await pullMasterData(companyId);
     // Pull Documents last — after BatchSync has created them on the server —
     // so local Document rows pick up server-assigned numbers and IDs.
@@ -108,6 +112,7 @@ class SyncManager {
     // Stock levels — pulled last so any inventory changes from the preceding
     // pushes (BatchSync deductions, etc.) are reflected in the local cache.
     await pullStocks(companyId);
+    await pullLoyaltyCards(companyId);
   }
 
   // ==========================================================================
@@ -1212,6 +1217,240 @@ class SyncManager {
     await _setLastSync(_kPaymentTypes, startedAt);
   }
 
+  // ==========================================================================
+  // PUSH — pending customer creates / updates / deletes
+  // ==========================================================================
+
+  /// Pushes all locally-queued customer mutations to the server:
+  ///   • pending_create → POST /Customer/AddCustomercommand (temp negative id → real id)
+  ///   • pending_update → PATCH /Customer/UpdateCustomercommand
+  ///   • pending_delete → DELETE /Customer/DeleteCustomercommand (then hard-delete locally)
+  Future<void> pushPendingCustomerOps(int companyId) async {
+    final pending = await (db.select(db.customersTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.syncStatus.isIn([
+                'pending_create',
+                'pending_update',
+                'pending_delete',
+              ])))
+        .get();
+
+    if (pending.isEmpty) return;
+
+    for (final c in pending) {
+      try {
+        switch (c.syncStatus) {
+          case 'pending_create':
+            final res = await dio.post<dynamic>(
+              '/Customer/AddCustomercommand',
+              queryParameters: {'companyId': companyId},
+              data: {
+                'name': c.name,
+                'code': c.code,
+                'taxNumber': c.taxNumber,
+                'address': c.address,
+                'postalCode': c.postalCode,
+                'city': c.city,
+                'countryId': c.countryId ?? 0,
+                'email': c.email,
+                'phoneNumber': c.phoneNumber,
+                'isEnabled': c.isEnabled,
+                'isCustomer': c.isCustomer,
+                'isSupplier': c.isSupplier,
+                'isTaxExempt': c.isTaxExempt,
+                'dueDatePeriod': c.dueDatePeriod ?? 0,
+                'streetName': c.streetName,
+                'additionalStreetName': c.additionalStreetName,
+                'buildingNumber': c.buildingNumber,
+                'plotIdentification': c.plotIdentification,
+                'citySubdivisionName': c.citySubdivisionName,
+              },
+            );
+            final data = res.data;
+            int realId = 0;
+            if (data is int) realId = data;
+            else if (data is Map) realId = ((data['id'] ?? data['Id']) as num?)?.toInt() ?? 0;
+            if (realId <= 0) throw Exception('Server returned no id for customer create');
+
+            // Replace temp row with real id; also update any pending discounts
+            // that reference the old temp customer id.
+            await db.transaction(() async {
+              await (db.delete(db.customersTable)..where((t) => t.id.equals(c.id))).go();
+              await db.into(db.customersTable).insert(CustomersTableCompanion(
+                id: Value(realId),
+                companyId: Value(c.companyId),
+                name: Value(c.name),
+                code: Value(c.code),
+                taxNumber: Value(c.taxNumber),
+                address: Value(c.address),
+                postalCode: Value(c.postalCode),
+                city: Value(c.city),
+                countryId: Value(c.countryId),
+                email: Value(c.email),
+                phoneNumber: Value(c.phoneNumber),
+                isEnabled: Value(c.isEnabled),
+                isCustomer: Value(c.isCustomer),
+                isSupplier: Value(c.isSupplier),
+                dueDatePeriod: Value(c.dueDatePeriod),
+                streetName: Value(c.streetName),
+                additionalStreetName: Value(c.additionalStreetName),
+                buildingNumber: Value(c.buildingNumber),
+                plotIdentification: Value(c.plotIdentification),
+                citySubdivisionName: Value(c.citySubdivisionName),
+                isTaxExempt: Value(c.isTaxExempt),
+                lastModified: Value(DateTime.now().toUtc()),
+                syncStatus: const Value('synced'),
+              ));
+              // Update any pending discounts that referenced the temp customer id.
+              await (db.update(db.customerDiscountsTable)
+                    ..where((t) => t.customerId.equals(c.id)))
+                  .write(CustomerDiscountsTableCompanion(customerId: Value(realId)));
+            });
+
+          case 'pending_update':
+            await dio.patch<dynamic>(
+              '/Customer/UpdateCustomercommand',
+              queryParameters: {'companyId': companyId},
+              data: {
+                'id': c.id,
+                'name': c.name,
+                'code': c.code,
+                'taxNumber': c.taxNumber,
+                'address': c.address,
+                'postalCode': c.postalCode,
+                'city': c.city,
+                'countryId': c.countryId ?? 0,
+                'email': c.email,
+                'phoneNumber': c.phoneNumber,
+                'isEnabled': c.isEnabled,
+                'isCustomer': c.isCustomer,
+                'isSupplier': c.isSupplier,
+                'isTaxExempt': c.isTaxExempt,
+                'dueDatePeriod': c.dueDatePeriod ?? 0,
+                'streetName': c.streetName,
+                'additionalStreetName': c.additionalStreetName,
+                'buildingNumber': c.buildingNumber,
+                'plotIdentification': c.plotIdentification,
+                'citySubdivisionName': c.citySubdivisionName,
+              },
+            );
+            await (db.update(db.customersTable)..where((t) => t.id.equals(c.id)))
+                .write(const CustomersTableCompanion(
+              syncStatus: Value('synced'),
+              syncError: Value(null),
+            ));
+
+          case 'pending_delete':
+            await dio.delete<dynamic>(
+              '/Customer/DeleteCustomercommand',
+              queryParameters: {'id': c.id, 'companyId': companyId},
+            );
+            await (db.delete(db.customerDiscountsTable)
+                  ..where((t) => t.customerId.equals(c.id)))
+                .go();
+            await (db.delete(db.customersTable)..where((t) => t.id.equals(c.id))).go();
+        }
+      } catch (e) {
+        debugPrint('pushPendingCustomerOps: customer ${c.id} (${c.syncStatus}) failed — $e');
+        try {
+          await (db.update(db.customersTable)..where((t) => t.id.equals(c.id)))
+              .write(CustomersTableCompanion(syncError: Value(e.toString())));
+        } catch (_) {}
+      }
+    }
+  }
+
+  /// Pushes all locally-queued customer-discount mutations to the server.
+  /// Skips discounts with a negative (temp) customerId — those belong to
+  /// customers that haven't been synced yet; [pushPendingCustomerOps] resolves
+  /// the real customerId first, so the next sync cycle picks these up.
+  Future<void> pushPendingCustomerDiscountOps(int companyId) async {
+    final pending = await (db.select(db.customerDiscountsTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.syncStatus.isIn([
+                'pending_create',
+                'pending_update',
+                'pending_delete',
+              ])))
+        .get();
+
+    if (pending.isEmpty) return;
+
+    for (final d in pending) {
+      // Skip if the parent customer hasn't been synced yet (temp negative id).
+      if (d.customerId < 0) continue;
+
+      try {
+        switch (d.syncStatus) {
+          case 'pending_create':
+            final res = await dio.post<dynamic>(
+              '/CustomerDiscounts/Create',
+              queryParameters: {'companyId': companyId},
+              data: {
+                'customerId': d.customerId,
+                'type': d.type,
+                'uid': d.uid,
+                'value': d.value,
+              },
+            );
+            final data = res.data;
+            int realId = 0;
+            if (data is Map) realId = ((data['id'] ?? data['Id']) as num?)?.toInt() ?? 0;
+            await db.transaction(() async {
+              await (db.delete(db.customerDiscountsTable)
+                    ..where((t) => t.id.equals(d.id)))
+                  .go();
+              if (realId > 0) {
+                await db.into(db.customerDiscountsTable).insert(
+                  CustomerDiscountsTableCompanion(
+                    id: Value(realId),
+                    companyId: Value(d.companyId),
+                    customerId: Value(d.customerId),
+                    type: Value(d.type),
+                    uid: Value(d.uid),
+                    value: Value(d.value),
+                    lastModified: Value(DateTime.now().toUtc()),
+                    syncStatus: const Value('synced'),
+                  ),
+                );
+              }
+            });
+
+          case 'pending_update':
+            await dio.patch<dynamic>(
+              '/CustomerDiscounts/Update',
+              queryParameters: {'companyId': companyId},
+              data: {'id': d.id, 'type': d.type, 'value': d.value},
+            );
+            await (db.update(db.customerDiscountsTable)
+                  ..where((t) => t.id.equals(d.id)))
+                .write(const CustomerDiscountsTableCompanion(
+              syncStatus: Value('synced'),
+              syncError: Value(null),
+            ));
+
+          case 'pending_delete':
+            if (d.id > 0) {
+              await dio.delete<dynamic>(
+                '/CustomerDiscounts/Delete',
+                queryParameters: {'id': d.id, 'companyId': companyId},
+              );
+            }
+            await (db.delete(db.customerDiscountsTable)
+                  ..where((t) => t.id.equals(d.id)))
+                .go();
+        }
+      } catch (e) {
+        debugPrint(
+            'pushPendingCustomerDiscountOps: discount ${d.id} (${d.syncStatus}) failed — $e');
+        try {
+          await (db.update(db.customerDiscountsTable)..where((t) => t.id.equals(d.id)))
+              .write(CustomerDiscountsTableCompanion(syncError: Value(e.toString())));
+        } catch (_) {}
+      }
+    }
+  }
+
   Future<void> pullCustomers(int companyId) async {
     final startedAt = DateTime.now().toUtc();
     final watermark = await _getLastSync(_kCustomers);
@@ -1223,38 +1462,43 @@ class SyncManager {
     );
     final rows = res.data ?? const [];
 
-    await db.batch((batch) {
-      for (final json in rows.cast<Map<String, dynamic>>()) {
-        batch.insert(
-          db.customersTable,
-          CustomersTableCompanion(
-            id: Value(json['id'] as int),
-            companyId: Value(json['companyId'] as int? ?? companyId),
-            code: Value(json['code'] as String?),
-            name: Value(json['name'] as String? ?? 'Unknown'),
-            taxNumber: Value(json['taxNumber'] as String?),
-            address: Value(json['address'] as String?),
-            postalCode: Value(json['postalCode'] as String?),
-            city: Value(json['city'] as String?),
-            countryId: Value(json['countryId'] as int?),
-            email: Value(json['email'] as String?),
-            phoneNumber: Value(json['phoneNumber'] as String?),
-            isEnabled: Value(json['isEnabled'] as bool? ?? true),
-            isCustomer: Value(json['isCustomer'] as bool? ?? true),
-            isSupplier: Value(json['isSupplier'] as bool? ?? false),
-            dueDatePeriod: Value(json['dueDatePeriod'] as int?),
-            streetName: Value(json['streetName'] as String?),
-            additionalStreetName: Value(json['additionalStreetName'] as String?),
-            buildingNumber: Value(json['buildingNumber'] as String?),
-            plotIdentification: Value(json['plotIdentification'] as String?),
-            citySubdivisionName: Value(json['citySubdivisionName'] as String?),
-            isTaxExempt: Value(json['isTaxExempt'] as bool? ?? false),
-            lastModified: Value(_parseLastModified(json['lastModified'])),
-          ),
-          mode: InsertMode.insertOrReplace,
-        );
-      }
-    });
+    // Loop individually to protect rows with pending local edits from being
+    // overwritten by stale server data. Same pattern as pullProductGroups.
+    for (final json in rows.cast<Map<String, dynamic>>()) {
+      final id = json['id'] as int;
+      final existing = await (db.select(db.customersTable)
+            ..where((t) => t.id.equals(id)))
+          .getSingleOrNull();
+      if (existing != null && existing.syncStatus != 'synced') continue;
+
+      await db.into(db.customersTable).insertOnConflictUpdate(
+        CustomersTableCompanion(
+          id: Value(id),
+          companyId: Value(json['companyId'] as int? ?? companyId),
+          code: Value(json['code'] as String?),
+          name: Value(json['name'] as String? ?? 'Unknown'),
+          taxNumber: Value(json['taxNumber'] as String?),
+          address: Value(json['address'] as String?),
+          postalCode: Value(json['postalCode'] as String?),
+          city: Value(json['city'] as String?),
+          countryId: Value(json['countryId'] as int?),
+          email: Value(json['email'] as String?),
+          phoneNumber: Value(json['phoneNumber'] as String?),
+          isEnabled: Value(json['isEnabled'] as bool? ?? true),
+          isCustomer: Value(json['isCustomer'] as bool? ?? true),
+          isSupplier: Value(json['isSupplier'] as bool? ?? false),
+          dueDatePeriod: Value(json['dueDatePeriod'] as int?),
+          streetName: Value(json['streetName'] as String?),
+          additionalStreetName: Value(json['additionalStreetName'] as String?),
+          buildingNumber: Value(json['buildingNumber'] as String?),
+          plotIdentification: Value(json['plotIdentification'] as String?),
+          citySubdivisionName: Value(json['citySubdivisionName'] as String?),
+          isTaxExempt: Value(json['isTaxExempt'] as bool? ?? false),
+          lastModified: Value(_parseLastModified(json['lastModified'])),
+          syncStatus: const Value('synced'),
+        ),
+      );
+    }
 
     await _setLastSync(_kCustomers, startedAt);
   }
@@ -1803,6 +2047,134 @@ class SyncManager {
     }
 
     await _setLastSync(_kAppProperties, startedAt);
+  }
+
+  // ==========================================================================
+  // LOYALTY CARDS — push pending writes, then pull all cards for company
+  // ==========================================================================
+
+  /// Pushes all locally-queued loyalty card mutations to the server using the
+  /// batch sync endpoint. Pending deletes are handled individually via DELETE.
+  ///
+  /// After a successful batch push, temp rows (negative IDs from pending_create)
+  /// are hard-deleted locally and pending_update rows are marked 'synced'. The
+  /// subsequent [pullLoyaltyCards] then brings back the canonical server rows
+  /// with real server-assigned IDs.
+  Future<void> pushPendingLoyaltyCardOps(int companyId) async {
+    final allPending = await (db.select(db.loyaltyCardsTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.syncStatus.isIn([
+                'pending_create',
+                'pending_update',
+                'pending_delete',
+              ])))
+        .get();
+
+    if (allPending.isEmpty) return;
+
+    // Split into upserts vs deletes.
+    final toUpsert =
+        allPending.where((r) => r.syncStatus != 'pending_delete').toList();
+    final toDelete =
+        allPending.where((r) => r.syncStatus == 'pending_delete').toList();
+
+    // ── Batch upsert ──────────────────────────────────────────────────────────
+    if (toUpsert.isNotEmpty) {
+      try {
+        final cards = toUpsert.map((r) => {
+              // Negative IDs are temp — omit so the server treats them as creates.
+              if (r.id > 0) 'id': r.id,
+              'customerId': r.customerId,
+              'cardNumber': r.cardNumber,
+              'points': r.points,
+              'lastModified': r.lastModified.toUtc().toIso8601String(),
+            }).toList();
+
+        await dio.post<dynamic>(
+          '/LoyaltyCards/BatchSync',
+          queryParameters: {'companyId': companyId},
+          data: {'cards': cards},
+        );
+
+        // Remove temp rows and mark updates as synced.
+        await db.transaction(() async {
+          for (final r in toUpsert) {
+            if (r.id < 0) {
+              await (db.delete(db.loyaltyCardsTable)
+                    ..where((t) => t.id.equals(r.id)))
+                  .go();
+            } else {
+              await (db.update(db.loyaltyCardsTable)
+                    ..where((t) => t.id.equals(r.id)))
+                  .write(const LoyaltyCardsTableCompanion(
+                syncStatus: Value('synced'),
+                syncError: Value(null),
+              ));
+            }
+          }
+        });
+      } catch (e) {
+        debugPrint('pushPendingLoyaltyCardOps: batch upsert failed — $e');
+        // Leave rows pending for next retry.
+      }
+    }
+
+    // ── Individual deletes ────────────────────────────────────────────────────
+    for (final r in toDelete) {
+      try {
+        await dio.delete<dynamic>(
+          '/LoyaltyCards/Delete',
+          queryParameters: {'id': r.id, 'companyId': companyId},
+        );
+        await (db.delete(db.loyaltyCardsTable)..where((t) => t.id.equals(r.id)))
+            .go();
+      } catch (e) {
+        debugPrint(
+            'pushPendingLoyaltyCardOps: delete card ${r.id} failed — $e');
+      }
+    }
+  }
+
+  /// Pulls all loyalty cards for [companyId] and upserts them into the local
+  /// Drift table. Skips rows that have pending local edits so offline writes
+  /// are never overwritten by stale server data.
+  Future<void> pullLoyaltyCards(int companyId) async {
+    try {
+      final res = await dio.get<List<dynamic>>(
+        '/LoyaltyCards/GetAll',
+        queryParameters: {'companyId': companyId},
+      );
+      final rows = (res.data ?? const []).cast<Map<String, dynamic>>();
+
+      for (final json in rows) {
+        final id = (json['id'] as num?)?.toInt() ?? 0;
+        if (id <= 0) continue;
+
+        final existing = await (db.select(db.loyaltyCardsTable)
+              ..where((t) => t.id.equals(id)))
+            .getSingleOrNull();
+        if (existing != null && existing.syncStatus != 'synced') continue;
+
+        await db.into(db.loyaltyCardsTable).insertOnConflictUpdate(
+              LoyaltyCardsTableCompanion(
+                id: Value(id),
+                companyId: Value(json['companyId'] as int? ?? companyId),
+                customerId: Value((json['customerId'] as num?)?.toInt() ?? 0),
+                cardNumber: Value(json['cardNumber'] as String?),
+                points:
+                    Value((json['points'] as num?)?.toDouble() ?? 0),
+                lastModified:
+                    Value(_parseLastModified(json['lastModified'])),
+                syncStatus: const Value('synced'),
+                syncError: const Value(null),
+              ),
+            );
+      }
+
+      await _setLastSync(_kLoyaltyCards, DateTime.now().toUtc());
+    } catch (e) {
+      debugPrint('pullLoyaltyCards failed: $e — local data preserved.');
+    }
   }
 }
 

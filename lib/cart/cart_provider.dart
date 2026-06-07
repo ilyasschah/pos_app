@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
@@ -508,11 +509,12 @@ class CartNotifier extends Notifier<CartState> {
     );
   }
 
-  void setItemDiscount(String cartItemId, double discount) {
+  void setItemDiscount(String cartItemId, double discount, int discountType) {
     final items = List<CartItem>.from(state.items);
     final index = items.indexWhere((i) => i.cartItemId == cartItemId);
     if (index >= 0) {
       items[index].discount = discount;
+      items[index].discountType = discountType;
       state = state.copyWith(items: items);
     }
   }
@@ -784,20 +786,56 @@ class CartNotifier extends Notifier<CartState> {
           ? state.activePosOrderId
           : null;
 
+      final settings = ref.read(appSettingsProvider);
+      // 'Before tax' means discount is subtracted before tax is applied.
+      final discountBeforeTax =
+          settings[SettingKeys.discountApplyRule] == 'Before tax';
+
+      final taxRows = <PosOrderItemTaxesTableCompanion>[];
+
       final items = state.items.map((item) {
         final summedRate = item.appliedTaxes
             .where((t) => !t.isFixed)
             .fold<double>(0, (sum, t) => sum + t.rate);
+
+        // Compute the taxable base per the discount-apply-rule setting.
+        final taxableBase = discountBeforeTax
+            ? (item.price - item.discount - item.promotionalDiscount) *
+                item.quantity
+            : item.price * item.quantity;
+
+        // Build per-tax breakdown for taxesJson and the dedicated tax table.
+        final taxBreakdown = <Map<String, dynamic>>[];
+        for (final tax in item.appliedTaxes) {
+          final double amount;
+          if (tax.isFixed) {
+            amount = tax.rate * item.quantity;
+          } else {
+            amount = taxableBase * (tax.rate / 100);
+          }
+          taxBreakdown.add({'id': tax.id, 'amount': double.parse(amount.toStringAsFixed(4))});
+          taxRows.add(PosOrderItemTaxesTableCompanion(
+            localId: Value(const Uuid().v4()),
+            orderId: Value(localId),
+            productId: Value(item.productId),
+            taxRateId: Value(tax.id),
+            taxAmount: Value(amount),
+            syncStatus: const Value('pending'),
+          ));
+        }
+
         return PosOrderItemsTableCompanion(
           localId: Value(const Uuid().v4()),
           orderId: Value(localId),
           productId: Value(item.productId),
           quantity: Value(item.quantity),
           unitPrice: Value(item.price),
-          discount: Value(item.discount + item.promotionalDiscount),
+          discount: Value(item.discount),
+          discountType: Value(item.discountType),
           taxRate: Value(summedRate),
           comment: Value(item.comment),
           warehouseId: Value(item.warehouseId ?? effectiveWarehouseId),
+          taxesJson: Value(taxBreakdown.isEmpty ? null : jsonEncode(taxBreakdown)),
           syncStatus: const Value('pending'),
         );
       }).toList();
@@ -817,18 +855,25 @@ class CartNotifier extends Notifier<CartState> {
           status: const Value(0),
           total: Value(grandTotal),
           discount: Value(state.manualCartDiscount),
+          discountType: Value(state.manualCartDiscountType),
           warehouseId: Value(effectiveWarehouseId),
           syncStatus: const Value('pending'),
           lastModified: Value(now),
         ),
         items,
+        itemTaxes: taxRows,
       );
 
       // Persist localId so the next re-save finds and updates the same row.
+      final isFirstSave = state.existingLocalOrderId == null;
       state = state.copyWith(
         existingLocalOrderId: localId,
         orderNumber: orderNum,
       );
+      if (isFirstSave) {
+        ref.read(dailyOrderNumberProvider.notifier).state =
+            ref.read(dailyOrderNumberProvider) + 1;
+      }
     } finally {
       state = state.copyWith(isLoading: false);
     }
@@ -947,6 +992,7 @@ class CartNotifier extends Notifier<CartState> {
           price: item.unitPrice,
           quantity: item.quantity,
           discount: item.discount,
+          discountType: item.discountType,
           productName: product?.name ?? 'Item #${item.productId}',
           appliedTaxes: const [],
           warehouseId: item.warehouseId,
@@ -964,6 +1010,8 @@ class CartNotifier extends Notifier<CartState> {
         serviceStatus: row.serviceStatus,
         floorPlanTableId: row.tableId,
         activeWarehouseId: row.warehouseId,
+        manualCartDiscount: row.discount,
+        manualCartDiscountType: row.discountType,
         isLoading: false,
         existingLocalOrderId: localId,
       );

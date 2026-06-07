@@ -16,4 +16,5 @@ abstract final class SecurityKeys {
   static const cashMovement   = 'CashMovement';
   static const creditPayments = 'CreditPayments';
   static const settings       = 'Settings';
+  static const loyaltyCards   = 'Management.LoyaltyCards';
 }

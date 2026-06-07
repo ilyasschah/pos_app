@@ -13,6 +13,7 @@ import 'package:pos_app/promotions/promotions_list_screen.dart';
 import 'package:pos_app/reports/reports_screen.dart';
 import 'package:pos_app/tax/tax_rates_screen.dart';
 import 'package:pos_app/void_reason/void_reason_screen.dart';
+import 'package:pos_app/loyalty/loyalty_cards_screen.dart';
 
 class ManagementLayout extends StatefulWidget {
   const ManagementLayout({super.key});
@@ -55,6 +56,7 @@ class _ManagementLayoutState extends State<ManagementLayout> {
       const TaxRatesScreen(), // Index 10
       const MyCompanyScreen(), // Index 11
       const VoidReasonsScreen(), // Index 12
+      LoyaltyCardsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed), // Index 13
     ];
 
     void handleNavTap(int index) {
@@ -188,6 +190,12 @@ class _ManagementLayoutState extends State<ManagementLayout> {
                       isActive: _selectedIndex == 12,
                       onTap: () => handleNavTap(12),
                     ),
+                    NavItem(
+                      icon: Icons.card_giftcard,
+                      label: "Loyalty Cards",
+                      isActive: _selectedIndex == 13,
+                      onTap: () => handleNavTap(13),
+                    ),
                     const SizedBox(height: 16),
                   ],
                 ),
@@ -213,8 +221,8 @@ class _ManagementLayoutState extends State<ManagementLayout> {
             child: ClipRect(
               child: Column(
                 children: [
-                  // Show the top bar only when sidebar is hidden AND not on the Products screen
-                  if (!showPermanentSidebar && _selectedIndex != 2 && _selectedIndex != 3 && _selectedIndex != 8)
+                  // Show the top bar only when sidebar is hidden AND not on screens that provide their own header
+                  if (!showPermanentSidebar && _selectedIndex != 2 && _selectedIndex != 3 && _selectedIndex != 8 && _selectedIndex != 13)
                     Container(
                       height: kToolbarHeight,
                       color: context.navSidebarBg,
