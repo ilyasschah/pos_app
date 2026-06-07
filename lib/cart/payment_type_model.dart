@@ -1,3 +1,5 @@
+import 'package:pos_app/database/app_database.dart';
+
 class PaymentType {
   final int id;
   final String name;
@@ -44,6 +46,24 @@ class PaymentType {
       openCashDrawer: json['openCashDrawer'] ?? false,
       shortcutKey: json['shortcutKey'],
       markAsPaid: json['markAsPaid'] ?? false,
+    );
+  }
+
+  factory PaymentType.fromDrift(PaymentTypesTableData row) {
+    return PaymentType(
+      id: row.id,
+      name: row.name,
+      code: row.code,
+      isCustomerRequired: row.isCustomerRequired,
+      isFiscal: row.isFiscal,
+      isSlipRequired: row.isSlipRequired,
+      isChangeAllowed: row.isChangeAllowed,
+      ordinal: row.ordinal,
+      isEnabled: row.isEnabled,
+      isQuickPayment: row.isQuickPayment,
+      openCashDrawer: row.openCashDrawer,
+      shortcutKey: row.shortcutKey,
+      markAsPaid: row.markAsPaid,
     );
   }
 

@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
-import 'package:pos_app/api/api_client.dart';
-import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/cart/payment_provider.dart';
+import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/currency/currencies_provider.dart';
+import 'package:pos_app/database/app_database.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/reports/z_report_model.dart';
 import 'package:pos_app/reports/z_report_provider.dart';
-import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
 
@@ -38,36 +38,55 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
     setState(() => _isGenerating = true);
 
     try {
-      final dio = createDio();
-      final response = await dio.post(
-        '/ZReports/Generate',
-        queryParameters: {'companyId': companyId, 'userId': currentUser.id},
+      // OFFLINE WRITE (Phase 7): queue a Z-report request locally. The sync
+      // engine pushes /ZReports/Generate when network is available — the
+      // server then aggregates its own data (NOT the local snapshot) into
+      // the authoritative Z-report.
+      //
+      // sync() orders things so pending orders + cash movements push BEFORE
+      // Z-reports, so the server has every transaction it needs to aggregate
+      // by the time Generate runs.
+      //
+      // The full receipt dialog needs server data (number, breakdowns) and
+      // doesn't have it offline — we surface a "queued" snackbar instead;
+      // the real Z-report will appear in the reports list after sync.
+      final db = ref.read(appDatabaseProvider);
+      final now = DateTime.now().toUtc();
+      await db.insertOfflineZReport(
+        ZReportsTableCompanion.insert(
+          localId: '', // helper fills a UUID when blank
+          companyId: companyId,
+          userId: currentUser.id,
+          // Totals/breakdown stay zero — the server computes them at push
+          // time. Local computation is a future enhancement.
+          totalSales: 0,
+          totalCashIn: 0,
+          totalCashOut: 0,
+          paymentBreakdownJson: '{}',
+          closedAt: now,
+        ),
       );
 
-      final newReport = ZReportModel.fromJson(response.data);
-
-      // Refresh both tabs!
+      // Refresh both tabs in case the sync ran inline (rare on this path,
+      // but harmless if it didn't).
       ref.invalidate(unreportedPaymentsProvider);
       ref.invalidate(allZReportsProvider);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("Register Closed Successfully!"),
+            content: Text(
+              'Register closed. Z-Report queued — it will appear after sync.',
+            ),
             backgroundColor: Colors.green,
           ),
         );
-        _showReceiptDialog(newReport);
       }
-    } on DioException catch (e) {
+    } catch (e) {
       if (mounted) {
-        final errorMsg =
-            e.response?.data?['message'] ??
-            e.response?.data?.toString() ??
-            "Failed to close shift.";
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(errorMsg),
+            content: Text('Failed to queue Z-Report: $e'),
             backgroundColor: Theme.of(context).colorScheme.error,
             duration: const Duration(seconds: 4),
           ),

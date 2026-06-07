@@ -96,6 +96,18 @@ class _DiscountDialogState extends ConsumerState<DiscountDialog>
       }
     }
 
+    final allowNegativePrice =
+        settings[SettingKeys.allowNegativePrice]?.toLowerCase() != 'false';
+    if (!allowNegativePrice && item.price - finalDiscount < 0) {
+      showAppSnackbar(
+        context,
+        ref,
+        'Discount would result in a negative price.',
+        isError: true,
+      );
+      return;
+    }
+
     ref.read(cartProvider.notifier).setItemDiscount(selectedCartItemId, finalDiscount);
     Navigator.pop(context);
   }

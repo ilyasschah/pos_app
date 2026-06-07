@@ -1,5 +1,8 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:pos_app/database/app_database.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/promotions/promotion_edit_screen.dart';
 import 'package:pos_app/api/api_client.dart';
@@ -120,9 +123,24 @@ class PromotionsListScreen extends ConsumerWidget {
                                       children: [
                                         Expanded(
                                           flex: 3,
-                                          child: Text(
-                                            promotion.name,
-                                            style: const TextStyle(fontWeight: FontWeight.w600),
+                                          child: Row(
+                                            children: [
+                                              if (promotion.isPendingSync)
+                                                Padding(
+                                                  padding: const EdgeInsets.only(right: 6),
+                                                  child: Icon(
+                                                    Icons.cloud_upload_outlined,
+                                                    size: 16,
+                                                    color: theme.colorScheme.tertiary,
+                                                  ),
+                                                ),
+                                              Flexible(
+                                                child: Text(
+                                                  promotion.name,
+                                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                                ),
+                                              ),
+                                            ],
                                           ),
                                         ),
                                         Expanded(
@@ -193,19 +211,37 @@ class PromotionsListScreen extends ConsumerWidget {
                                                       ],
                                                     ),
                                                   );
-                                                  if (confirm == true) {
-                                                    final companyId = ref.read(selectedCompanyProvider)?.id;
-                                                    if (companyId != null && context.mounted) {
-                                                      try {
-                                                        await ApiClient().deletePromotion(companyId, promotion.id);
-                                                        ref.invalidate(allPromotionsProvider);
-                                                      } catch (e) {
-                                                        if (context.mounted) {
-                                                          ScaffoldMessenger.of(context).showSnackBar(
-                                                            SnackBar(content: Text('Error: $e')),
-                                                          );
-                                                        }
-                                                      }
+                                                  if (confirm != true) return;
+                                                  final companyId = ref.read(selectedCompanyProvider)?.id;
+                                                  if (companyId == null) return;
+                                                  final db = ref.read(appDatabaseProvider);
+
+                                                  if (promotion.isPendingCreate) {
+                                                    // Never reached the server — hard-delete locally.
+                                                    await (db.delete(db.promotionItemsTable)
+                                                          ..where((t) => t.promotionId.equals(promotion.id)))
+                                                        .go();
+                                                    await (db.delete(db.promotionsTable)
+                                                          ..where((t) => t.id.equals(promotion.id)))
+                                                        .go();
+                                                  } else {
+                                                    // Soft-delete: hidden by provider filter immediately.
+                                                    await (db.update(db.promotionsTable)
+                                                          ..where((t) => t.id.equals(promotion.id)))
+                                                        .write(const PromotionsTableCompanion(
+                                                      syncStatus: Value('pending_delete'),
+                                                    ));
+                                                    // Try API inline while online.
+                                                    try {
+                                                      await ApiClient().deletePromotion(companyId, promotion.id);
+                                                      await (db.delete(db.promotionItemsTable)
+                                                            ..where((t) => t.promotionId.equals(promotion.id)))
+                                                          .go();
+                                                      await (db.delete(db.promotionsTable)
+                                                            ..where((t) => t.id.equals(promotion.id)))
+                                                          .go();
+                                                    } catch (_) {
+                                                      // Offline — SyncManager pushPendingPromotionOps retries.
                                                     }
                                                   }
                                                 },

@@ -20,6 +20,10 @@ import 'package:pos_app/auth/login_screen.dart';
 import 'package:pos_app/cash/cash_movement_screen.dart';
 import 'package:pos_app/reports/sales_history_screen.dart';
 import 'package:pos_app/credit/credit_payment_dialog.dart';
+import 'package:pos_app/sync/connectivity_watcher.dart';
+import 'package:pos_app/sync/sync_button.dart';
+import 'package:pos_app/security/security_guard.dart';
+import 'package:pos_app/security/security_keys.dart';
 
 class MainLayout extends ConsumerStatefulWidget {
   final int initialIndex;
@@ -44,6 +48,13 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width >= 850;
+
+    // Keep the connectivity watcher alive while the user is in the main shell.
+    // Reading it here lazy-instantiates the provider (and its subscription)
+    // on first build, and `autoDispose` is intentionally NOT used on it so it
+    // survives rebuilds. Cleanup happens via ref.onDispose when the user logs
+    // out and MainLayout is popped from the navigator.
+    ref.watch(connectivityWatcherProvider);
 
     // ✨ Only show the permanent sidebar if we are on Desktop AND it hasn't been hidden
     final showPermanentSidebar = isDesktop && _isSidebarVisible;
@@ -97,16 +108,20 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     NavItem(
                       icon: Icons.build_circle,
                       label: "Management",
-                      onTap: () {
-                        if (!isDesktop && Scaffold.of(context).hasDrawer)
-                          Navigator.pop(context);
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const ManagementLayout(),
-                          ),
-                        );
-                      },
+                      onTap: () => ref.read(securityGuardProvider).guard(
+                        context,
+                        SecurityKeys.management,
+                        () {
+                          if (!isDesktop && Scaffold.of(context).hasDrawer)
+                            Navigator.pop(context);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ManagementLayout(),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -123,22 +138,30 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                       icon: Icons.receipt_long,
                       label: "View sales history",
                       isActive: _selectedIndex == 99,
-                      onTap: () {
-                        if (!isDesktop && Scaffold.of(context).hasDrawer)
-                          Navigator.pop(context);
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const SalesHistoryScreen(),
-                          ),
-                        );
-                      },
+                      onTap: () => ref.read(securityGuardProvider).guard(
+                        context,
+                        SecurityKeys.salesHistory,
+                        () {
+                          if (!isDesktop && Scaffold.of(context).hasDrawer)
+                            Navigator.pop(context);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const SalesHistoryScreen(),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                     NavItem(
                       icon: Icons.layers,
                       label: "View open sales",
                       isActive: _selectedIndex == 1,
-                      onTap: () => handleNavTap(1),
+                      onTap: () => ref.read(securityGuardProvider).guard(
+                        context,
+                        SecurityKeys.openOrders,
+                        () => handleNavTap(1),
+                      ),
                     ),
                     if (bookingEnabled)
                       NavItem(
@@ -165,31 +188,43 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     NavItem(
                       icon: Icons.download,
                       label: "Cash In / Out",
-                      onTap: () {
-                        if (!isDesktop && Scaffold.of(context).hasDrawer)
-                          Navigator.pop(context);
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const CashMovementScreen(),
-                          ),
-                        );
-                      },
+                      onTap: () => ref.read(securityGuardProvider).guard(
+                        context,
+                        SecurityKeys.cashMovement,
+                        () {
+                          if (!isDesktop && Scaffold.of(context).hasDrawer)
+                            Navigator.pop(context);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const CashMovementScreen(),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                     NavItem(
                       icon: Icons.credit_card,
                       label: "Credit payments",
-                      onTap: () {
-                        if (!isDesktop && Scaffold.of(context).hasDrawer)
-                          Navigator.pop(context);
-                        CreditPaymentsDialog.show(context);
-                      },
+                      onTap: () => ref.read(securityGuardProvider).guard(
+                        context,
+                        SecurityKeys.creditPayments,
+                        () {
+                          if (!isDesktop && Scaffold.of(context).hasDrawer)
+                            Navigator.pop(context);
+                          CreditPaymentsDialog.show(context);
+                        },
+                      ),
                     ),
                     NavItem(
                       icon: Icons.directions_run,
                       label: "End of day",
                       isActive: _selectedIndex == 5,
-                      onTap: () => handleNavTap(5),
+                      onTap: () => ref.read(securityGuardProvider).guard(
+                        context,
+                        SecurityKeys.endOfDay,
+                        () => handleNavTap(5),
+                      ),
                     ),
 
                     const NavSectionLabel("User"),
@@ -241,17 +276,22 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                   NavIconButton(
                     icon: Icons.tune,
                     tooltip: "Quick Settings",
-                    onTap: () {
-                      if (!isDesktop && Scaffold.of(context).hasDrawer)
-                        Navigator.pop(context);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const SettingsScreen(),
-                        ),
-                      );
-                    },
+                    onTap: () => ref.read(securityGuardProvider).guard(
+                      context,
+                      SecurityKeys.settings,
+                      () {
+                        if (!isDesktop && Scaffold.of(context).hasDrawer)
+                          Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const SettingsScreen(),
+                          ),
+                        );
+                      },
+                    ),
                   ),
+                  const SyncButton(),
                   NavIconButton(
                     icon: Icons.fullscreen,
                     tooltip: "Full Screen",

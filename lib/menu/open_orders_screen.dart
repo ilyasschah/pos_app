@@ -1,3 +1,4 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,23 +7,159 @@ import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/bookings/bookings_provider.dart';
+import 'package:pos_app/database/app_database.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 
-final openOrdersProvider = FutureProvider.autoDispose<List<dynamic>>((ref) async {
-  final company = ref.watch(selectedCompanyProvider);
-  if (company == null) return [];
-  return ApiClient().getAllActiveOrders(company.id);
+/// Suspended/open orders streamed from the local Drift `pos_orders` table.
+/// Includes both `synced` rows (have a real `serverId`) and `pending` rows
+/// (saved offline, not yet pushed). Filters by `status=0` (open) — closed
+/// orders from a completed checkout live with `status=1` and don't show.
+///
+/// Shape preserves the legacy API map contract so the screen body below
+/// doesn't need touching. `id` falls back to `0` for pending rows; tapping
+/// one will fail in `_reopen` (still calls `loadOrderById` on the server)
+/// — acceptable V1: pending orders are visible in the list, reopen needs
+/// a sync to land first.
+final openOrdersProvider =
+    StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return Stream.value(const []);
+
+  final query = db.select(db.posOrdersTable)
+    ..where((t) => t.companyId.equals(companyId))
+    ..where((t) => t.status.equals(0));
+
+  return query.watch().map((rows) => rows.map((r) => <String, dynamic>{
+        'id': r.serverId ?? 0,
+        'localId': r.localId,
+        'number': r.orderName ?? 'ORD-${r.serverId ?? "PENDING"}',
+        'total': r.total ?? 0.0,
+        'userId': r.userId,
+        'floorPlanTableId': r.tableId,
+        'warehouseId': r.warehouseId,
+        'syncStatus': r.syncStatus,
+      }).toList());
 });
 
-class OpenOrdersScreen extends ConsumerWidget {
+class OpenOrdersScreen extends ConsumerStatefulWidget {
   const OpenOrdersScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OpenOrdersScreen> createState() => _OpenOrdersScreenState();
+}
+
+class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
+  bool _syncing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _pullFromServer());
+  }
+
+  /// Fetches open orders from the API and upserts them into Drift so orders
+  /// created on other devices (or via the backend directly) appear in the list.
+  Future<void> _pullFromServer() async {
+    final company = ref.read(selectedCompanyProvider);
+    if (company == null) return;
+    if (mounted) setState(() => _syncing = true);
+
+    try {
+      final orders = await ApiClient().getAllPosOrders(company.id);
+      final db = ref.read(appDatabaseProvider);
+      final now = DateTime.now().toUtc();
+
+      // Collect the server IDs that are still open so we can clean up stale rows.
+      final openServerIds = <int>{};
+
+      for (final o in orders) {
+        final id = (o['id'] ?? o['Id']) as int? ?? 0;
+        if (id == 0) continue;
+        final status = (o['status'] ?? o['Status']) as int? ?? 0;
+        if (status != 0) continue; // only open orders
+        openServerIds.add(id);
+
+        // Case 1: Already in Drift matched by serverId — skip.
+        final existingByServerId = await (db.select(db.posOrdersTable)
+              ..where((t) => t.serverId.equals(id)))
+            .getSingleOrNull();
+        if (existingByServerId != null) continue;
+
+        // Case 2: A local UUID row with no serverId exists for the same order
+        // name (created offline, just pushed by BatchSync). Stamp the serverId
+        // on it so it won't appear as a duplicate after the next pull.
+        final serverName =
+            (o['number'] ?? o['Number'] ?? o['orderNumber']) as String?;
+        if (serverName != null && serverName.isNotEmpty) {
+          final existingByName = await (db.select(db.posOrdersTable)
+                ..where((t) => t.orderName.equals(serverName))
+                ..where((t) => t.status.equals(0))
+                ..where((t) => t.syncStatus.equals('synced'))
+                ..limit(1))
+              .getSingleOrNull();
+          if (existingByName != null && existingByName.serverId == null) {
+            await (db.update(db.posOrdersTable)
+                  ..where((t) => t.localId.equals(existingByName.localId)))
+                .write(PosOrdersTableCompanion(serverId: Value(id)));
+            continue;
+          }
+        }
+
+        // Case 3: Genuine server-originated order not yet in local Drift —
+        // insert with a deterministic sentinel localId.
+        await db.into(db.posOrdersTable).insertOnConflictUpdate(
+          PosOrdersTableCompanion(
+            localId: Value('svr_$id'),
+            serverId: Value(id),
+            companyId: Value(company.id),
+            userId: Value((o['userId'] ?? o['UserId']) as int? ?? 0),
+            tableId: Value((o['floorPlanTableId'] ?? o['FloorPlanTableId']) as int?),
+            serviceType: Value((o['serviceType'] ?? o['ServiceType']) as int? ?? 0),
+            serviceStatus: Value((o['serviceStatus'] ?? o['ServiceStatus']) as int? ?? 0),
+            orderName: Value(serverName),
+            openedAt: Value(now),
+            status: const Value(0),
+            total: Value(((o['total'] ?? o['Total']) as num?)?.toDouble()),
+            discount: const Value(0),
+            warehouseId: Value((o['warehouseId'] ?? o['WarehouseId']) as int? ?? 1),
+            syncStatus: const Value('synced'),
+            lastModified: Value(now),
+          ),
+        );
+      }
+
+      // Remove sentinel rows for orders that are no longer open on the server.
+      final svrRows = await (db.select(db.posOrdersTable)
+            ..where((t) => t.companyId.equals(company.id))
+            ..where((t) => t.status.equals(0)))
+          .get();
+      for (final row in svrRows) {
+        if (row.localId.startsWith('svr_') &&
+            row.serverId != null &&
+            !openServerIds.contains(row.serverId!)) {
+          await (db.delete(db.posOrdersTable)
+                ..where((t) => t.localId.equals(row.localId)))
+              .go();
+        }
+      }
+    } catch (_) {
+      // Offline or API error — Drift stream already shows local orders.
+    } finally {
+      if (mounted) {
+        setState(() => _syncing = false);
+        ref.invalidate(openOrdersProvider);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final ordersAsync = ref.watch(openOrdersProvider);
     final allUsers = ref.watch(allUsersProvider).value ?? [];
     final allRooms = ref.watch(allRoomsProvider).value ?? [];
@@ -32,11 +169,21 @@ class OpenOrdersScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Open Orders'),
         actions: [
-          IconButton(
-            icon: const PhosphorIcon(PhosphorIconsRegular.arrowClockwise),
-            tooltip: 'Refresh',
-            onPressed: () => ref.invalidate(openOrdersProvider),
-          ),
+          if (_syncing)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          else
+            IconButton(
+              icon: const PhosphorIcon(PhosphorIconsRegular.arrowClockwise),
+              tooltip: 'Refresh',
+              onPressed: _pullFromServer,
+            ),
         ],
       ),
       body: ordersAsync.when(
@@ -144,6 +291,7 @@ class OpenOrdersScreen extends ConsumerWidget {
 
               return _OpenOrderCard(
                 orderId: orderId,
+                localId: (o['localId'] ?? '') as String,
                 orderNumber: orderNumber,
                 total: total,
                 staffName: staffName,
@@ -231,6 +379,7 @@ class _SkeletonOrderCard extends StatelessWidget {
 
 class _OpenOrderCard extends ConsumerStatefulWidget {
   final int orderId;
+  final String localId;   // Drift localId — used when orderId == 0 (not yet synced)
   final String orderNumber;
   final double total;
   final String? staffName;
@@ -240,6 +389,7 @@ class _OpenOrderCard extends ConsumerStatefulWidget {
 
   const _OpenOrderCard({
     required this.orderId,
+    required this.localId,
     required this.orderNumber,
     required this.total,
     required this.staffName,
@@ -260,12 +410,24 @@ class _OpenOrderCardState extends ConsumerState<_OpenOrderCard> {
     if (company == null) return;
     setState(() => _loading = true);
     try {
-      final ok = await ref.read(cartProvider.notifier).loadOrderById(
-            ApiClient(),
-            company.id,
-            widget.orderId,
-            widget.warehouseId,
-          );
+      bool ok;
+
+      if (widget.orderId == 0) {
+        // Local-only order (not yet synced) — load directly from Drift
+        // so we never hit the API with id=0 and get a 404.
+        ok = await ref
+            .read(cartProvider.notifier)
+            .loadOrderFromLocal(widget.localId);
+      } else {
+        // Server-synced order — load via API.
+        ok = await ref.read(cartProvider.notifier).loadOrderById(
+              ApiClient(),
+              company.id,
+              widget.orderId,
+              widget.warehouseId,
+            );
+      }
+
       if (!mounted) return;
       if (ok) {
         Navigator.pushAndRemoveUntil(

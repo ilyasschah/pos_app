@@ -1,10 +1,11 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
-import 'package:pos_app/api/api_client.dart';
-import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
+import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/database/app_database.dart';
+import 'package:pos_app/database/database_provider.dart';
 
 Future<void> showCashMovementDialog(BuildContext context, WidgetRef ref) {
   return showDialog(
@@ -56,23 +57,24 @@ class _CashMovementDialogState extends ConsumerState<_CashMovementDialog> {
     });
 
     try {
-      final dio = createDio();
-      await dio.post(
-        '/StartingCash/Add',
-        queryParameters: {
-          'companyId':        company.id,
-          'userId':           user.id,
-          'amount':           amount,
-          'startingCashType': _type,
-          if (_descCtrl.text.trim().isNotEmpty) 'description': _descCtrl.text.trim(),
-        },
+      // OFFLINE WRITE (Phase 7): persist locally as `pending`, then close
+      // the dialog. The connectivity watcher / manual sync button will push
+      // this to /StartingCash/Add when the network is available.
+      final db = ref.read(appDatabaseProvider);
+      await db.insertOfflineCashMovement(
+        CashMovementsTableCompanion.insert(
+          localId: '', // helper fills a UUID when blank
+          companyId: company.id,
+          userId: user.id,
+          amount: amount,
+          type: _type == 0 ? 'in' : 'out',
+          note: Value(_descCtrl.text.trim().isEmpty
+              ? null
+              : _descCtrl.text.trim()),
+          createdAt: DateTime.now().toUtc(),
+        ),
       );
       if (mounted) Navigator.of(context).pop();
-    } on DioException catch (e) {
-      setState(() {
-        _error = e.response?.data?.toString() ?? 'Failed to save cash movement.';
-        _saving = false;
-      });
     } catch (e) {
       setState(() {
         _error = e.toString();

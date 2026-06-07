@@ -5,6 +5,7 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/cart/payment_type_model.dart';
 import 'package:pos_app/cart/payment_type_provider.dart';
+import 'package:pos_app/sync/sync_provider.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 
 // ─────────────────────────────────────────────────────────────
@@ -96,7 +97,11 @@ class PaymentTypesScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: "Refresh",
-            onPressed: () => ref.invalidate(allPaymentTypesProvider),
+            onPressed: company == null
+                ? null
+                : () => ref
+                    .read(syncManagerProvider)
+                    .pullPaymentTypes(company.id),
           ),
 
           IconButton(
@@ -111,7 +116,9 @@ class PaymentTypesScreen extends ConsumerWidget {
                           _PaymentTypeFormDialog(companyId: company.id),
                     );
 
-                    ref.invalidate(allPaymentTypesProvider);
+                    await ref
+                        .read(syncManagerProvider)
+                        .pullPaymentTypes(company.id);
                   },
           ),
         ],
@@ -152,7 +159,9 @@ class PaymentTypesScreen extends ConsumerWidget {
                             _PaymentTypeFormDialog(companyId: companyId),
                       );
 
-                      ref.invalidate(allPaymentTypesProvider);
+                      await ref
+                          .read(syncManagerProvider)
+                          .pullPaymentTypes(companyId);
                     },
                   ),
                 ],
@@ -567,7 +576,7 @@ class PaymentTypesScreen extends ConsumerWidget {
         queryParameters: {'companyId': companyId, 'id': id},
       );
 
-      ref.invalidate(allPaymentTypesProvider);
+      await ref.read(syncManagerProvider).pullPaymentTypes(companyId);
 
       if (!context.mounted) return;
       showAppSnackbar(context, ref, 'Payment type deleted');

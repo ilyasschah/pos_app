@@ -2,6 +2,11 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'package:drift/drift.dart' show Value;
+import 'package:path/path.dart' as imgpath;
+import 'package:path_provider/path_provider.dart';
+import 'package:pos_app/database/app_database.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -20,7 +25,11 @@ import 'package:pos_app/product/product_comment_provider.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/stock/stock_control_provider.dart';
 import 'package:pos_app/barcode/barcode_provider.dart';
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/product/product_import_screen.dart';
+import 'package:pos_app/sync/sync_notifier.dart';
+import 'package:uuid/uuid.dart';
 
 // ---------------------------------------------------------------------------
 // EXPORT HELPERS
@@ -374,29 +383,33 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
 
     if (confirm != true || !mounted) return;
 
-    final companyId =
-        products.firstWhere((p) => effectiveIds.contains(p.id)).companyId;
+    final db = ref.read(appDatabaseProvider);
     int deleted = 0;
-    final errors = <String>[];
-    final dio = createDio();
-    await Future.wait(effectiveIds.map((id) async {
-      try {
-        await dio.delete('/Products/Delete',
-            queryParameters: {'id': id, 'companyId': companyId});
-        deleted++;
-      } catch (e) {
-        errors.add(_parseApiError(e));
+
+    for (final id in effectiveIds) {
+      if (id < 0) {
+        // Temp product never reached the server — hard-delete locally.
+        await (db.delete(db.productsTable)..where((t) => t.id.equals(id))).go();
+      } else {
+        // Real server product — soft-delete so SyncManager can push the
+        // DELETE to the server on the next sync.
+        await (db.update(db.productsTable)..where((t) => t.id.equals(id)))
+            .write(ProductsTableCompanion(
+          syncStatus: const Value('pending_delete'),
+          lastModified: Value(DateTime.now().toUtc()),
+        ));
       }
-    }));
+      deleted++;
+    }
+
+    // Fire sync in the background so online deletes propagate immediately.
+    ref.read(syncStateProvider.notifier).sync().catchError((_) {});
 
     if (mounted) {
       setState(() => _selectedIds.clear());
-      ref.invalidate(productsByGroupProvider);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(errors.isEmpty
-            ? "$deleted product${deleted == 1 ? '' : 's'} deleted"
-            : "$deleted deleted, ${errors.length} failed"),
-        backgroundColor: errors.isEmpty ? Colors.green : Colors.orange,
+        content: Text("$deleted product${deleted == 1 ? '' : 's'} deleted"),
+        backgroundColor: Colors.green,
       ));
     }
   }
@@ -463,11 +476,22 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
               );
               ref.invalidate(productsByGroupProvider);
               if (result is Product && mounted) {
-                showDialog(
-                  context: context,
-                  builder: (_) => _ProductEditorDialog(
-                      existingProduct: result, isPostCreation: true),
-                ).then((_) => ref.invalidate(productsByGroupProvider));
+                if (result.isPendingCreate) {
+                  // Product has a temp id — it doesn't exist on the server yet.
+                  // Tax/barcode/stock setup requires a real server id; skip Phase 2
+                  // and tell the user to sync first.
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Product saved locally. Sync to complete setup (taxes, barcodes, stock).'),
+                    backgroundColor: Colors.orange,
+                    duration: Duration(seconds: 4),
+                  ));
+                } else {
+                  showDialog(
+                    context: context,
+                    builder: (_) => _ProductEditorDialog(
+                        existingProduct: result, isPostCreation: true),
+                  ).then((_) => ref.invalidate(productsByGroupProvider));
+                }
               }
             },
           ),
@@ -734,29 +758,54 @@ class _ProductListContent extends ConsumerWidget {
                           : theme.disabledColor.withValues(alpha: 0.05);
                     }),
                     cells: [
-                      DataCell(Container(
-                        width: 45,
-                        height: 45,
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(6),
-                          image: p.imageBytes != null
-                              ? DecorationImage(
-                                  image: MemoryImage(p.imageBytes!),
-                                  fit: BoxFit.cover)
+                      DataCell(Builder(builder: (_) {
+                        // Prefer FileImage over MemoryImage — Flutter caches
+                        // FileImage by path so the same thumbnail decodes
+                        // once across the whole admin grid.
+                        final ImageProvider? provider = p.imageFile != null
+                            ? FileImage(p.imageFile!)
+                            : (p.imageBytes != null
+                                ? MemoryImage(p.imageBytes!)
+                                : null);
+                        return Container(
+                          width: 45,
+                          height: 45,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(6),
+                            image: provider != null
+                                ? DecorationImage(
+                                    image: provider, fit: BoxFit.cover)
+                                : null,
+                          ),
+                          child: provider == null
+                              ? Icon(Icons.inventory_2, color: theme.hintColor)
                               : null,
-                        ),
-                        child: p.imageBytes == null
-                            ? Icon(Icons.inventory_2, color: theme.hintColor)
-                            : null,
-                      )),
+                        );
+                      })),
                       DataCell(Text(p.code ?? '-')),
-                      DataCell(Text(p.name,
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              decoration: p.isEnabled
-                                  ? null
-                                  : TextDecoration.lineThrough))),
+                      DataCell(Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(p.name,
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  decoration: p.isEnabled
+                                      ? null
+                                      : TextDecoration.lineThrough)),
+                          if (p.isPendingSync) ...[
+                            const SizedBox(width: 6),
+                            Tooltip(
+                              message: p.isPendingCreate
+                                  ? 'Pending sync (new)'
+                                  : 'Pending sync (update)',
+                              child: Icon(Icons.cloud_upload_outlined,
+                                  size: 14,
+                                  color: theme.colorScheme.tertiary),
+                            ),
+                          ],
+                        ],
+                      )),
                       DataCell(Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 4),
@@ -833,6 +882,8 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   bool _isUsingDefaultQuantity = true;
   bool _isEnabled = true;
   bool _isBarcodeChipActive = false;
+  bool _costPriceMarkupEnabled = false;
+  bool _isRecalculating = false;
 
   // State
   int? _selectedGroupId;
@@ -843,6 +894,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
 
   bool _isLoading = false;
   String? _errorMessage;
+  bool _barcodesPulled = false;
 
   bool get _isEditing =>
       widget.existingProduct != null && !widget.isPostCreation;
@@ -871,9 +923,24 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   String _colorToHex(Color color) =>
       '#${color.value.toRadixString(16).substring(2).toUpperCase()}';
 
+  void _recalcPrice() {
+    if (_isRecalculating) return;
+    _isRecalculating = true;
+    final cost = double.tryParse(_costCtrl.text) ?? 0;
+    final markup = double.tryParse(_markupCtrl.text) ?? 0;
+    if (cost > 0) {
+      _priceCtrl.text = (cost * (1 + markup / 100)).toStringAsFixed(2);
+    }
+    _isRecalculating = false;
+  }
+
   @override
   void initState() {
     super.initState();
+
+    final settings = ref.read(appSettingsProvider);
+    _costPriceMarkupEnabled =
+        settings[SettingKeys.costPriceBasedMarkup]?.toLowerCase() == 'true';
 
     if (widget.existingProduct != null) {
       final p = widget.existingProduct!;
@@ -895,12 +962,36 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
       _isEnabled = p.isEnabled;
 
       _selectedGroupId = p.productGroupId;
-      _selectedImageBase64 = p.image;
+      // Image source priority:
+      //   1. p.image          — base64 from API (legacy path, still used for
+      //                         products fetched fresh from the server)
+      //   2. p.localImagePath — file on disk (Drift-sourced products after
+      //                         Phase 3.5; ImageSyncHelper wrote the file
+      //                         during the master-data pull)
+      // The edit form uploads back as base64, so we read the file synchronously
+      // here and encode it once. For the typical 600x600/85-quality JPEGs
+      // ImageSyncHelper saves, this is a few KB and a single open-modal cost.
+      if (p.image != null && p.image!.isNotEmpty) {
+        _selectedImageBase64 = p.image;
+      } else if (p.localImagePath != null && p.localImagePath!.isNotEmpty) {
+        try {
+          final f = File(p.localImagePath!);
+          if (f.existsSync()) {
+            _selectedImageBase64 = base64Encode(f.readAsBytesSync());
+          }
+        } catch (_) {/* leave _selectedImageBase64 null — UI shows placeholder */}
+      }
       _selectedHexColor = p.color.isNotEmpty ? p.color : '#000000';
 
-      _fetchAssignedTax(p.id);
+      // Only fetch server-side tax assignment for real (synced) products.
+      if (p.id > 0) _fetchAssignedTax(p.id);
     } else {
       _selectedGroupId = ref.read(selectedProductGroupIdProvider);
+    }
+
+    if (_costPriceMarkupEnabled) {
+      _costCtrl.addListener(_recalcPrice);
+      _markupCtrl.addListener(_recalcPrice);
     }
   }
 
@@ -921,8 +1012,45 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
     } catch (_) {}
   }
 
+  /// Pulls the latest barcodes for this product from the server and upserts
+  /// them into the local Drift table. Called once when the Barcodes tab opens.
+  /// Silently no-ops when offline — the StreamProvider will show local data.
+  Future<void> _pullBarcodesFromServer(int productId, int companyId) async {
+    final db = ref.read(appDatabaseProvider);
+    try {
+      final dio = createDio();
+      final res = await dio.get('/Barcodes/GetByProductId',
+          queryParameters: {'productId': productId, 'companyId': companyId});
+      final serverList = (res.data as List).cast<Map<String, dynamic>>();
+
+      await db.transaction(() async {
+        // Drop stale synced cache; preserve any pending_create / pending_delete.
+        await (db.delete(db.barcodesTable)
+              ..where((t) => t.productId.equals(productId))
+              ..where((t) => t.companyId.equals(companyId))
+              ..where((t) => t.syncStatus.equals('synced')))
+            .go();
+
+        for (final b in serverList) {
+          await db.into(db.barcodesTable).insert(BarcodesTableCompanion(
+            localId: Value(const Uuid().v4()),
+            serverId: Value(b['id'] as int? ?? 0),
+            productId: Value(productId),
+            companyId: Value(companyId),
+            value: Value(b['value'] as String? ?? ''),
+            syncStatus: const Value('synced'),
+          ));
+        }
+      });
+    } catch (_) {
+      // Offline or error — StreamProvider already shows local Drift data.
+    }
+  }
+
   @override
   void dispose() {
+    _costCtrl.removeListener(_recalcPrice);
+    _markupCtrl.removeListener(_recalcPrice);
     _nameCtrl.dispose();
     _codeCtrl.dispose();
     _pluCtrl.dispose();
@@ -969,46 +1097,85 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
         _errorMessage = null;
       });
       try {
-        final dio = createDio();
-        final payload = {
-          'name': _nameCtrl.text.trim(),
-          'productGroupId': _selectedGroupId,
-          'code': _codeCtrl.text.trim().isEmpty ? null : _codeCtrl.text.trim(),
-          'plu': int.tryParse(_pluCtrl.text.trim()),
-          'measurementUnit': _measurementUnitCtrl.text.trim().isEmpty
-              ? null
-              : _measurementUnitCtrl.text.trim(),
-          'price': double.tryParse(_priceCtrl.text) ?? 0,
-          'cost': double.tryParse(_costCtrl.text) ?? 0,
-          'markup': double.tryParse(_markupCtrl.text.trim()),
-          'rank': int.tryParse(_rankCtrl.text.trim()) ?? 0,
-          'ageRestriction': int.tryParse(_ageRestrictionCtrl.text.trim()),
-          'description': _descriptionCtrl.text.trim().isEmpty
-              ? null
-              : _descriptionCtrl.text.trim(),
-          'isTaxInclusivePrice': _isTaxInclusive,
-          'isService': _isService,
-          'isPriceChangeAllowed': _isPriceChangeAllowed,
-          'isUsingDefaultQuantity': _isUsingDefaultQuantity,
-          'isEnabled': _isEnabled,
-          'imageBase64': _selectedImageBase64 ?? "",
-          'color': _selectedHexColor == 'Transparent'
-              ? '#000000'
-              : _selectedHexColor,
-        };
+        final db = ref.read(appDatabaseProvider);
+        // Temp id — negative millisecond timestamp, always unique and clearly
+        // distinguishable from a server-assigned (positive) id.
+        final tempId = -(DateTime.now().millisecondsSinceEpoch);
+        final now = DateTime.now().toUtc();
 
-        final res = await dio.post('/Products/Add',
-            queryParameters: {'companyId': companyId}, data: payload);
-        final responseData = res.data['data'] ?? res.data;
-        final newProduct = Product.fromJson(responseData);
-
-        if (mounted) {
-          // Send the new product back to the main screen to launch Phase 2!
-          Navigator.of(context).pop(newProduct);
+        // Best-effort: save the picked image to disk so Phase 2 can preview it
+        // and SyncManager can re-encode it when pushing to the server.
+        String? localImgPath;
+        if (_selectedImageBase64 != null && _selectedImageBase64!.isNotEmpty) {
+          try {
+            final raw = _selectedImageBase64!.contains(',')
+                ? _selectedImageBase64!.split(',').last
+                : _selectedImageBase64!;
+            final bytes = base64Decode(raw);
+            final docs = await getApplicationDocumentsDirectory();
+            final dir = Directory(imgpath.join(docs.path, 'product_images'));
+            if (!await dir.exists()) await dir.create(recursive: true);
+            final file = File(imgpath.join(dir.path, 'tmp_$tempId.jpg'));
+            await file.writeAsBytes(bytes, flush: true);
+            localImgPath = file.path;
+          } catch (_) { /* best-effort */ }
         }
+
+        await db.into(db.productsTable).insert(ProductsTableCompanion(
+          id: Value(tempId),
+          companyId: Value(companyId),
+          name: Value(_nameCtrl.text.trim()),
+          price: Value(double.tryParse(_priceCtrl.text) ?? 0),
+          cost: Value(double.tryParse(_costCtrl.text) ?? 0),
+          productGroupId: Value(_selectedGroupId),
+          isService: Value(_isService),
+          colorHex: Value(_selectedHexColor == 'Transparent' ? '#000000' : _selectedHexColor),
+          localImagePath: Value(localImgPath),
+          code: Value(_codeCtrl.text.trim().isEmpty ? null : _codeCtrl.text.trim()),
+          plu: Value(int.tryParse(_pluCtrl.text.trim())),
+          measurementUnit: Value(_measurementUnitCtrl.text.trim().isEmpty ? null : _measurementUnitCtrl.text.trim()),
+          description: Value(_descriptionCtrl.text.trim().isEmpty ? null : _descriptionCtrl.text.trim()),
+          markup: Value(double.tryParse(_markupCtrl.text.trim())),
+          rank: Value(int.tryParse(_rankCtrl.text.trim()) ?? 0),
+          ageRestriction: Value(int.tryParse(_ageRestrictionCtrl.text.trim())),
+          isPriceChangeAllowed: Value(_isPriceChangeAllowed),
+          isUsingDefaultQuantity: Value(_isUsingDefaultQuantity),
+          isTaxInclusivePrice: Value(_isTaxInclusive),
+          isEnabled: Value(_isEnabled),
+          syncStatus: const Value('pending_create'),
+          lastModified: Value(now),
+        ));
+
+        // Build a Product from the fields we just stored so Phase 2 can be
+        // optionally launched by the parent. id < 0 signals "pending sync".
+        final newProduct = Product(
+          id: tempId,
+          companyId: companyId,
+          name: _nameCtrl.text.trim(),
+          price: double.tryParse(_priceCtrl.text) ?? 0,
+          cost: double.tryParse(_costCtrl.text) ?? 0,
+          productGroupId: _selectedGroupId,
+          isService: _isService,
+          color: _selectedHexColor == 'Transparent' ? '#000000' : _selectedHexColor,
+          localImagePath: localImgPath,
+          code: _codeCtrl.text.trim().isEmpty ? null : _codeCtrl.text.trim(),
+          plu: int.tryParse(_pluCtrl.text.trim()),
+          measurementUnit: _measurementUnitCtrl.text.trim().isEmpty ? null : _measurementUnitCtrl.text.trim(),
+          description: _descriptionCtrl.text.trim().isEmpty ? null : _descriptionCtrl.text.trim(),
+          markup: double.tryParse(_markupCtrl.text.trim()),
+          rank: int.tryParse(_rankCtrl.text.trim()) ?? 0,
+          ageRestriction: int.tryParse(_ageRestrictionCtrl.text.trim()),
+          isPriceChangeAllowed: _isPriceChangeAllowed,
+          isUsingDefaultQuantity: _isUsingDefaultQuantity,
+          isTaxInclusivePrice: _isTaxInclusive,
+          isEnabled: _isEnabled,
+          syncStatus: 'pending_create',
+        );
+
+        if (mounted) Navigator.of(context).pop(newProduct);
       } catch (e) {
         setState(() {
-          _errorMessage = _parseApiError(e);
+          _errorMessage = e.toString();
           _isLoading = false;
         });
       }
@@ -1057,9 +1224,75 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
               ? '#000000'
               : _selectedHexColor,
         };
-        await dio.patch('/Products/Update',
-            queryParameters: {'id': savedProductId, 'companyId': companyId},
-            data: payload);
+        // ── Optimistic local write ──────────────────────────────────────
+        // Save image to disk and upsert the product row in Drift so the
+        // change is immediately visible even if the API call fails offline.
+        final db = ref.read(appDatabaseProvider);
+        String? localImgPath = widget.existingProduct!.localImagePath;
+        if (_selectedImageBase64 != null && _selectedImageBase64!.isNotEmpty) {
+          try {
+            final raw = _selectedImageBase64!.contains(',')
+                ? _selectedImageBase64!.split(',').last
+                : _selectedImageBase64!;
+            final bytes = base64Decode(raw);
+            final docs = await getApplicationDocumentsDirectory();
+            final dir = Directory(imgpath.join(docs.path, 'product_images'));
+            if (!await dir.exists()) await dir.create(recursive: true);
+            final file = File(imgpath.join(dir.path, '$savedProductId.jpg'));
+            await file.writeAsBytes(bytes, flush: true);
+            localImgPath = file.path;
+          } catch (_) { /* best-effort */ }
+        }
+        await db.into(db.productsTable).insertOnConflictUpdate(
+          ProductsTableCompanion(
+            id: Value(savedProductId),
+            companyId: Value(companyId),
+            name: Value(_nameCtrl.text.trim()),
+            price: Value(double.tryParse(_priceCtrl.text) ?? 0),
+            cost: Value(double.tryParse(_costCtrl.text) ?? 0),
+            productGroupId: Value(_selectedGroupId),
+            isService: Value(_isService),
+            colorHex: Value(_selectedHexColor == 'Transparent' ? '#000000' : _selectedHexColor),
+            localImagePath: Value(localImgPath),
+            code: Value(_codeCtrl.text.trim().isEmpty ? null : _codeCtrl.text.trim()),
+            plu: Value(int.tryParse(_pluCtrl.text.trim())),
+            measurementUnit: Value(_measurementUnitCtrl.text.trim().isEmpty ? null : _measurementUnitCtrl.text.trim()),
+            description: Value(_descriptionCtrl.text.trim().isEmpty ? null : _descriptionCtrl.text.trim()),
+            markup: Value(double.tryParse(_markupCtrl.text.trim())),
+            rank: Value(int.tryParse(_rankCtrl.text.trim()) ?? 0),
+            ageRestriction: Value(int.tryParse(_ageRestrictionCtrl.text.trim())),
+            isPriceChangeAllowed: Value(_isPriceChangeAllowed),
+            isUsingDefaultQuantity: Value(_isUsingDefaultQuantity),
+            isTaxInclusivePrice: Value(_isTaxInclusive),
+            isEnabled: Value(_isEnabled),
+            syncStatus: const Value('pending_update'),
+            lastModified: Value(DateTime.now().toUtc()),
+          ),
+        );
+
+        // ── Try server sync ─────────────────────────────────────────────
+        try {
+          await dio.patch('/Products/Update',
+              queryParameters: {'id': savedProductId, 'companyId': companyId},
+              data: payload);
+          // API succeeded — clear the pending flag.
+          await (db.update(db.productsTable)
+                ..where((t) => t.id.equals(savedProductId)))
+              .write(const ProductsTableCompanion(
+                syncStatus: Value('synced'),
+                syncError: Value(null),
+              ));
+        } on DioException {
+          // API unreachable — local write is queued. Will sync when online.
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Saved locally. Will sync when online.'),
+              backgroundColor: Colors.orange,
+            ));
+            Navigator.of(context).pop();
+          }
+          return;
+        }
       }
 
       // Handle Taxes (Applies to both Edit and Phase 2 Creation)
@@ -1321,18 +1554,20 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                 const SizedBox(height: 16),
                 Row(
                   children: [
-                    Expanded(
-                        child: TextFormField(
-                            controller: _markupCtrl,
-                            decoration: InputDecoration(
-                                labelText: "Margin / Markup (%)",
-                                filled: true,
-                                fillColor: theme.colorScheme.surface,
-                                border: const OutlineInputBorder(),
-                                suffixText: "%"),
-                            keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true))),
-                    const SizedBox(width: 16),
+                    if (_costPriceMarkupEnabled) ...[
+                      Expanded(
+                          child: TextFormField(
+                              controller: _markupCtrl,
+                              decoration: InputDecoration(
+                                  labelText: "Margin / Markup (%)",
+                                  filled: true,
+                                  fillColor: theme.colorScheme.surface,
+                                  border: const OutlineInputBorder(),
+                                  suffixText: "%"),
+                              keyboardType: const TextInputType.numberWithOptions(
+                                  decimal: true))),
+                      const SizedBox(width: 16),
+                    ],
                     Expanded(
                         child: TextFormField(
                             controller: _rankCtrl,
@@ -1670,8 +1905,15 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
     if (widget.existingProduct == null) return const SizedBox();
 
     final productId = widget.existingProduct!.id;
-    final asyncBarcodes = ref.watch(barcodesByProductIdProvider(productId));
     final companyId = ref.read(selectedCompanyProvider)?.id;
+
+    // Seed local Drift cache from server the first time this tab is shown.
+    if (!_barcodesPulled && productId > 0 && companyId != null) {
+      _barcodesPulled = true;
+      _pullBarcodesFromServer(productId, companyId);
+    }
+
+    final asyncBarcodes = ref.watch(barcodesByProductIdProvider(productId));
 
     return Padding(
       padding: const EdgeInsets.all(32.0),
@@ -1695,10 +1937,8 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                   children: [
                     TextField(
                       controller: _newBarcodeCtrl,
-                      readOnly:
-                          _isBarcodeChipActive, // Prevents keyboard popping up when chip is active
+                      readOnly: _isBarcodeChipActive,
                       onSubmitted: (val) {
-                        // Bonus: If they manually type a barcode and hit enter, it also turns into a chip!
                         if (val.trim().isNotEmpty) {
                           setState(() => _isBarcodeChipActive = true);
                         }
@@ -1718,8 +1958,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 10, vertical: 4),
                                   decoration: BoxDecoration(
-                                    color: const Color(
-                                        0xFFD81B60), // The pink color from your image!
+                                    color: const Color(0xFFD81B60),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Row(
@@ -1733,12 +1972,10 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                                       ),
                                       const SizedBox(width: 8),
                                       InkWell(
-                                        onTap: () {
-                                          setState(() {
-                                            _newBarcodeCtrl.clear();
-                                            _isBarcodeChipActive = false;
-                                          });
-                                        },
+                                        onTap: () => setState(() {
+                                          _newBarcodeCtrl.clear();
+                                          _isBarcodeChipActive = false;
+                                        }),
                                         child: const Icon(Icons.close,
                                             color: Colors.white, size: 16),
                                       ),
@@ -1761,13 +1998,11 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                         minimumSize: const Size(50, 30),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
-                      onPressed: () {
-                        setState(() {
-                          _newBarcodeCtrl.text =
-                              DateTime.now().millisecondsSinceEpoch.toString();
-                          _isBarcodeChipActive = true;
-                        });
-                      },
+                      onPressed: () => setState(() {
+                        _newBarcodeCtrl.text =
+                            DateTime.now().millisecondsSinceEpoch.toString();
+                        _isBarcodeChipActive = true;
+                      }),
                       child: const Text("Generate barcode",
                           style: TextStyle(color: Colors.lightBlue)),
                     ),
@@ -1776,41 +2011,56 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
               ),
               const SizedBox(width: 16),
               ElevatedButton.icon(
-                  icon: const Icon(Icons.add),
-                  label: const Text("Add"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.colorScheme.primary,
-                    foregroundColor: theme.colorScheme.onPrimary,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 24, vertical: 20),
-                  ),
-                  onPressed: () async {
-                    if (_newBarcodeCtrl.text.trim().isEmpty ||
-                        companyId == null) return;
+                icon: const Icon(Icons.add),
+                label: const Text("Add"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: theme.colorScheme.primary,
+                  foregroundColor: theme.colorScheme.onPrimary,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                ),
+                onPressed: () async {
+                  final barcodeValue = _newBarcodeCtrl.text.trim();
+                  if (barcodeValue.isEmpty || companyId == null) return;
 
-                    try {
-                      final dio = createDio();
-                      await dio.post('/Barcodes/Add', queryParameters: {
-                        'companyId': companyId
-                      }, data: {
-                        'productId': productId,
-                        'value': _newBarcodeCtrl.text.trim()
-                      });
+                  final db = ref.read(appDatabaseProvider);
+                  final localId = const Uuid().v4();
 
-                      setState(() {
-                        _newBarcodeCtrl.clear();
-                        _isBarcodeChipActive = false;
-                      });
+                  // Write locally first — appears in the list immediately.
+                  await db.into(db.barcodesTable).insert(
+                        BarcodesTableCompanion(
+                          localId: Value(localId),
+                          productId: Value(productId),
+                          companyId: Value(companyId),
+                          value: Value(barcodeValue),
+                          syncStatus: const Value('pending_create'),
+                        ),
+                      );
 
-                      ref.invalidate(barcodesByProductIdProvider(productId));
-                    } catch (e) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                            content: Text(_parseApiError(e)),
-                            backgroundColor: Colors.red));
-                      }
-                    }
-                  })
+                  setState(() {
+                    _newBarcodeCtrl.clear();
+                    _isBarcodeChipActive = false;
+                  });
+
+                  // Try API — stamp serverId + clear pending on success.
+                  try {
+                    final dio = createDio();
+                    final res = await dio.post('/Barcodes/Add',
+                        queryParameters: {'companyId': companyId},
+                        data: {'productId': productId, 'value': barcodeValue});
+                    final serverId =
+                        (res.data is Map ? res.data['id'] : null) as int?;
+                    await (db.update(db.barcodesTable)
+                          ..where((t) => t.localId.equals(localId)))
+                        .write(BarcodesTableCompanion(
+                      serverId: Value(serverId),
+                      syncStatus: const Value('synced'),
+                    ));
+                  } on DioException {
+                    // Offline — stays pending_create until next sync.
+                  }
+                },
+              ),
             ],
           ),
 
@@ -1818,64 +2068,92 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
 
           Expanded(
             child: asyncBarcodes.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Center(
-                    child: Text("Error: ${_parseApiError(e)}",
-                        style: const TextStyle(color: Colors.red))),
-                data: (barcodes) {
-                  if (barcodes.isEmpty)
-                    return Center(
-                        child: Text("No barcodes assigned yet.",
-                            style:
-                                TextStyle(color: theme.hintColor, fontSize: 16)));
+              loading: () =>
+                  const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(
+                  child: Text("Error: $e",
+                      style: const TextStyle(color: Colors.red))),
+              data: (barcodes) {
+                if (barcodes.isEmpty) {
+                  return Center(
+                      child: Text("No barcodes assigned yet.",
+                          style: TextStyle(
+                              color: theme.hintColor, fontSize: 16)));
+                }
+                return Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: theme.dividerColor),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: ListView.separated(
+                    itemCount: barcodes.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final b = barcodes[index];
+                      return ListTile(
+                        leading: Icon(Icons.qr_code,
+                            color: b.isPendingSync
+                                ? theme.colorScheme.tertiary
+                                : Colors.blueGrey),
+                        title: Text(b.value,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1.5)),
+                        subtitle: b.isPendingSync
+                            ? Text('Pending sync',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: theme.colorScheme.tertiary))
+                            : null,
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete,
+                              color: Colors.redAccent),
+                          tooltip: "Delete Barcode",
+                          onPressed: () async {
+                            if (companyId == null) return;
+                            final db = ref.read(appDatabaseProvider);
 
-                  return Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: theme.dividerColor),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: ListView.separated(
-                      itemCount: barcodes.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final b = barcodes[index];
-                        return ListTile(
-                          leading:
-                              const Icon(Icons.qr_code, color: Colors.blueGrey),
-                          title: Text(b.value,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1.5)),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete,
-                                color: Colors.redAccent),
-                            tooltip: "Delete Barcode",
-                            onPressed: () async {
-                              if (companyId == null) return;
+                            if (b.id == 0) {
+                              // Never synced — hard-delete locally.
+                              await (db.delete(db.barcodesTable)
+                                    ..where((t) =>
+                                        t.localId.equals(b.localId)))
+                                  .go();
+                            } else {
+                              // Soft-delete so SyncManager can push the
+                              // DELETE to the server on next sync.
+                              await (db.update(db.barcodesTable)
+                                    ..where((t) =>
+                                        t.localId.equals(b.localId)))
+                                  .write(const BarcodesTableCompanion(
+                                syncStatus: Value('pending_delete'),
+                              ));
+                              // Try API immediately while online.
                               try {
                                 final dio = createDio();
                                 await dio.delete('/Barcodes/Delete',
                                     queryParameters: {
                                       'id': b.id,
-                                      'companyId': companyId
+                                      'companyId': companyId,
                                     });
-                                ref.invalidate(
-                                    barcodesByProductIdProvider(productId));
-                              } catch (e) {
-                                if (mounted)
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                          content: Text(_parseApiError(e)),
-                                          backgroundColor: Colors.red));
+                                await (db.delete(db.barcodesTable)
+                                      ..where((t) =>
+                                          t.localId.equals(b.localId)))
+                                    .go();
+                              } on DioException {
+                                // Offline — row stays pending_delete
+                                // (already hidden by the provider filter).
                               }
-                            },
-                          ),
-                        );
-                      },
-                    ),
-                  );
-                }),
-          )
+                            }
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
         ],
       ),
     );

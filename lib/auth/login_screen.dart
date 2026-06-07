@@ -16,6 +16,8 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/settings/settings_provider.dart';
 import 'package:pos_app/sync/sync_provider.dart';
+import 'package:pos_app/utils/error_handler.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -336,10 +338,13 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
     });
 
     try {
-      await ref.read(syncManagerProvider).pullMasterData(widget.user.companyId);
+      // Use sync() — push first so any orders left pending from a previous
+      // shift get flushed before we pull fresh master data.
+      await ref.read(syncManagerProvider).sync(widget.user.companyId);
     } catch (e) {
       if (mounted) {
-        _showError("Sync failed — running on cached data. ($e)");
+        _showError('Sync failed — running on cached data. '
+            '${friendlyErrorMessage(e)}');
       }
     }
 
@@ -368,10 +373,7 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(message),
-      backgroundColor: Theme.of(context).colorScheme.error,
-    ));
+    showAppSnackbar(context, ref, message, isError: true);
   }
 
   @override

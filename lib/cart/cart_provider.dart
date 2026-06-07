@@ -1,7 +1,11 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
+import 'package:uuid/uuid.dart';
 import 'package:pos_app/cart/checkout_models.dart';
 import 'package:pos_app/api/api_client.dart';
+import 'package:pos_app/database/app_database.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
@@ -13,6 +17,7 @@ import 'package:pos_app/bookings/bookings_provider.dart';
 import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 import 'package:pos_app/kitchen/kitchen_push_service.dart';
+import 'package:pos_app/product/product_provider.dart';
 
 final dailyOrderNumberProvider = StateProvider<int>((ref) => 1);
 
@@ -29,14 +34,18 @@ class CartState {
   final double? customerDiscountValue;
   final int? customerDiscountType;
   final String? selectedCartItemId;
-  final int
-  serviceType; // 0 for Dine In / Appointment, 1 for Takeaway / Walk-In
+  final int serviceType; // 0 for Dine In / Appointment, 1 for Takeaway / Walk-In
   final int serviceStatus; // 1 for Active, etc.
   final int? floorPlanTableId;
   final int? activeWarehouseId;
   final int? bookingId;
   final int? bookingStaffId;
   final String? orderName;
+
+  // Set when the cart was loaded from an existing local Drift row (e.g.
+  // 'svr_3280'). Checkout uses this to UPDATE the row instead of inserting a
+  // duplicate. Null for brand-new carts that have no prior local record.
+  final String? existingLocalOrderId;
 
   CartState({
     this.activePosOrderId,
@@ -57,6 +66,7 @@ class CartState {
     this.bookingId,
     this.bookingStaffId,
     this.orderName,
+    this.existingLocalOrderId,
   });
 
   CartState copyWith({
@@ -78,6 +88,7 @@ class CartState {
     int? bookingId,
     int? bookingStaffId,
     String? orderName,
+    String? existingLocalOrderId,
   }) {
     return CartState(
       activePosOrderId: activePosOrderId ?? this.activePosOrderId,
@@ -101,6 +112,7 @@ class CartState {
       bookingId: bookingId ?? this.bookingId,
       bookingStaffId: bookingStaffId ?? this.bookingStaffId,
       orderName: orderName ?? this.orderName,
+      existingLocalOrderId: existingLocalOrderId ?? this.existingLocalOrderId,
     );
   }
 }
@@ -409,6 +421,18 @@ class CartNotifier extends Notifier<CartState> {
     );
   }
 
+  /// OFFLINE-FIRST: no network call. The pre-Phase-4 flow used to POST
+  /// `/PosOrder/Create` here to get a server-side `posOrderId` int. Phase 4
+  /// moved order creation entirely to checkout time (Drift transaction with
+  /// a UUID `localId`), so the int `activePosOrderId` is now just a sentinel
+  /// — used internally by `addItem`'s null-guard and not persisted anywhere
+  /// it matters. We use 0 as "cart is active, locally only."
+  ///
+  /// `apiClient` is kept on the signature so call sites don't have to
+  /// change in this hotfix turn; the param is intentionally unused.
+  /// Returns `Future<void>` (instead of plain `void`) for the same reason —
+  /// existing `await ref.read(cartProvider.notifier).startTablelessOrder(...)`
+  /// call sites at three locations would otherwise break.
   Future<void> startTablelessOrder(
     ApiClient apiClient,
     int companyId,
@@ -418,35 +442,33 @@ class CartNotifier extends Notifier<CartState> {
     final orderNum = ref.read(dailyOrderNumberProvider);
     final label = orderNum.toString().padLeft(3, '0');
     final orderNumber = '${_getPrefix(serviceType)} #$label';
-    state = state.copyWith(isLoading: true);
+    state = CartState(
+      activePosOrderId: 0, // local-only sentinel
+      serviceType: serviceType,
+      serviceStatus: 1,
+      floorPlanTableId: null,
+      orderNumber: orderNumber,
+      activeWarehouseId: effectiveWarehouseId,
+      selectedCustomer: state.selectedCustomer,
+      selectedCustomerDiscount: state.selectedCustomerDiscount,
+      customerDiscountValue: state.customerDiscountValue,
+      customerDiscountType: state.customerDiscountType,
+    );
+    // Kitchen push is best-effort. If the KDS is unreachable (we're offline),
+    // we don't want that to crash the add-to-cart flow.
     try {
-      final newOrderId = await apiClient.createPosOrder(
-        companyId,
-        userId,
-        serviceType,
-        null,
-        orderNumber,
-        effectiveWarehouseId,
-      );
-      state = CartState(
-        activePosOrderId: newOrderId,
-        serviceType: serviceType,
-        serviceStatus: 1,
-        floorPlanTableId: null,
-        orderNumber: orderNumber,
-        activeWarehouseId: effectiveWarehouseId,
-        selectedCustomer: state.selectedCustomer,
-        selectedCustomerDiscount: state.selectedCustomerDiscount,
-        customerDiscountValue: state.customerDiscountValue,
-        customerDiscountType: state.customerDiscountType,
-      );
       _notifyKitchen();
-    } catch (e) {
-      state = state.copyWith(isLoading: false);
-      rethrow;
-    }
+    } catch (_) {/* swallow — kitchen push isn't critical to cart UX */}
   }
 
+  /// OFFLINE-FIRST sibling of [startTablelessOrder] for booking-initiated
+  /// carts. Same logic: set up local CartState with a sentinel posOrderId,
+  /// no network call. The booking association travels along on the cart
+  /// state and ends up on the PosOrder header at checkout time.
+  ///
+  /// Returns the sentinel id (0) for backward compatibility with callers
+  /// that captured the result. Kept as `Future<int>` so existing `await`
+  /// call sites keep compiling.
   Future<int> startBookingOrder(
     ApiClient apiClient,
     int companyId,
@@ -457,33 +479,17 @@ class CartNotifier extends Notifier<CartState> {
     int? floorPlanTableId,
     int? customerId,
   }) async {
-    state = state.copyWith(isLoading: true);
-    try {
-      final newOrderId = await apiClient.createPosOrder(
-        companyId,
-        userId,
-        0,
-        floorPlanTableId,
-        guestName,
-        effectiveWarehouseId,
-        bookingId: bookingId,
-        customerId: customerId,
-      );
-      state = CartState(
-        activePosOrderId: newOrderId,
-        serviceType: 0,
-        serviceStatus: 1,
-        floorPlanTableId: floorPlanTableId,
-        orderNumber: 'APT- $guestName',
-        activeWarehouseId: effectiveWarehouseId,
-        bookingId: bookingId,
-        bookingStaffId: staffUserId,
-      );
-      return newOrderId;
-    } catch (e) {
-      state = state.copyWith(isLoading: false);
-      rethrow;
-    }
+    state = CartState(
+      activePosOrderId: 0, // local-only sentinel
+      serviceType: 0,
+      serviceStatus: 1,
+      floorPlanTableId: floorPlanTableId,
+      orderNumber: 'APT- $guestName',
+      activeWarehouseId: effectiveWarehouseId,
+      bookingId: bookingId,
+      bookingStaffId: staffUserId,
+    );
+    return 0;
   }
 
   void setWarehouseId(int warehouseId) {
@@ -747,6 +753,87 @@ class CartNotifier extends Notifier<CartState> {
     }
   }
 
+  /// Offline-first SAVE: persists the current cart as an open (status=0) order
+  /// in local SQLite. No network call — always succeeds immediately.
+  ///
+  /// On the first call a new UUID is generated for `existingLocalOrderId`.
+  /// Subsequent saves (re-open and modify) reuse the same localId so only one
+  /// open-order row exists in Drift per cart session.
+  Future<void> saveOrderLocally({
+    required int companyId,
+    required int userId,
+  }) async {
+    if (state.items.isEmpty) return;
+    state = state.copyWith(isLoading: true);
+    try {
+      final db = ref.read(appDatabaseProvider);
+      final now = DateTime.now().toUtc();
+
+      // Reuse existing localId so re-saves UPDATE rather than create duplicates.
+      final localId = state.existingLocalOrderId ?? const Uuid().v4();
+
+      // Build the order number if the cart doesn't have one yet.
+      final orderNum = state.orderNumber ?? () {
+        final n = ref.read(dailyOrderNumberProvider);
+        return '${_getPrefix(state.serviceType)} #${n.toString().padLeft(3, '0')}';
+      }();
+
+      // Only carry the serverId if the cart was loaded from a real server order.
+      final serverId = (state.activePosOrderId != null &&
+              state.activePosOrderId! > 0)
+          ? state.activePosOrderId
+          : null;
+
+      final items = state.items.map((item) {
+        final summedRate = item.appliedTaxes
+            .where((t) => !t.isFixed)
+            .fold<double>(0, (sum, t) => sum + t.rate);
+        return PosOrderItemsTableCompanion(
+          localId: Value(const Uuid().v4()),
+          orderId: Value(localId),
+          productId: Value(item.productId),
+          quantity: Value(item.quantity),
+          unitPrice: Value(item.price),
+          discount: Value(item.discount + item.promotionalDiscount),
+          taxRate: Value(summedRate),
+          comment: Value(item.comment),
+          warehouseId: Value(item.warehouseId ?? effectiveWarehouseId),
+          syncStatus: const Value('pending'),
+        );
+      }).toList();
+
+      await db.saveOpenOrder(
+        PosOrdersTableCompanion(
+          localId: Value(localId),
+          serverId: Value(serverId),
+          companyId: Value(companyId),
+          userId: Value(userId),
+          tableId: Value(state.floorPlanTableId),
+          customerId: Value(state.selectedCustomer?.id),
+          serviceType: Value(state.serviceType),
+          serviceStatus: Value(state.serviceStatus),
+          orderName: Value(orderNum),
+          openedAt: Value(now),
+          status: const Value(0),
+          total: Value(grandTotal),
+          discount: Value(state.manualCartDiscount),
+          warehouseId: Value(effectiveWarehouseId),
+          syncStatus: const Value('pending'),
+          lastModified: Value(now),
+        ),
+        items,
+      );
+
+      // Persist localId so the next re-save finds and updates the same row.
+      state = state.copyWith(
+        existingLocalOrderId: localId,
+        orderNumber: orderNum,
+      );
+    } finally {
+      state = state.copyWith(isLoading: false);
+    }
+  }
+
   Future<Map<String, dynamic>> saveOrderToServer({
     required ApiClient apiClient,
     required int companyId,
@@ -820,13 +907,88 @@ class CartNotifier extends Notifier<CartState> {
     }
   }
 
+  /// Loads an open order directly from local Drift — used when the order has
+  /// no serverId yet (created offline, not yet synced). Bypasses the API so
+  /// the 404 that `loadOrderById` would get for id=0 never fires.
+  Future<bool> loadOrderFromLocal(String localId) async {
+    state = state.copyWith(isLoading: true, existingLocalOrderId: null);
+    try {
+      final db = ref.read(appDatabaseProvider);
+
+      final row = await (db.select(db.posOrdersTable)
+            ..where((t) => t.localId.equals(localId))
+            ..limit(1))
+          .getSingleOrNull();
+      if (row == null) return false;
+
+      final itemRows = await (db.select(db.posOrderItemsTable)
+            ..where((t) => t.orderId.equals(localId)))
+          .get();
+
+      // Restore customer
+      if (row.customerId != null) {
+        final companyId = ref.read(selectedCompanyProvider)?.id;
+        final customers = ref.read(allCustomersProvider).value ?? [];
+        final customer =
+            customers.where((c) => c.id == row.customerId).firstOrNull;
+        if (customer != null && companyId != null) {
+          await setCustomer(companyId, customer);
+        }
+      }
+
+      // Build CartItems using the local product cache for names.
+      final productMap = ref.read(productMapProvider);
+      final List<CartItem> loadedItems = itemRows.map((item) {
+        final product = productMap[item.productId];
+        return CartItem(
+          cartItemId: '${item.productId}_${item.localId}',
+          posOrderId: row.serverId ?? 0,
+          productId: item.productId,
+          price: item.unitPrice,
+          quantity: item.quantity,
+          discount: item.discount,
+          productName: product?.name ?? 'Item #${item.productId}',
+          appliedTaxes: const [],
+          warehouseId: item.warehouseId,
+          isService: product?.isService ?? false,
+        );
+      }).toList();
+
+      _applyPromotions(loadedItems);
+
+      state = state.copyWith(
+        activePosOrderId: row.serverId,
+        items: loadedItems,
+        orderNumber: row.orderName,
+        serviceType: row.serviceType,
+        serviceStatus: row.serviceStatus,
+        floorPlanTableId: row.tableId,
+        activeWarehouseId: row.warehouseId,
+        isLoading: false,
+        existingLocalOrderId: localId,
+      );
+
+      final warehouses = ref.read(allWarehousesProvider).value ?? [];
+      final wh =
+          warehouses.where((w) => w.id == row.warehouseId).firstOrNull;
+      if (wh != null) ref.read(selectedWarehouseProvider.notifier).state = wh;
+
+      return true;
+    } catch (_) {
+      state = state.copyWith(isLoading: false);
+      rethrow;
+    }
+  }
+
   Future<bool> loadOrderById(
     ApiClient apiClient,
     int companyId,
     int posOrderId,
     int warehouseId,
   ) async {
-    state = state.copyWith(isLoading: true);
+    // Clear any stale existingLocalOrderId from a previous load before setting
+    // the new one at the end of this method.
+    state = state.copyWith(isLoading: true, existingLocalOrderId: null);
     try {
       final order = await apiClient.getPosOrderById(companyId, posOrderId);
       final orderNumber = order['number'] ?? order['Number'] ?? "ORD-TEMP";
@@ -882,6 +1044,15 @@ class CartNotifier extends Notifier<CartState> {
 
       _applyPromotions(loadedItems);
 
+      // Look up the local Drift row for this server order so checkout can
+      // UPDATE it instead of inserting a duplicate. Sentinel rows use
+      // localId = 'svr_<id>'; UUID rows that synced also have serverId set.
+      final db = ref.read(appDatabaseProvider);
+      final localRow = await (db.select(db.posOrdersTable)
+            ..where((t) => t.serverId.equals(posOrderId))
+            ..limit(1))
+          .getSingleOrNull();
+
       state = state.copyWith(
         activePosOrderId: posOrderId,
         items: loadedItems,
@@ -893,6 +1064,7 @@ class CartNotifier extends Notifier<CartState> {
         floorPlanTableId: floorPlanTableId,
         activeWarehouseId: warehouseId,
         isLoading: false,
+        existingLocalOrderId: localRow?.localId,
       );
 
       // Sync global warehouse
@@ -909,6 +1081,13 @@ class CartNotifier extends Notifier<CartState> {
     }
   }
 
+  /// LEGACY — pre-Phase-4 online checkout. After Phase 4 the live UI path
+  /// (`PaymentCheckoutDialog._complete`) writes orders directly to Drift via
+  /// `AppDatabase.insertOfflineOrder`, so this method is unreachable from the
+  /// current widget tree. Kept in place to avoid breaking the legacy
+  /// `CheckoutDialog` (also unreferenced) until that file is removed.
+  @Deprecated(
+      'Use AppDatabase.insertOfflineOrder via PaymentCheckoutDialog instead.')
   Future<bool> checkoutOrder({
     required ApiClient apiClient,
     required int companyId,
@@ -1054,9 +1233,11 @@ class CartNotifier extends Notifier<CartState> {
     }
   }
 
-  // Commits all local items to the backend, updates the order header, then
-  // fully clears the cart (order stays open in DB for later retrieval) and
-  // advances the daily counter.
+  // OFFLINE-FIRST: persists the cart as a suspended (status=0) order in
+  // Drift instead of POSTing /PosOrder/Update + /PosOrderItem/BulkAdd. The
+  // row is marked syncStatus='pending' so Phase 5's BatchSync push picks
+  // it up when network returns. UI's "Open Orders" screen reads from the
+  // same table so a freshly-saved order is visible immediately.
   Future<bool> saveAndSuspend({
     required ApiClient apiClient,
     required int companyId,
@@ -1066,22 +1247,6 @@ class CartNotifier extends Notifier<CartState> {
     if (state.activePosOrderId == null) return false;
     state = state.copyWith(isLoading: true);
     try {
-      if (state.items.isNotEmpty) {
-        final response = await apiClient.bulkAddPosOrderItems(
-          companyId,
-          effectiveWarehouseId,
-          state.items,
-          grandTotal,
-        );
-        if (response['success'] != true) {
-          throw Exception(
-            response['message'] ?? 'Failed to save items before suspending.',
-          );
-        }
-        final warnings = List<String>.from(response['warnings'] ?? []);
-        if (warnings.isNotEmpty) onWarnings?.call(warnings);
-      }
-
       final activeTableId =
           state.floorPlanTableId ?? ref.read(floorPlanTableProvider);
       final num =
@@ -1089,23 +1254,56 @@ class CartNotifier extends Notifier<CartState> {
       final orderNumber =
           state.orderNumber ?? '${_getPrefix(state.serviceType)} #$num';
 
-      await apiClient.updatePosOrder(companyId, {
-        "id": state.activePosOrderId,
-        "userId": userId,
-        "number": orderNumber,
-        "discount": state.manualCartDiscount,
-        "discountType": state.manualCartDiscountType,
-        "total": grandTotal,
-        "customerId": state.selectedCustomer?.id,
-        "serviceType": state.serviceType,
-        "serviceStatus": state.serviceStatus,
-        "floorPlanTableId": activeTableId,
-        "warehouseId": effectiveWarehouseId,
-      });
+      final db = ref.read(appDatabaseProvider);
+      final now = DateTime.now().toUtc();
+      final orderLocalId = const Uuid().v4();
+
+      final orderCompanion = PosOrdersTableCompanion(
+        localId: Value(orderLocalId),
+        serverId: const Value(null),
+        companyId: Value(companyId),
+        userId: Value(userId),
+        tableId: Value(activeTableId),
+        customerId: Value(state.selectedCustomer?.id),
+        serviceType: Value(state.serviceType),
+        serviceStatus: Value(state.serviceStatus),
+        orderName: Value(orderNumber),
+        openedAt: Value(now),
+        // closedAt stays null — this is a SUSPENDED order, still open.
+        status: const Value(0),
+        total: Value(grandTotal),
+        discount: Value(state.manualCartDiscount),
+        warehouseId: Value(effectiveWarehouseId),
+        // No payment yet — the cashier hasn't checked out.
+        syncStatus: const Value('pending'),
+        lastModified: Value(now),
+      );
+
+      final itemCompanions = state.items.map((item) {
+        final summedRate = item.appliedTaxes
+            .where((t) => !t.isFixed)
+            .fold<double>(0, (sum, t) => sum + t.rate);
+        return PosOrderItemsTableCompanion(
+          localId: Value(const Uuid().v4()),
+          orderId: Value(orderLocalId),
+          productId: Value(item.productId),
+          quantity: Value(item.quantity),
+          unitPrice: Value(item.price),
+          discount: Value(item.discount + item.promotionalDiscount),
+          taxRate: Value(summedRate),
+          comment: Value(item.comment),
+          warehouseId: Value(item.warehouseId ?? effectiveWarehouseId),
+          syncStatus: const Value('pending'),
+        );
+      }).toList();
+
+      await db.insertOfflineOrder(orderCompanion, itemCompanions);
+
+      // Bump the local counter so the next new order gets a fresh number.
+      ref.read(dailyOrderNumberProvider.notifier).state =
+          ref.read(dailyOrderNumberProvider) + 1;
 
       clearCart();
-      await Future.delayed(const Duration(milliseconds: 300));
-      await syncOrderNumber(companyId);
       return true;
     } catch (e) {
       rethrow;

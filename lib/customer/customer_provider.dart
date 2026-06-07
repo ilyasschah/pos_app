@@ -1,26 +1,22 @@
+import 'package:drift/drift.dart' show OrderingTerm;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
-import 'package:pos_app/customer/customer_model.dart';
-import 'package:pos_app/api/api_client.dart';
+
 import 'package:pos_app/company/company_provider.dart';
-import 'package:pos_app/utils/api_error_parser.dart';
+import 'package:pos_app/customer/customer_model.dart';
+import 'package:pos_app/database/database_provider.dart';
 
-final allCustomersProvider = FutureProvider<List<Customer>>((ref) async {
-  final company = ref.watch(selectedCompanyProvider);
-  if (company == null) return [];
+/// Live list of customers for the current company, streamed from Drift.
+/// Sorted alphabetically by name to match the picker's expected order.
+final allCustomersProvider = StreamProvider.autoDispose<List<Customer>>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return const Stream.empty();
 
-  try {
-    final dio = createDio();
-    final response = await dio.get(
-      '/Customer/GetAllCustomers',
-      queryParameters: {'companyId': company.id},
-    );
-    final data = response.data as List;
-    return data.map((json) => Customer.fromJson(json)).toList();
-  } on DioException catch (e, st) {
-    rethrowApiError(e, st);
-    return [];
-  }
+  final query = db.select(db.customersTable)
+    ..where((t) => t.companyId.equals(companyId))
+    ..orderBy([(t) => OrderingTerm.asc(t.name)]);
+
+  return query.watch().map((rows) => rows.map(Customer.fromDrift).toList());
 });
 
 class CurrentCustomerNotifier extends Notifier<Customer?> {

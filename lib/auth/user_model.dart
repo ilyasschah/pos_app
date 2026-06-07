@@ -1,3 +1,5 @@
+import 'package:pos_app/database/app_database.dart';
+
 class User {
   final int id;
   final int companyId;
@@ -39,10 +41,37 @@ class User {
     );
   }
 
+  /// Reconstruct a full User from a Drift row.
+  /// `hasPinForThisDevice` is derived from `pinHash` (non-null/non-empty ==
+  /// this device is enrolled). Rows created before schema v18 will have null
+  /// for firstName/lastName/username/email — `displayName` falls back to the
+  /// legacy `name` column in that case so nothing breaks on upgrade.
+  factory User.fromDrift(UsersTableData row) {
+    final hasPin = row.pinHash != null && row.pinHash!.isNotEmpty;
+    return User(
+      id: row.id,
+      companyId: row.companyId,
+      firstName: row.firstName,
+      lastName: row.lastName,
+      username: row.username ?? row.name, // v18 fallback for old rows
+      email: row.email,
+      accessLevel: row.role,
+      isEnabled: row.isEnabled,
+      hasPinForThisDevice: hasPin,
+      hashedPin: row.pinHash,
+    );
+  }
+
+  /// The name shown in the users list and login picker.
+  /// Priority: non-empty parts of firstName + lastName → username → 'Unknown User'.
+  /// Empty strings are treated the same as null so a blank firstName never
+  /// produces a "  " display string.
   String get displayName {
-    if (firstName != null && lastName != null) {
-      return '$firstName $lastName';
-    }
-    return username ?? 'Unknown User';
+    final first = (firstName ?? '').trim();
+    final last  = (lastName  ?? '').trim();
+    final full  = [first, last].where((s) => s.isNotEmpty).join(' ');
+    if (full.isNotEmpty) return full;
+    final u = (username ?? '').trim();
+    return u.isNotEmpty ? u : 'Unknown User';
   }
 }

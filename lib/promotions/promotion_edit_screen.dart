@@ -1,13 +1,16 @@
+import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/api/promotion_models.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/database/app_database.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/product/product_provider.dart';
 import 'package:pos_app/product/product_group_provider.dart';
 import 'package:pos_app/product/product_group_model.dart';
 import 'package:pos_app/product/product_model.dart';
-import 'package:pos_app/utils/snackbar_helper.dart';
 
 class EditablePromoItem {
   int id;
@@ -108,15 +111,21 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
   }
 
   void _save() async {
-    if (_nameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Name is required')));
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Name is required')));
       return;
     }
 
     final companyId = ref.read(selectedCompanyProvider)?.id;
     if (companyId == null) return;
+
+    final db = ref.read(appDatabaseProvider);
+    final isCreate = widget.promotion == null;
+    final tempId = isCreate
+        ? -(DateTime.now().millisecondsSinceEpoch)
+        : widget.promotion!.id;
 
     final startStr = _startTime != null
         ? "${_startTime!.hour.toString().padLeft(2, '0')}:${_startTime!.minute.toString().padLeft(2, '0')}"
@@ -125,62 +134,154 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
         ? "${_endTime!.hour.toString().padLeft(2, '0')}:${_endTime!.minute.toString().padLeft(2, '0')}"
         : null;
 
+    // Capture mutable state before any async gap.
+    final itemsSnapshot = List<EditablePromoItem>.from(_items);
+
+    // ── 1. Write to Drift first ──────────────────────────────────────────────
+    await db.transaction(() async {
+      await db.into(db.promotionsTable).insertOnConflictUpdate(
+            PromotionsTableCompanion(
+              id: Value(tempId),
+              companyId: Value(companyId),
+              name: Value(name),
+              daysOfWeek: Value(_daysOfWeek),
+              isEnabled: Value(_isEnabled),
+              startDate: Value(_startDate?.toUtc()),
+              startTime: Value(startStr),
+              endDate: Value(_endDate?.toUtc()),
+              endTime: Value(endStr),
+              lastModified: Value(DateTime.now().toUtc()),
+              syncStatus: Value(isCreate ? 'pending_create' : 'pending_update'),
+            ),
+          );
+      // Replace items wholesale — simpler than diffing adds/removes.
+      await (db.delete(db.promotionItemsTable)
+            ..where((t) => t.promotionId.equals(tempId)))
+          .go();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      for (int i = 0; i < itemsSnapshot.length; i++) {
+        final item = itemsSnapshot[i];
+        // Positive ids are existing server items; negatives are local-only.
+        final localItemId = item.id > 0 ? item.id : -(now + i);
+        await db.into(db.promotionItemsTable).insertOnConflictUpdate(
+              PromotionItemsTableCompanion(
+                id: Value(localItemId),
+                promotionId: Value(tempId),
+                productId: Value(item.productId),
+                discountType: Value(item.discountType),
+                priceType: Value(item.priceType),
+                value: Value(item.value),
+                isConditional: Value(item.isConditional),
+                quantity: Value(item.quantity),
+                conditionType: Value(item.conditionType),
+                quantityLimit: Value(item.quantityLimit),
+              ),
+            );
+      }
+    });
+
+    // ── 2. Navigate back immediately — UI reflects the Drift write ───────────
+    if (mounted) Navigator.pop(context);
+
+    // ── 3. Try API inline (no context needed after pop) ──────────────────────
     try {
-      if (widget.promotion == null) {
+      if (isCreate) {
         final request = CreatePromotionRequest(
-          name: _nameController.text,
+          name: name,
           daysOfWeek: _daysOfWeek,
           startDate: _startDate,
           startTime: startStr,
           endDate: _endDate,
           endTime: endStr,
-          items: _items
-              .map(
-                (i) => CreatePromotionItemRequest(
-                  productId: i.productId,
-                  discountType: i.discountType,
-                  priceType: i.priceType,
-                  value: i.value,
-                  isConditional: i.isConditional,
-                  quantity: i.quantity,
-                  conditionType: i.conditionType,
-                  quantityLimit: i.quantityLimit,
-                ),
-              )
+          items: itemsSnapshot
+              .map((i) => CreatePromotionItemRequest(
+                    productId: i.productId,
+                    discountType: i.discountType,
+                    priceType: i.priceType,
+                    value: i.value,
+                    isConditional: i.isConditional,
+                    quantity: i.quantity,
+                    conditionType: i.conditionType,
+                    quantityLimit: i.quantityLimit,
+                  ))
               .toList(),
         );
-        await ApiClient().createPromotion(companyId, request);
+        final created = await ApiClient().createPromotion(companyId, request);
+        // Swap temp row for the server-assigned row atomically.
+        await db.transaction(() async {
+          await (db.delete(db.promotionsTable)
+                ..where((t) => t.id.equals(tempId)))
+              .go();
+          await (db.delete(db.promotionItemsTable)
+                ..where((t) => t.promotionId.equals(tempId)))
+              .go();
+          await db.into(db.promotionsTable).insertOnConflictUpdate(
+                PromotionsTableCompanion(
+                  id: Value(created.id),
+                  companyId: Value(created.companyId),
+                  name: Value(created.name),
+                  daysOfWeek: Value(created.daysOfWeek),
+                  isEnabled: Value(created.isEnabled),
+                  startDate: Value(created.startDate?.toUtc()),
+                  startTime: Value(created.startTime),
+                  endDate: Value(created.endDate?.toUtc()),
+                  endTime: Value(created.endTime),
+                  lastModified: Value(DateTime.now().toUtc()),
+                  syncStatus: const Value('synced'),
+                ),
+              );
+          for (final item in created.items) {
+            await db.into(db.promotionItemsTable).insertOnConflictUpdate(
+                  PromotionItemsTableCompanion(
+                    id: Value(item.id),
+                    promotionId: Value(created.id),
+                    productId: Value(item.productId),
+                    discountType: Value(item.discountType),
+                    priceType: Value(item.priceType),
+                    value: Value(item.value),
+                    isConditional: Value(item.isConditional),
+                    quantity: Value(item.quantity),
+                    conditionType: Value(item.conditionType),
+                    quantityLimit: Value(item.quantityLimit),
+                  ),
+                );
+          }
+        });
       } else {
         final request = UpdatePromotionRequest(
-          id: widget.promotion!.id,
-          name: _nameController.text,
+          id: tempId,
+          name: name,
           daysOfWeek: _daysOfWeek,
           isEnabled: _isEnabled,
           startDate: _startDate,
           startTime: startStr,
           endDate: _endDate,
           endTime: endStr,
-          items: _items
-              .map(
-                (i) => UpdatePromotionItemRequest(
-                  id: i.id,
-                  productId: i.productId,
-                  discountType: i.discountType,
-                  priceType: i.priceType,
-                  value: i.value,
-                  isConditional: i.isConditional,
-                  quantity: i.quantity,
-                  conditionType: i.conditionType,
-                  quantityLimit: i.quantityLimit,
-                ),
-              )
+          items: itemsSnapshot
+              .map((i) => UpdatePromotionItemRequest(
+                    id: i.id > 0 ? i.id : 0, // 0 = new item to the server
+                    productId: i.productId,
+                    discountType: i.discountType,
+                    priceType: i.priceType,
+                    value: i.value,
+                    isConditional: i.isConditional,
+                    quantity: i.quantity,
+                    conditionType: i.conditionType,
+                    quantityLimit: i.quantityLimit,
+                  ))
               .toList(),
         );
         await ApiClient().updatePromotion(companyId, request);
+        await (db.update(db.promotionsTable)
+              ..where((t) => t.id.equals(tempId)))
+            .write(const PromotionsTableCompanion(
+          syncStatus: Value('synced'),
+        ));
       }
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) showAppSnackbar(context, ref, 'Error: $e', isError: true);
+    } on DioException {
+      // Offline — row stays pending_create/pending_update for SyncManager.
+    } catch (_) {
+      // Unexpected error; pending row will be retried on next sync.
     }
   }
 

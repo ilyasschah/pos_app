@@ -20,6 +20,7 @@ import 'package:pos_app/refund/refund_dialog.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/printer/invoice_pdf_service.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
@@ -343,17 +344,14 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
       await createDio().delete('/Document/Delete',
           queryParameters: {'id': doc.id, 'companyId': company.id});
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text('Document deleted'), backgroundColor: Colors.green),
-      );
+      showAppSnackbar(context, ref, 'Document deleted');
       _fetchDocuments();
     } on DioException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(e.response?.data?.toString() ?? 'Delete failed'),
-            backgroundColor: Colors.red),
+      showAppSnackbar(
+        context, ref,
+        e.response?.data?.toString() ?? 'Delete failed',
+        isError: true,
       );
     }
   }
@@ -509,11 +507,7 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
   }
 
   void _notImplemented(String action) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-          content:  Text('$action — coming soon'),
-          duration: const Duration(seconds: 2)),
-    );
+    showAppSnackbar(context, ref, '$action — coming soon');
   }
 
   // ── build ─────────────────────────────────────────────────────────────────

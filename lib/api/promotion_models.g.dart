@@ -18,6 +18,9 @@ Map<String, dynamic> _$PromotionDtoToJson(PromotionDto instance) =>
       'daysOfWeek': instance.daysOfWeek,
       'isEnabled': instance.isEnabled,
       'items': instance.items,
+      'syncStatus': instance.syncStatus,
+      'isPendingSync': instance.isPendingSync,
+      'isPendingCreate': instance.isPendingCreate,
     };
 
 Map<String, dynamic> _$PromotionItemDtoToJson(PromotionItemDto instance) =>

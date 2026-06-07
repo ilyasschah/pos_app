@@ -1,3 +1,5 @@
+import 'package:pos_app/database/app_database.dart';
+
 class Customer {
   final int id;
   final String name;
@@ -65,6 +67,31 @@ class Customer {
       plotIdentification: json['plotIdentification'],
       citySubdivisionName: json['citySubdivisionName'],
       isTaxExempt: json['isTaxExempt'] ?? false,
+    );
+  }
+
+  factory Customer.fromDrift(CustomersTableData row) {
+    return Customer(
+      id: row.id,
+      name: row.name,
+      code: row.code,
+      taxNumber: row.taxNumber,
+      address: row.address,
+      postalCode: row.postalCode,
+      city: row.city,
+      countryId: row.countryId,
+      email: row.email,
+      phoneNumber: row.phoneNumber,
+      isEnabled: row.isEnabled,
+      isCustomer: row.isCustomer,
+      isSupplier: row.isSupplier,
+      dueDatePeriod: row.dueDatePeriod,
+      streetName: row.streetName,
+      additionalStreetName: row.additionalStreetName,
+      buildingNumber: row.buildingNumber,
+      plotIdentification: row.plotIdentification,
+      citySubdivisionName: row.citySubdivisionName,
+      isTaxExempt: row.isTaxExempt,
     );
   }
 }

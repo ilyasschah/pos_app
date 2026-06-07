@@ -50,7 +50,7 @@ class _ManagementLayoutState extends State<ManagementLayout> {
       const ReportsScreen(), // Index 5
       const CustomersScreen(), // Index 6
       const PromotionsListScreen(), // Index 7
-      const UsersScreen(), // Index 8
+      UsersScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed), // Index 8
       const PaymentTypesScreen(), // Index 9
       const TaxRatesScreen(), // Index 10
       const MyCompanyScreen(), // Index 11
@@ -214,7 +214,7 @@ class _ManagementLayoutState extends State<ManagementLayout> {
               child: Column(
                 children: [
                   // Show the top bar only when sidebar is hidden AND not on the Products screen
-                  if (!showPermanentSidebar && _selectedIndex != 2 && _selectedIndex != 3)
+                  if (!showPermanentSidebar && _selectedIndex != 2 && _selectedIndex != 3 && _selectedIndex != 8)
                     Container(
                       height: kToolbarHeight,
                       color: context.navSidebarBg,

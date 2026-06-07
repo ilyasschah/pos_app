@@ -14,23 +14,63 @@ import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/customer/customer_provider.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/document/document_model.dart';
 import 'package:pos_app/document/document_editor_screen.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/stock/warehouse_model.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
+import 'package:pos_app/sync/sync_notifier.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 // ── Providers ─────────────────────────────────────────────────────────────────
 
+/// Reads sales documents from local Drift — local DB is the source of truth.
+/// Name fields (userName, customerName, documentTypeName) are resolved from
+/// local lookup tables so the list renders fully offline.
+/// Call [syncStateProvider.notifier.sync()] before invalidating this provider
+/// when you want to pull fresh data from the server.
 final allDocumentsProvider = FutureProvider.autoDispose<List<Document>>((ref) async {
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return [];
-  final dio = createDio();
-  final response = await dio.get(
-    '/Document/GetAll',
-    queryParameters: {'companyId': company.id},
-  );
-  return (response.data as List).map((j) => Document.fromJson(j)).toList();
+  final db = ref.watch(appDatabaseProvider);
+
+  // Prefetch lookup rows once — avoids N+1 per-row queries.
+  final customerRows = await db.select(db.customersTable).get();
+  final userRows     = await db.select(db.usersTable).get();
+  final customerMap  = {for (final c in customerRows) c.id: c.name};
+  final userMap      = {for (final u in userRows) u.id: u.name};
+
+  // Best-effort type names from the API-backed provider; gracefully empty offline.
+  final docTypes = ref.watch(allDocumentTypesProvider).value ?? [];
+  final typeMap  = {for (final t in docTypes) t.id: t.name};
+
+  final rows = await db.getDocuments(companyId: company.id);
+
+  return rows.map((row) {
+    final displayNumber = row.number?.isNotEmpty == true
+        ? row.number!
+        : (row.syncStatus == 'pending' ? '(Pending sync)' : '—');
+    return Document(
+      id:               row.serverId ?? 0,
+      number:           displayNumber,
+      userId:           row.userId,
+      userName:         userMap[row.userId],
+      customerId:       row.customerId ?? 0,
+      customerName:     row.customerId != null ? customerMap[row.customerId] : null,
+      companyId:        row.companyId,
+      documentTypeId:   row.documentTypeId,
+      documentTypeName: typeMap[row.documentTypeId],
+      warehouseId:      row.warehouseId,
+      orderNumber:      row.orderNumber,
+      date:             row.date.toIso8601String(),
+      total:            row.total,
+      discount:         row.discount,
+      discountType:     row.discountType,
+      paidStatus:       row.paidStatus,
+      serviceType:      row.serviceType,
+    );
+  }).toList();
 });
 
 final allDocumentTypesProvider = FutureProvider.autoDispose<List<DocumentType>>((ref) async {
@@ -485,7 +525,7 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
                       FilledButton.icon(
                         icon:      const Icon(Icons.search, size: 15),
                         label:     const Text('Search'),
-                        onPressed: () => ref.invalidate(allDocumentsProvider),
+                        onPressed: () => setState(() {}),
                         style:     FilledButton.styleFrom(
                             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9)),
                       ),
@@ -544,9 +584,12 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
             onPressed: () => _showColumnPicker(context),
           ),
           IconButton(
-            icon:      const Icon(Icons.refresh),
-            tooltip:   "Refresh",
-            onPressed: () => ref.invalidate(allDocumentsProvider),
+            icon:    const Icon(Icons.refresh),
+            tooltip: "Sync & Refresh",
+            onPressed: () {
+              ref.read(syncStateProvider.notifier).sync().catchError((_) {});
+              ref.invalidate(allDocumentsProvider);
+            },
           ),
           const SizedBox(width: 8),
           Padding(
@@ -779,23 +822,29 @@ class _DocumentTable extends ConsumerWidget {
 
   Future<void> _delete(
       BuildContext context, WidgetRef ref, int id, int companyId) async {
+    final db = ref.read(appDatabaseProvider);
     try {
-      final dio = createDio();
-      await dio.delete(
-        '/Document/Delete',
-        queryParameters: {'id': id, 'companyId': companyId},
-      );
+      if (id > 0) {
+        // Synced document — delete on the server first.
+        final dio = createDio();
+        await dio.delete(
+          '/Document/Delete',
+          queryParameters: {'id': id, 'companyId': companyId},
+        );
+        // Remove the local row by serverId so it disappears immediately.
+        await (db.delete(db.documentsTable)
+              ..where((t) => t.serverId.equals(id)))
+            .go();
+      }
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text("Document deleted successfully"),
-        backgroundColor: Colors.green,
-      ));
+      showAppSnackbar(context, ref, 'Document deleted');
     } on DioException catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(e.response?.data?.toString() ?? "Delete failed"),
-        backgroundColor: Colors.red,
-      ));
+      showAppSnackbar(
+        context, ref,
+        e.response?.data?.toString() ?? 'Delete failed',
+        isError: true,
+      );
     }
   }
 }

@@ -1,3 +1,8 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:pos_app/database/app_database.dart';
+
 class Company {
   final int id;
   final String name;
@@ -62,6 +67,37 @@ class Company {
       citySubdivisionName: json['citySubdivisionName'],
       countrySubentity: json['countrySubentity'],
       logo: json['logo'],
+    );
+  }
+
+  /// Build a Company from the lean Drift cache. The logo column on disk is
+  /// re-encoded as base64 here so existing consumers (notably the receipt
+  /// printer which calls `base64Decode(company.logo!)`) keep working with
+  /// zero call-site changes. One small file read per `fromDrift` call —
+  /// fine for the singleton-ish Company.
+  ///
+  /// Fields not in the lean schema (countryName, postal/city, bank details,
+  /// etc.) come back null. Admin Company-edit screens that need the full
+  /// set should keep going through the API.
+  factory Company.fromDrift(CompaniesTableData row) {
+    String? logoBase64;
+    final logoPath = row.localLogoPath;
+    if (logoPath != null && logoPath.isNotEmpty) {
+      try {
+        final f = File(logoPath);
+        if (f.existsSync()) {
+          logoBase64 = base64Encode(f.readAsBytesSync());
+        }
+      } catch (_) {/* missing file → null logo, receipt prints without it */}
+    }
+
+    return Company(
+      id: row.id,
+      name: row.name,
+      taxNumber: row.taxNumber,
+      address: row.address,
+      phoneNumber: row.phone,
+      logo: logoBase64,
     );
   }
 

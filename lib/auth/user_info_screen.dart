@@ -273,7 +273,11 @@ class _UserInfoScreenState extends ConsumerState<UserInfoScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final currentUser = ref.watch(currentUserProvider);
+    // Watch the live Drift row so email/username/name stay fresh after any
+    // sync or admin edit — currentUserProvider is set once at login and stale.
+    final liveAsync = ref.watch(liveCurrentUserProvider);
+    final currentUser =
+        liveAsync.value ?? ref.watch(currentUserProvider);
 
     if (currentUser == null) {
       return Scaffold(

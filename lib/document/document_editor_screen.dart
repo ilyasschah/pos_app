@@ -17,6 +17,12 @@ import 'package:pos_app/document/document_item_expiration_date_model.dart';
 import 'package:pos_app/document/document_item_expiration_date_provider.dart';
 import 'package:pos_app/cart/payment_provider.dart';
 import 'package:pos_app/cart/payment_type_provider.dart';
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:drift/drift.dart' show Value;
+import 'package:pos_app/database/app_database.dart';
+import 'package:pos_app/database/database_provider.dart';
+import 'package:pos_app/stock/stock_provider.dart';
 
 final documentCategoriesProvider =
     FutureProvider.autoDispose<List<DocumentCategory>>((ref) async {
@@ -164,6 +170,12 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
           _dueDate = DateTime.parse(d.dueDate!);
         }
       } catch (_) {}
+    } else {
+      // New document: seed discountApplyRule from the global setting.
+      // 'Before tax' → false, 'After tax' (default) → true.
+      final settings = ref.read(appSettingsProvider);
+      final ruleStr = settings[SettingKeys.discountApplyRule] ?? 'After tax';
+      _discountApplyRule = ruleStr != 'Before tax';
     }
   }
 
@@ -497,6 +509,9 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
                 documentId: _savedDocumentId!,
                 companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
                 onItemsChanged: _syncDocumentTotal,
+                isPurchase:
+                    _selectedDocTypeName?.toLowerCase().contains('purchase') ==
+                    true,
               ),
             ],
           ],
@@ -1092,11 +1107,13 @@ class _ItemsView extends ConsumerWidget {
   final int documentId;
   final int companyId;
   final ValueChanged<double> onItemsChanged;
+  final bool isPurchase;
 
   const _ItemsView({
     required this.documentId,
     required this.companyId,
     required this.onItemsChanged,
+    this.isPurchase = false,
   });
 
   @override
@@ -1154,6 +1171,7 @@ class _ItemsView extends ConsumerWidget {
                       builder: (_) => _AddItemDialog(
                         documentId: documentId,
                         companyId: companyId,
+                        isPurchase: isPurchase,
                       ),
                     );
                     ref.invalidate(documentItemsByDocIdProvider(documentId));
@@ -1553,7 +1571,12 @@ class _ItemsView extends ConsumerWidget {
 class _AddItemDialog extends ConsumerStatefulWidget {
   final int documentId;
   final int companyId;
-  const _AddItemDialog({required this.documentId, required this.companyId});
+  final bool isPurchase;
+  const _AddItemDialog({
+    required this.documentId,
+    required this.companyId,
+    this.isPurchase = false,
+  });
 
   @override
   ConsumerState<_AddItemDialog> createState() => _AddItemDialogState();
@@ -1642,12 +1665,64 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
       }
 
       if (!mounted) return;
+      if (widget.isPurchase && _selectedProductId != null) {
+        await _maybeUpdateProductCost(
+          productId: _selectedProductId!,
+          purchasePrice: _pbt,
+          quantity: _qty,
+        );
+      }
       Navigator.of(context).pop();
     } on DioException catch (e) {
       setState(() {
         _errorMessage = e.response?.data?.toString() ?? "Failed to add item.";
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _maybeUpdateProductCost({
+    required int productId,
+    required double purchasePrice,
+    required double quantity,
+  }) async {
+    try {
+      final settings = ref.read(appSettingsProvider);
+      if (settings[SettingKeys.autoUpdateCostPrice]?.toLowerCase() != 'true') return;
+
+      final db = ref.read(appDatabaseProvider);
+      final rows = await (db.select(db.productsTable)
+            ..where((t) => t.id.equals(productId)))
+          .get();
+      if (rows.isEmpty) return;
+
+      final product = rows.first;
+      final double newCost;
+
+      if (settings[SettingKeys.enableMovingAveragePrice]?.toLowerCase() == 'true') {
+        // Weighted moving average: (OldQty * OldCost + NewQty * NewCost) / (OldQty + NewQty)
+        // OldQty comes from the stock quantities already loaded for the selected warehouse.
+        // Falls back to 0 on a cache miss, making NewCost = purchasePrice (mathematically correct
+        // for an empty bin — nothing to weight against the new price).
+        final oldQty = ref.read(stockQuantitiesProvider).value?[productId] ?? 0;
+        newCost = oldQty > 0
+            ? (oldQty * product.cost + quantity * purchasePrice) /
+                (oldQty + quantity)
+            : purchasePrice;
+      } else {
+        newCost = purchasePrice;
+      }
+
+      await (db.update(db.productsTable)
+            ..where((t) => t.id.equals(productId)))
+          .write(ProductsTableCompanion(
+        cost: Value(newCost),
+        lastPurchasePrice: Value(purchasePrice),
+        lastModified: Value(DateTime.now().toUtc()),
+      ));
+    } catch (_) {
+      // Non-fatal — best-effort local cache update.
+      // The authoritative value is set by the backend on the next sync.
     }
   }
 

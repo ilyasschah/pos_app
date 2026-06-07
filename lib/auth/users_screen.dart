@@ -1,15 +1,25 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:dio/dio.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/auth/user_model.dart';
+import 'package:pos_app/database/app_database.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/security/security_key_model.dart';
 import 'package:pos_app/security/security_key_provider.dart';
 import 'package:pos_app/utils/api_error_parser.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 class UsersScreen extends ConsumerWidget {
-  const UsersScreen({super.key});
+  /// Passed by ManagementLayout when the sidebar is hidden so the AppBar can
+  /// show a menu icon rather than the default back arrow.
+  final VoidCallback? onMenuPressed;
+
+  const UsersScreen({super.key, this.onMenuPressed});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -19,6 +29,15 @@ class UsersScreen extends ConsumerWidget {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
+          // Suppress the auto back-arrow — ManagementLayout controls navigation.
+          automaticallyImplyLeading: false,
+          leading: onMenuPressed != null
+              ? IconButton(
+                  icon: const Icon(Icons.menu),
+                  tooltip: 'Show navigation',
+                  onPressed: onMenuPressed,
+                )
+              : null,
           title: const Text("Users & Security"),
           bottom: const TabBar(
             tabs: [
@@ -32,13 +51,10 @@ class UsersScreen extends ConsumerWidget {
               tooltip: "Add User",
               onPressed: company == null
                   ? null
-                  : () async {
-                      await showDialog(
-                        context: context,
-                        builder: (_) => _AddUserDialog(companyId: company.id),
-                      );
-                      ref.invalidate(allUsersAdminProvider);
-                    },
+                  : () => showDialog(
+                      context: context,
+                      builder: (_) => _AddUserDialog(companyId: company.id),
+                    ),
             ),
           ],
         ),
@@ -219,6 +235,20 @@ class _SecurityLevelDropdownState
   bool _isLoading = false;
 
   Future<void> _updateLevel(int newLevel) async {
+    final oldLevel = widget.securityKey.level;
+    final db = ref.read(appDatabaseProvider);
+
+    // Optimistic write → Drift StreamProvider re-emits immediately, UI is instant.
+    await db
+        .into(db.securityKeysTable)
+        .insertOnConflictUpdate(
+          SecurityKeysTableCompanion(
+            companyId: Value(widget.companyId),
+            name: Value(widget.securityKey.name),
+            level: Value(newLevel),
+          ),
+        );
+
     setState(() => _isLoading = true);
     try {
       await ref
@@ -228,26 +258,72 @@ class _SecurityLevelDropdownState
             widget.securityKey.name,
             newLevel,
           );
-      ref.invalidate(allSecurityKeysProvider);
-
+      // No invalidate needed — Drift stream already emitted the new value.
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("${widget.securityKey.name} updated."),
-            backgroundColor: Colors.green,
-          ),
+        showAppSnackbar(
+          context,
+          ref,
+          '${_getFriendlyName(widget.securityKey.name)} updated.',
         );
       }
     } on DioException catch (e) {
-      if (mounted) {
-        final errorMsg = e.response?.data?['message'] ?? "Update failed";
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
-        );
+      if (e.response == null) {
+        // No connectivity — keep the optimistic Drift write and queue it.
+        await db
+            .into(db.pendingUserOpsTable)
+            .insert(
+              PendingUserOpsTableCompanion(
+                operation: const Value('update_security_key'),
+                companyId: Value(widget.companyId),
+                payload: Value(
+                  jsonEncode({
+                    'name': widget.securityKey.name,
+                    'level': newLevel,
+                  }),
+                ),
+              ),
+            );
+        if (mounted) {
+          showAppSnackbar(
+            context,
+            ref,
+            'Saved offline. Will sync when connected.',
+          );
+        }
+      } else {
+        // Server rejected — revert the optimistic Drift write.
+        await db
+            .into(db.securityKeysTable)
+            .insertOnConflictUpdate(
+              SecurityKeysTableCompanion(
+                companyId: Value(widget.companyId),
+                name: Value(widget.securityKey.name),
+                level: Value(oldLevel),
+              ),
+            );
+        if (mounted) {
+          final msg =
+              e.response?.data?['message'] as String? ?? 'Update failed';
+          showAppSnackbar(context, ref, msg, isError: true);
+        }
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // Reuse the same friendly-name map from the parent widget.
+  String _getFriendlyName(String key) {
+    const names = {
+      'Management': 'Management',
+      'Settings': 'Settings',
+      'BusinessDay.Close': 'End of day',
+      'SalesHistory': 'View sales history',
+      'Order.All': 'View all open orders',
+      'CashMovement': 'Cash in / out',
+      'CreditPayments': 'Credit payments',
+    };
+    return names[key] ?? key;
   }
 
   @override
@@ -282,9 +358,13 @@ class _UsersListTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final asyncUsers = ref.watch(allUsersAdminProvider);
     final company = ref.watch(selectedCompanyProvider);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Kick off a background API seed each time this tab opens so users
+    // created on another device (or after the last watermark sync) appear
+    // immediately. autoDispose ensures it re-runs on next screen open.
+    if (company != null) ref.watch(seedUsersFromApiProvider(company.id));
+
+    final asyncUsers = ref.watch(allUsersAdminProvider);
 
     return asyncUsers.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -299,21 +379,21 @@ class _UsersListTab extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   "No users found.",
-                  style: TextStyle(color: Colors.grey, fontSize: 16),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 16,
+                  ),
                 ),
                 const SizedBox(height: 12),
                 ElevatedButton.icon(
                   icon: const Icon(Icons.person_add),
                   label: const Text("Add First User"),
-                  onPressed: () async {
-                    await showDialog(
-                      context: context,
-                      builder: (_) => _AddUserDialog(companyId: companyId),
-                    );
-                    ref.invalidate(allUsersAdminProvider);
-                  },
+                  onPressed: () => showDialog(
+                    context: context,
+                    builder: (_) => _AddUserDialog(companyId: companyId),
+                  ),
                 ),
               ],
             ),
@@ -326,26 +406,42 @@ class _UsersListTab extends ConsumerWidget {
           separatorBuilder: (_, __) => const Divider(),
           itemBuilder: (context, i) {
             final user = users[i];
+            final cs = Theme.of(context).colorScheme;
+            final initial = user.displayName.isNotEmpty
+                ? user.displayName[0].toUpperCase()
+                : '?';
             return ListTile(
               leading: CircleAvatar(
                 backgroundColor: user.accessLevel == 0
-                    ? (isDark ? Colors.blue.shade700 : Colors.blue)
-                    : (isDark ? Colors.orange.shade700 : Colors.orange),
-                child: Text(
-                  user.displayName.substring(0, 1).toUpperCase(),
-                  style: const TextStyle(color: Colors.white),
-                ),
+                    ? cs.primary
+                    : cs.secondary,
+                foregroundColor: user.accessLevel == 0
+                    ? cs.onPrimary
+                    : cs.onSecondary,
+                child: Text(initial),
               ),
-              title: Text(user.displayName),
+              title: Text(
+                user.displayName,
+                style: user.isEnabled
+                    ? null
+                    : TextStyle(
+                        color: cs.onSurface.withValues(alpha: 0.45),
+                        decoration: TextDecoration.lineThrough,
+                      ),
+              ),
               subtitle: Text(
                 "${user.accessLevel == 0 ? 'Admin' : 'Cashier'}"
+                "${!user.isEnabled ? ' · Disabled' : ''}"
                 "${user.email != null && user.email!.isNotEmpty ? ' · ${user.email}' : ''}",
               ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   PopupMenuButton<String>(
-                    icon: const Icon(Icons.security, color: Colors.redAccent),
+                    icon: Icon(
+                      Icons.security,
+                      color: cs.error.withValues(alpha: 0.8),
+                    ),
                     tooltip: "Security Actions",
                     onSelected: (value) {
                       if (value == 'reset_password') {
@@ -355,44 +451,35 @@ class _UsersListTab extends ConsumerWidget {
                       }
                     },
                     itemBuilder: (context) => [
-                      const PopupMenuItem(
+                      PopupMenuItem(
                         value: 'reset_password',
                         child: ListTile(
-                          leading: Icon(Icons.password, color: Colors.red),
-                          title: Text("Admin: Reset Password"),
+                          leading: Icon(Icons.password, color: cs.error),
+                          title: const Text("Admin: Reset Password"),
                           contentPadding: EdgeInsets.zero,
                         ),
                       ),
-                      const PopupMenuItem(
+                      PopupMenuItem(
                         value: 'reset_pin',
                         child: ListTile(
-                          leading: Icon(Icons.pin, color: Colors.red),
-                          title: Text("Admin: Reset iPad PIN"),
+                          leading: Icon(Icons.pin, color: cs.error),
+                          title: const Text("Admin: Reset Device PIN"),
                           contentPadding: EdgeInsets.zero,
                         ),
                       ),
                     ],
                   ),
                   IconButton(
-                    icon: Icon(
-                      Icons.edit,
-                      color: isDark ? Colors.blueAccent : Colors.blue.shade700,
-                    ),
+                    icon: Icon(Icons.edit, color: cs.primary),
                     tooltip: "Edit User",
-                    onPressed: () async {
-                      await showDialog(
-                        context: context,
-                        builder: (_) =>
-                            _EditUserDialog(user: user, companyId: companyId),
-                      );
-                      ref.invalidate(allUsersAdminProvider);
-                    },
+                    onPressed: () => showDialog(
+                      context: context,
+                      builder: (_) =>
+                          _EditUserDialog(user: user, companyId: companyId),
+                    ),
                   ),
                   IconButton(
-                    icon: Icon(
-                      Icons.delete,
-                      color: isDark ? Colors.redAccent : Colors.red,
-                    ),
+                    icon: Icon(Icons.delete, color: cs.error),
                     tooltip: "Delete User",
                     onPressed: () async {
                       final confirm = await showDialog<bool>(
@@ -409,15 +496,15 @@ class _UsersListTab extends ConsumerWidget {
                             ),
                             ElevatedButton(
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: isDark
-                                    ? Colors.redAccent
-                                    : Colors.red,
+                                backgroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.error,
+                                foregroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.onError,
                               ),
                               onPressed: () => Navigator.of(ctx).pop(true),
-                              child: const Text(
-                                "Delete",
-                                style: TextStyle(color: Colors.white),
-                              ),
+                              child: const Text("Delete"),
                             ),
                           ],
                         ),
@@ -425,30 +512,34 @@ class _UsersListTab extends ConsumerWidget {
 
                       if (confirm == true) {
                         try {
-                          // ✨ Clean Delegation
                           await ref
                               .read(userManagementProvider)
                               .deleteUser(companyId, user.id);
-                          ref.invalidate(allUsersAdminProvider);
-
+                          // Remove from Drift — the stream auto-updates the list.
+                          await (ref
+                                  .read(appDatabaseProvider)
+                                  .delete(
+                                    ref.read(appDatabaseProvider).usersTable,
+                                  )
+                                ..where((t) => t.id.equals(user.id)))
+                              .go();
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text("User deleted successfully."),
-                                backgroundColor: Colors.green,
-                              ),
+                            showAppSnackbar(
+                              context,
+                              ref,
+                              'User deleted successfully.',
                             );
                           }
                         } on DioException catch (e) {
+                          // Revert the optimistic Drift delete by re-adding
+                          // the seed so the user reappears.
+                          ref.invalidate(seedUsersFromApiProvider(companyId));
                           if (context.mounted) {
-                            final errorMsg =
-                                e.response?.data?['message'] ?? "Delete failed";
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(errorMsg),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
+                            final msg = e.response == null
+                                ? 'No connection. Deleting users requires connectivity.'
+                                : e.response?.data?['message'] ??
+                                      'Delete failed';
+                            showAppSnackbar(context, ref, msg, isError: true);
                           }
                         }
                       }
@@ -475,23 +566,56 @@ class _EnableToggle extends ConsumerStatefulWidget {
 
 class _EnableToggleState extends ConsumerState<_EnableToggle> {
   bool _loading = false;
+
   Future<void> _toggle() async {
+    final newEnabled = !widget.user.isEnabled;
+    final db = ref.read(appDatabaseProvider);
+
+    // Optimistic write — Drift stream emits immediately so the toggle flips
+    // without waiting for the network round-trip.
+    await (db.update(db.usersTable)..where((t) => t.id.equals(widget.user.id)))
+        .write(UsersTableCompanion(isEnabled: Value(newEnabled)));
+
     setState(() => _loading = true);
     try {
       await ref
           .read(userManagementProvider)
-          .toggleUserStatus(
-            widget.companyId,
-            widget.user.id,
-            !widget.user.isEnabled,
-          );
-      ref.invalidate(allUsersAdminProvider);
+          .toggleUserStatus(widget.companyId, widget.user.id, newEnabled);
+      // No invalidate — Drift stream already emitted the new value.
     } on DioException catch (e) {
-      if (mounted) {
-        final errorMsg = e.response?.data?['message'] ?? "Update failed";
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red),
-        );
+      if (e.response == null) {
+        // No connectivity — keep the optimistic Drift write and queue it.
+        await db
+            .into(db.pendingUserOpsTable)
+            .insert(
+              PendingUserOpsTableCompanion(
+                operation: const Value('toggle_user'),
+                companyId: Value(widget.companyId),
+                payload: Value(
+                  jsonEncode({
+                    'userId': widget.user.id,
+                    'isEnabled': newEnabled,
+                  }),
+                ),
+              ),
+            );
+        if (mounted) {
+          showAppSnackbar(
+            context,
+            ref,
+            'Saved offline. Will sync when connected.',
+          );
+        }
+      } else {
+        // Server rejected — revert the optimistic Drift write.
+        await (db.update(db.usersTable)
+              ..where((t) => t.id.equals(widget.user.id)))
+            .write(UsersTableCompanion(isEnabled: Value(!newEnabled)));
+        if (mounted) {
+          final msg =
+              e.response?.data?['message'] as String? ?? 'Update failed';
+          showAppSnackbar(context, ref, msg, isError: true);
+        }
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -549,7 +673,6 @@ class _AddUserDialogState extends ConsumerState<_AddUserDialog> {
       _errorMessage = null;
     });
     try {
-      // ✨ Clean Delegation
       await ref.read(userManagementProvider).addUser(widget.companyId, {
         'firstName': _firstNameCtrl.text.trim(),
         'lastName': _lastNameCtrl.text.trim(),
@@ -559,16 +682,20 @@ class _AddUserDialogState extends ConsumerState<_AddUserDialog> {
         'isEnabled': true,
         'password': _passwordCtrl.text.trim(),
       });
+      // Invalidate the background seed so _UsersListTab re-fetches from the
+      // API and picks up the server-assigned ID for the new user.
+      ref.invalidate(seedUsersFromApiProvider(widget.companyId));
       if (mounted) Navigator.of(context).pop();
     } on DioException catch (e) {
       setState(() {
-        _errorMessage =
-            e.response?.data?['message'] ?? "Failed to create user.";
+        _errorMessage = e.response == null
+            ? 'No connection. Adding users requires connectivity.'
+            : e.response?.data?['message'] ?? 'Failed to create user.';
         _isLoading = false;
       });
     } catch (e) {
       setState(() {
-        _errorMessage = "An unexpected error occurred.";
+        _errorMessage = 'An unexpected error occurred.';
         _isLoading = false;
       });
     }
@@ -723,26 +850,92 @@ class _EditUserDialogState extends ConsumerState<_EditUserDialog> {
       _isLoading = true;
       _errorMessage = null;
     });
+
+    final first = _firstNameCtrl.text.trim();
+    final last = _lastNameCtrl.text.trim();
+    final username = _usernameCtrl.text.trim();
+    final email = _emailCtrl.text.trim();
+    final display = [first, last].where((s) => s.isNotEmpty).join(' ');
+    final db = ref.read(appDatabaseProvider);
+
+    // Optimistic write — list updates immediately with all user fields.
+    await (db.update(
+      db.usersTable,
+    )..where((t) => t.id.equals(widget.user.id))).write(
+      UsersTableCompanion(
+        name: Value(
+          display.isNotEmpty ? display : (widget.user.username ?? ''),
+        ),
+        firstName: Value(first.isNotEmpty ? first : null),
+        lastName: Value(last.isNotEmpty ? last : null),
+        username: Value(username.isNotEmpty ? username : null),
+        email: Value(email.isNotEmpty ? email : null),
+        role: Value(_accessLevel),
+      ),
+    );
+
     try {
-      // ✨ Clean Delegation
       await ref.read(userManagementProvider).updateUser(widget.companyId, {
         'id': widget.user.id,
         'accessLevel': _accessLevel,
-        'firstName': _firstNameCtrl.text.trim(),
-        'lastName': _lastNameCtrl.text.trim(),
-        'username': _usernameCtrl.text.trim(),
-        'email': _emailCtrl.text.trim(),
+        'firstName': first,
+        'lastName': last,
+        'username': username,
+        'email': email,
       });
       if (mounted) Navigator.of(context).pop();
     } on DioException catch (e) {
-      setState(() {
-        _errorMessage =
-            e.response?.data?['message'] ?? "Failed to update user.";
-        _isLoading = false;
-      });
+      if (e.response == null) {
+        // No connectivity — Drift already updated, queue for sync.
+        await db
+            .into(db.pendingUserOpsTable)
+            .insert(
+              PendingUserOpsTableCompanion(
+                operation: const Value('update_user'),
+                companyId: Value(widget.companyId),
+                payload: Value(
+                  jsonEncode({
+                    'id': widget.user.id,
+                    'accessLevel': _accessLevel,
+                    'firstName': first,
+                    'lastName': last,
+                    'username': username,
+                    'email': email,
+                  }),
+                ),
+              ),
+            );
+        if (mounted) {
+          showAppSnackbar(
+            context,
+            ref,
+            'Saved offline. Will sync when connected.',
+          );
+          Navigator.of(context).pop();
+        }
+      } else {
+        // Server rejected — revert the optimistic Drift write.
+        await (db.update(
+          db.usersTable,
+        )..where((t) => t.id.equals(widget.user.id))).write(
+          UsersTableCompanion(
+            name: Value(widget.user.displayName),
+            firstName: Value(widget.user.firstName),
+            lastName: Value(widget.user.lastName),
+            username: Value(widget.user.username),
+            email: Value(widget.user.email),
+            role: Value(widget.user.accessLevel),
+          ),
+        );
+        setState(() {
+          _errorMessage =
+              e.response?.data?['message'] ?? 'Failed to update user.';
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       setState(() {
-        _errorMessage = "An unexpected error occurred.";
+        _errorMessage = 'An unexpected error occurred.';
         _isLoading = false;
       });
     }
@@ -962,7 +1155,9 @@ Future<void> _adminResetPin(
                         Navigator.pop(ctx);
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text("PIN forcibly reset for this iPad!"),
+                            content: Text(
+                              "PIN forcibly reset for this Device!",
+                            ),
                           ),
                         );
                         ref.invalidate(allUsersAdminProvider);

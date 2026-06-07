@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 
-/// Spawns a Windows 11-style overlay toast in the top-right corner.
-/// Duration is read from [SettingKeys.messageDuration].
+/// Shows a premium overlay toast, respecting [SettingKeys.messageDuration]
+/// and [SettingKeys.messagePosition] ('Top' or 'Bottom').
 void showAppSnackbar(
   BuildContext context,
   WidgetRef ref,
@@ -13,8 +13,32 @@ void showAppSnackbar(
   bool isError = false,
 }) {
   final settings = ref.read(appSettingsProvider);
-  final duration = int.tryParse(settings[SettingKeys.messageDuration] ?? '3') ?? 3;
+  final duration =
+      int.tryParse(settings[SettingKeys.messageDuration] ?? '3') ?? 3;
+  final position = settings[SettingKeys.messagePosition] ?? 'Bottom';
 
+  _insertToast(context, message, isError: isError, duration: duration, position: position);
+}
+
+/// Call-site variant that doesn't need a [WidgetRef] — pass the values you
+/// already have (e.g. from a SecurityGuard that already read the settings).
+void showAppSnackbarRaw(
+  BuildContext context,
+  String message, {
+  bool isError = false,
+  int duration = 3,
+  String position = 'Bottom',
+}) {
+  _insertToast(context, message, isError: isError, duration: duration, position: position);
+}
+
+void _insertToast(
+  BuildContext context,
+  String message, {
+  required bool isError,
+  required int duration,
+  required String position,
+}) {
   final overlay = Overlay.of(context);
   late OverlayEntry entry;
   entry = OverlayEntry(
@@ -22,6 +46,7 @@ void showAppSnackbar(
       message: message,
       isError: isError,
       duration: duration,
+      position: position,
       onDismiss: () => entry.remove(),
     ),
   );
@@ -34,12 +59,14 @@ class _PremiumToast extends StatefulWidget {
   final String message;
   final bool isError;
   final int duration;
+  final String position;
   final VoidCallback onDismiss;
 
   const _PremiumToast({
     required this.message,
     required this.isError,
     required this.duration,
+    required this.position,
     required this.onDismiss,
   });
 
@@ -55,6 +82,9 @@ class _PremiumToastState extends State<_PremiumToast>
   Timer? _timer;
   bool _dismissed = false;
 
+  bool get _isBottom =>
+      widget.position.toLowerCase() == 'bottom';
+
   @override
   void initState() {
     super.initState();
@@ -65,6 +95,7 @@ class _PremiumToastState extends State<_PremiumToast>
       reverseDuration: const Duration(milliseconds: 220),
     );
 
+    // Slide in from the right regardless of vertical position.
     _slide = Tween<Offset>(
       begin: const Offset(1.15, 0),
       end: Offset.zero,
@@ -102,7 +133,8 @@ class _PremiumToastState extends State<_PremiumToast>
     final isDark = theme.brightness == Brightness.dark;
 
     return Positioned(
-      top: 32,
+      top: _isBottom ? null : 32,
+      bottom: _isBottom ? 32 : null,
       right: 32,
       child: SlideTransition(
         position: _slide,
@@ -133,8 +165,6 @@ class _PremiumToastState extends State<_PremiumToast>
                     ),
                   ],
                 ),
-                // Outer border uses a uniform color so borderRadius is valid.
-                // The accent strip is rendered as a child widget instead.
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
@@ -157,7 +187,8 @@ class _PremiumToastState extends State<_PremiumToast>
                           // Content
                           Expanded(
                             child: Padding(
-                              padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
+                              padding:
+                                  const EdgeInsets.fromLTRB(12, 14, 12, 14),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -193,7 +224,8 @@ class _PremiumToastState extends State<_PremiumToast>
                                       child: Icon(
                                         Icons.close_rounded,
                                         size: 16,
-                                        color: cs.onSurface.withValues(alpha: 0.40),
+                                        color: cs.onSurface
+                                            .withValues(alpha: 0.40),
                                       ),
                                     ),
                                   ),

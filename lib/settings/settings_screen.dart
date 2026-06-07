@@ -1,7 +1,19 @@
 // lib/settings_screen.dart
 
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:pos_app/database/database_provider.dart';
+import 'package:pos_app/database/backup_service.dart';
+import 'package:pos_app/utils/customer_display_service.dart';
+import 'package:pos_app/customer_display/customer_display_web_server.dart';
+import 'package:pos_app/customer_display/customer_display_screen.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
@@ -1318,12 +1330,14 @@ class _StepperRow extends StatelessWidget {
   final String settingKey;
   final int min;
   final int max;
+  final String? suffix;
 
   const _StepperRow({
     required this.label,
     required this.settingKey,
     required this.min,
     required this.max,
+    this.suffix,
   });
 
   @override
@@ -1336,6 +1350,10 @@ class _StepperRow extends StatelessWidget {
             child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
           ),
           _NumericStepper(settingKey: settingKey, min: min, max: max),
+          if (suffix != null) ...[
+            const SizedBox(width: 8),
+            Text(suffix!, style: Theme.of(context).textTheme.bodyMedium),
+          ],
         ],
       ),
     );
@@ -2387,33 +2405,59 @@ class _WeighingScaleTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appSettingsProvider);
+    final barcodeOn =
+        settings[SettingKeys.scaleBarcodeEnabled]?.toLowerCase() == 'true';
+
     return _TabScrollView(
       cards: [
         _SettingsCard(
-          title: 'SCALE CONNECTION',
+          title: 'BARCODE PARSING',
           children: [
             const _SettingSwitch(
-              settingKey: SettingKeys.scaleEnabled,
-              label: 'Weighing Scale Enabled',
+              settingKey: SettingKeys.scaleBarcodeEnabled,
+              label: 'Enable weighing scales barcode',
               subtitle:
-                  'Connect a serial weighing scale to automatically read weights',
+                  'Parse weight/price from barcodes printed by a weighing scale',
             ),
-            const _SettingDropdown(
-              settingKey: SettingKeys.scalePort,
-              label: 'Serial Port',
-              options: [
-                'COM1',
-                'COM2',
-                'COM3',
-                'COM4',
-                '/dev/ttyS0',
-                '/dev/ttyS1',
-              ],
-            ),
-            const _SettingDropdown(
-              settingKey: SettingKeys.scaleBaudRate,
-              label: 'Baud Rate',
-              options: ['1200', '2400', '4800', '9600', '19200', '38400'],
+            Opacity(
+              opacity: barcodeOn ? 1.0 : 0.4,
+              child: IgnorePointer(
+                ignoring: !barcodeOn,
+                child: Column(
+                  children: [
+                    const _SettingTextField(
+                      settingKey: SettingKeys.scaleBarcodePrefix,
+                      label: 'First two digits / prefix',
+                      hint: 'e.g. 21',
+                    ),
+                    const _StepperRow(
+                      label: 'Number of digits for product code',
+                      settingKey: SettingKeys.scaleBarcodeCodeLength,
+                      min: 1,
+                      max: 10,
+                    ),
+                    const _StepperRow(
+                      label: 'Number of decimal places',
+                      settingKey: SettingKeys.scaleBarcodeDecimalPlaces,
+                      min: 0,
+                      max: 5,
+                    ),
+                    const _SettingSwitch(
+                      settingKey: SettingKeys.scaleBarcodeTrimZeros,
+                      label: 'Remove zeros from product code (trim zeros)',
+                      subtitle:
+                          'Strip leading zeros before looking up the product',
+                    ),
+                    const _SettingSwitch(
+                      settingKey: SettingKeys.scaleBarcodePrintsPrice,
+                      label: 'Scale prints price instead of quantity',
+                      subtitle:
+                          'When on, the encoded value is a price and quantity is calculated as price ÷ unit price',
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
@@ -2423,40 +2467,422 @@ class _WeighingScaleTab extends ConsumerWidget {
 }
 
 // ── Customer Display ──────────────────────────────────────────────────────────
-class _CustomerDisplayTab extends ConsumerWidget {
+class _CustomerDisplayTab extends ConsumerStatefulWidget {
   const _CustomerDisplayTab();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_CustomerDisplayTab> createState() =>
+      _CustomerDisplayTabState();
+}
+
+class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
+  bool _showPortSettings = false;
+  bool _webRunning = false;
+  String _webUrl = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // Re-start the server if it was already enabled (e.g. after settings tab reopen)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final on = ref.read(appSettingsProvider)[
+              SettingKeys.customerDisplayWebEnabled]
+          ?.toLowerCase() ==
+          'true';
+      if (on && mounted) _startWeb();
+    });
+  }
+
+  // ── Serial display helpers ──────────────────────────────────────────────────
+
+  void _restorePortDefaults() {
+    final n = ref.read(appSettingsProvider.notifier);
+    n.set(SettingKeys.customerDisplayBaudRate, '9600');
+    n.set(SettingKeys.customerDisplayDataBits, '8');
+    n.set(SettingKeys.customerDisplayParity, 'None');
+    n.set(SettingKeys.customerDisplayStopBits, '1');
+    n.set(SettingKeys.customerDisplayFlowControl, 'None');
+  }
+
+  Future<void> _testDisplay() async {
+    final settings = ref.read(appSettingsProvider);
+    await CustomerDisplayService.showWelcome(settings: settings);
+    if (mounted) showAppSnackbar(context, ref, 'Test message sent.');
+  }
+
+  // ── Web server helpers ──────────────────────────────────────────────────────
+
+  Future<void> _startWeb() async {
+    await CustomerDisplayWebServer.instance.start();
+    // Pre-load the Lottie animation so /lottie.json can be served to browsers.
+    try {
+      final data = await rootBundle.load(
+          'assets/animations/success_animation.json');
+      CustomerDisplayWebServer.instance.setLottieJson(
+          utf8.decode(data.buffer.asUint8List()));
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _webRunning = true;
+      _webUrl = CustomerDisplayWebServer.instance.url;
+    });
+  }
+
+  Future<void> _stopWeb() async {
+    await CustomerDisplayWebServer.instance.stop();
+    if (!mounted) return;
+    setState(() { _webRunning = false; _webUrl = ''; });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final enabled = ref.watch(appSettingsProvider)[
+            SettingKeys.customerDisplayEnabled]
+        ?.toLowerCase() ==
+        'true';
+
+    // _webRunning is local state, but the server is a singleton that outlives
+    // this widget.  Derive from actual server state so the URL/QR section is
+    // always visible when the server is running, even if _webRunning is stale.
+    final serverRunning = _webRunning || CustomerDisplayWebServer.instance.isRunning;
+    final displayUrl    = (_webUrl.isNotEmpty
+        ? _webUrl
+        : CustomerDisplayWebServer.instance.url);
+
     return _TabScrollView(
       cards: [
         _SettingsCard(
           title: 'CUSTOMER DISPLAY',
           children: [
+            // Enabled
             const _SettingSwitch(
               settingKey: SettingKeys.customerDisplayEnabled,
-              label: 'Customer Display Enabled',
-              subtitle:
-                  'Show order total on a secondary customer-facing screen',
+              label: 'Enabled',
+              subtitle: 'Show order total on a serial VFD / LCD pole display',
             ),
-            const _SettingDropdown(
-              settingKey: SettingKeys.customerDisplayPort,
-              label: 'Display Port',
-              options: [
-                'COM1',
-                'COM2',
-                'COM3',
-                'COM4',
-                '/dev/ttyS0',
-                '/dev/ttyS1',
-                'Network',
-              ],
+            Opacity(
+              opacity: enabled ? 1.0 : 0.4,
+              child: IgnorePointer(
+                ignoring: !enabled,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // COM port row + toggle link
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 10),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _SettingDropdown(
+                              settingKey: SettingKeys.customerDisplayPort,
+                              label: 'COM port',
+                              options: const [
+                                'COM1', 'COM2', 'COM3', 'COM4', 'COM5',
+                                'COM6', 'COM7', 'COM8', 'COM9', 'COM10',
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          TextButton(
+                            onPressed: () => setState(
+                                () => _showPortSettings = !_showPortSettings),
+                            child: Text(
+                              _showPortSettings
+                                  ? 'Hide port settings'
+                                  : 'Show port settings',
+                              style: TextStyle(
+                                  color: theme.colorScheme.primary,
+                                  fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Expandable port settings
+                    if (_showPortSettings)
+                      Container(
+                        margin: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            left: BorderSide(
+                              color: theme.colorScheme.primary,
+                              width: 3,
+                            ),
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            const _SettingDropdown(
+                              settingKey:
+                                  SettingKeys.customerDisplayBaudRate,
+                              label: 'Bits per second',
+                              options: [
+                                '1200', '2400', '4800', '9600',
+                                '19200', '38400', '57600', '115200',
+                              ],
+                            ),
+                            const _SettingDropdown(
+                              settingKey:
+                                  SettingKeys.customerDisplayDataBits,
+                              label: 'Data bits',
+                              options: ['5', '6', '7', '8'],
+                            ),
+                            const _SettingDropdown(
+                              settingKey: SettingKeys.customerDisplayParity,
+                              label: 'Parity',
+                              options: [
+                                'None', 'Even', 'Odd', 'Mark', 'Space',
+                              ],
+                            ),
+                            const _SettingDropdown(
+                              settingKey:
+                                  SettingKeys.customerDisplayStopBits,
+                              label: 'Stop bits',
+                              options: ['1', '1.5', '2'],
+                            ),
+                            const _SettingDropdown(
+                              settingKey:
+                                  SettingKeys.customerDisplayFlowControl,
+                              label: 'Flow control',
+                              options: ['None', 'RTS/CTS', 'XON/XOFF'],
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: TextButton(
+                                  onPressed: _restorePortDefaults,
+                                  child: Text(
+                                    'Restore defaults',
+                                    style: TextStyle(
+                                        color: theme.colorScheme.primary,
+                                        fontSize: 12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    // Number of characters
+                    const _StepperRow(
+                      label: 'Number of characters',
+                      settingKey: SettingKeys.customerDisplayNumChars,
+                      min: 1,
+                      max: 40,
+                    ),
+                  ],
+                ),
+              ),
             ),
+          ],
+        ),
+
+        // Welcome message card
+        _SettingsCard(
+          title: 'WELCOME MESSAGE',
+          children: [
             const _SettingTextField(
               settingKey: SettingKeys.customerDisplayWelcomeMessage,
-              label: 'Welcome Message',
-              hint: 'e.g. Welcome!',
+              label: 'Top line',
+              hint: 'WELCOME!',
             ),
+            const _SettingTextField(
+              settingKey: SettingKeys.customerDisplayWelcomeBottom,
+              label: 'Bottom line',
+              hint: '',
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+              child: OutlinedButton(
+                onPressed: enabled ? _testDisplay : null,
+                child: const Text('Test display'),
+              ),
+            ),
+          ],
+        ),
+
+        // ── Open on this device (always available, no web server needed) ───
+        _SettingsCard(
+          title: 'OPEN ON THIS DEVICE',
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+              child: Text(
+                'Opens the customer display as a full-screen Flutter view on this machine. '
+                'Ideal for a second monitor — drag the window over and press F11.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              child: FilledButton.icon(
+                icon: const Icon(Icons.open_in_new, size: 18),
+                label: const Text('Open customer display'),
+                onPressed: () async {
+                  // Auto-start the WS server if it isn't running yet —
+                  // the native screen connects to ws://localhost:8181/ws
+                  // regardless of whether the web-display toggle is on.
+                  if (!CustomerDisplayWebServer.instance.isRunning) {
+                    await _startWeb();
+                  }
+                  // Push a fresh idle broadcast so _lastState has company
+                  // name + logo before the native screen connects and reads it.
+                  final settings = ref.read(appSettingsProvider);
+                  final company  = ref.read(selectedCompanyProvider);
+                  CustomerDisplayWebServer.instance.broadcast({
+                    'type':        'idle',
+                    'company':     {
+                      'name': company?.name ?? '',
+                      'logo': company?.logo,
+                    },
+                    'welcomeText':
+                        settings[SettingKeys.customerDisplayWelcomeMessage] ??
+                        'WELCOME!',
+                  });
+                  if (!mounted) return;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      fullscreenDialog: true,
+                      builder: (_) => const CustomerDisplayScreen(),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+
+        // ── Web / Screen Display ────────────────────────────────────────────
+        _SettingsCard(
+          title: 'SCREEN DISPLAY (WEB)',
+          children: [
+            _SettingSwitch(
+              settingKey: SettingKeys.customerDisplayWebEnabled,
+              label: 'Enable live web customer display',
+              subtitle:
+                  'Host an interactive order screen accessible from any browser on your network',
+              onChanged: (_, on) => on ? _startWeb() : _stopWeb(),
+            ),
+            if (serverRunning) ...[
+              // ── Same-machine (second monitor) shortcut ──────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Row(
+                  children: [
+                    Icon(Icons.monitor, size: 18,
+                        color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Same machine / second monitor',
+                              style: theme.textTheme.labelMedium),
+                          SelectableText(
+                            'http://localhost:${CustomerDisplayWebServer.port}',
+                            style: TextStyle(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.open_in_browser),
+                      tooltip: 'Open in browser (drag to second monitor)',
+                      onPressed: () => launchUrl(
+                        Uri.parse(
+                            'http://localhost:${CustomerDisplayWebServer.port}'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(indent: 20, endIndent: 20, height: 20),
+              // ── LAN / other device URL ──────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                child: Row(
+                  children: [
+                    Icon(Icons.wifi, size: 18,
+                        color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Other device on same network',
+                              style: theme.textTheme.labelMedium),
+                          SelectableText(
+                            displayUrl,
+                            style: TextStyle(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.copy, size: 18),
+                      tooltip: 'Copy LAN URL',
+                      onPressed: () {
+                        Clipboard.setData(ClipboardData(text: displayUrl));
+                        showAppSnackbar(context, ref, 'URL copied');
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              // QR code
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.08),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: QrImageView(
+                        data: displayUrl,
+                        version: QrVersions.auto,
+                        size: 180,
+                        backgroundColor: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Scan the QR code to open the customer display on any internet-connected device.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ],
@@ -2910,33 +3336,300 @@ class _DualCurrencyTab extends ConsumerWidget {
 }
 
 // ── Database ──────────────────────────────────────────────────────────────────
-class _DatabaseTab extends ConsumerWidget {
+class _DatabaseTab extends ConsumerStatefulWidget {
   const _DatabaseTab();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_DatabaseTab> createState() => _DatabaseTabState();
+}
+
+class _DatabaseTabState extends ConsumerState<_DatabaseTab> {
+  bool _isBackingUp = false;
+
+  Future<void> _doBackup() async {
+    // If no backup location is configured yet, ask the user to pick one first.
+    var backupDir =
+        ref.read(appSettingsProvider)[SettingKeys.dbBackupPath] ?? '';
+    if (backupDir.trim().isEmpty) {
+      final picked = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'Select Backup Folder',
+      );
+      if (picked == null || !mounted) return;
+      await ref.read(appSettingsProvider.notifier).set(
+            SettingKeys.dbBackupPath, picked,
+          );
+      backupDir = picked;
+    }
+
+    setState(() => _isBackingUp = true);
+    try {
+      final settings = ref.read(appSettingsProvider);
+      final companyName = ref.read(selectedCompanyProvider)?.name ?? 'POS';
+
+      final destPath = await BackupService.backupNow(
+        backupDir: backupDir,
+        companyName: companyName,
+      );
+
+      // Prune old backups if enabled
+      if (settings[SettingKeys.dbBackupAutoDelete]?.toLowerCase() == 'true') {
+        final days =
+            int.tryParse(settings[SettingKeys.dbBackupRetentionDays] ?? '10') ??
+            10;
+        final resolvedDir = p.dirname(destPath);
+        await BackupService.pruneOldBackups(
+          backupDir: resolvedDir,
+          retentionDays: days,
+        );
+      }
+
+      if (mounted) {
+        showAppSnackbar(context, ref, 'Backup saved: ${p.basename(destPath)}');
+      }
+    } catch (e) {
+      if (mounted) {
+        showAppSnackbar(context, ref, 'Backup failed: $e', isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => _isBackingUp = false);
+    }
+  }
+
+  /// Picks a folder if none is configured, saves it, then opens it in Explorer.
+  Future<void> _openLocation() async {
+    var dir = ref.read(appSettingsProvider)[SettingKeys.dbBackupPath] ?? '';
+    if (dir.trim().isEmpty) {
+      final picked = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'Select Backup Folder',
+      );
+      if (picked == null || !mounted) return;
+      await ref.read(appSettingsProvider.notifier).set(
+            SettingKeys.dbBackupPath, picked,
+          );
+      dir = picked;
+    }
+    BackupService.openDirectory(dir);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final settings = ref.watch(appSettingsProvider);
+    final autoEnabled =
+        settings[SettingKeys.dbAutoBackup]?.toLowerCase() == 'true';
+    final autoDelete =
+        settings[SettingKeys.dbBackupAutoDelete]?.toLowerCase() == 'true';
+
     return _TabScrollView(
       cards: [
+        // ── Backup now ────────────────────────────────────────────────────────
         _SettingsCard(
-          title: 'BACKUP',
+          title: 'DATABASE',
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
+              child: FilledButton.icon(
+                onPressed: _isBackingUp ? null : _doBackup,
+                icon: _isBackingUp
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.backup_outlined),
+                label: Text(_isBackingUp ? 'Backing up…' : 'Backup database'),
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 48),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 20, 14),
+              child: TextButton.icon(
+                onPressed: _openLocation,
+                icon: Icon(
+                  Icons.folder_open_outlined,
+                  size: 16,
+                  color: theme.colorScheme.primary,
+                ),
+                label: Text(
+                  'Open database location',
+                  style: TextStyle(color: theme.colorScheme.primary),
+                ),
+                style: TextButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  alignment: Alignment.centerLeft,
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        // ── Automatic backups ─────────────────────────────────────────────────
+        _SettingsCard(
+          title: 'AUTOMATIC BACKUPS',
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
+              child: Text(
+                'Automatically create backup copies of your data to protect against loss or corruption',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
             const _SettingSwitch(
               settingKey: SettingKeys.dbAutoBackup,
-              label: 'Automatic Backup Enabled',
+              label: 'Enable automatic backups',
             ),
-            const _SettingTextField(
-              settingKey: SettingKeys.dbBackupPath,
-              label: 'Backup Destination Path',
-              hint: 'e.g. C:\\Backups\\POS  or  /home/user/backups',
-            ),
-            const _SettingTextField(
-              settingKey: SettingKeys.dbBackupVersion,
-              label: 'Backup Schema Version',
-              hint: 'e.g. v2',
+            Opacity(
+              opacity: autoEnabled ? 1.0 : 0.4,
+              child: IgnorePointer(
+                ignoring: !autoEnabled,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const _SettingSwitch(
+                      settingKey: SettingKeys.dbBackupOnStart,
+                      label: 'Backup database on application start',
+                    ),
+                    const _SettingSwitch(
+                      settingKey: SettingKeys.dbBackupOnClose,
+                      label: 'Backup database on application close',
+                    ),
+                    const _StepperRow(
+                      label: 'Back up automatically every',
+                      settingKey: SettingKeys.dbBackupIntervalHours,
+                      min: 0,
+                      max: 168,
+                      suffix: 'hours',
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                      child: Text(
+                        'Set to 0 to turn off scheduled backups',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                    const _BackupLocationField(),
+                    const _SettingSwitch(
+                      settingKey: SettingKeys.dbBackupAutoDelete,
+                      label: 'Delete old backups automatically',
+                    ),
+                    Opacity(
+                      opacity: autoDelete ? 1.0 : 0.4,
+                      child: IgnorePointer(
+                        ignoring: !autoDelete,
+                        child: const _StepperRow(
+                          label: 'Delete backups older than',
+                          settingKey: SettingKeys.dbBackupRetentionDays,
+                          min: 1,
+                          max: 365,
+                          suffix: 'days',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
       ],
+    );
+  }
+}
+
+/// Backup location text field with a "…" browse button.
+/// Saves to [SettingKeys.dbBackupPath] on focus-loss/submit/browse.
+class _BackupLocationField extends ConsumerStatefulWidget {
+  const _BackupLocationField();
+
+  @override
+  ConsumerState<_BackupLocationField> createState() =>
+      _BackupLocationFieldState();
+}
+
+class _BackupLocationFieldState extends ConsumerState<_BackupLocationField> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(
+      text: ref.read(appSettingsProvider.notifier).get(SettingKeys.dbBackupPath),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final notifier = ref.read(appSettingsProvider.notifier);
+    if (_ctrl.text.trim() == notifier.get(SettingKeys.dbBackupPath)) return;
+    await notifier.set(SettingKeys.dbBackupPath, _ctrl.text.trim());
+  }
+
+  Future<void> _browse() async {
+    final result = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: 'Select Backup Folder',
+    );
+    if (result != null) {
+      _ctrl.text = result;
+      await ref
+          .read(appSettingsProvider.notifier)
+          .set(SettingKeys.dbBackupPath, result);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _ctrl,
+              decoration: InputDecoration(
+                labelText: 'Backup location',
+                hintText: Platform.isWindows
+                    ? r'e.g. D:\database\Backup'
+                    : 'e.g. /home/user/backups',
+                filled: true,
+                fillColor: theme.colorScheme.surface,
+                border: const OutlineInputBorder(),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                isDense: true,
+              ),
+              onEditingComplete: _save,
+              onSubmitted: (_) => _save(),
+            ),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: _browse,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size(44, 44),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+            ),
+            child: const Text('…'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -3012,18 +3705,104 @@ class _LicenseTab extends ConsumerWidget {
 }
 
 // ── About ─────────────────────────────────────────────────────────────────────
+// ── About tab helpers ─────────────────────────────────────────────────────────
+
+class _AboutStats {
+  final int productCount;
+  final int customerCount;
+  final int userCount;
+  final DateTime? lastSync;
+  final int dbSizeBytes;
+
+  const _AboutStats({
+    required this.productCount,
+    required this.customerCount,
+    required this.userCount,
+    required this.lastSync,
+    required this.dbSizeBytes,
+  });
+
+  String get dbSizeFormatted {
+    if (dbSizeBytes < 1024) return '$dbSizeBytes B';
+    if (dbSizeBytes < 1024 * 1024) {
+      return '${(dbSizeBytes / 1024).toStringAsFixed(1)} KB';
+    }
+    return '${(dbSizeBytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+  }
+}
+
+final _aboutStatsProvider =
+    FutureProvider.autoDispose<_AboutStats>((ref) async {
+  final db = ref.watch(appDatabaseProvider);
+  final companyId = ref.watch(selectedCompanyProvider)?.id ?? 0;
+
+  final products = await (db.select(db.productsTable)
+        ..where((t) => t.companyId.equals(companyId)))
+      .get();
+  final customers = await (db.select(db.customersTable)
+        ..where((t) => t.companyId.equals(companyId)))
+      .get();
+  final users = await (db.select(db.usersTable)
+        ..where((t) => t.companyId.equals(companyId)))
+      .get();
+
+  // Most recent lastSyncedAt across all entities
+  final syncRows = await db.select(db.syncMetaTable).get();
+  final lastSync = syncRows
+      .map((r) => r.lastSyncedAt)
+      .whereType<DateTime>()
+      .fold<DateTime?>(
+        null,
+        (best, t) => best == null || t.isAfter(best) ? t : best,
+      );
+
+  int dbSizeBytes = 0;
+  try {
+    final path = await BackupService.dbFilePath();
+    dbSizeBytes = File(path).lengthSync();
+  } catch (_) {}
+
+  return _AboutStats(
+    productCount: products.length,
+    customerCount: customers.length,
+    userCount: users.length,
+    lastSync: lastSync,
+    dbSizeBytes: dbSizeBytes,
+  );
+});
+
+String _fmtAboutDt(DateTime dt) {
+  final l = dt.toLocal();
+  final now = DateTime.now();
+  final isToday =
+      l.year == now.year && l.month == now.month && l.day == now.day;
+  final datePart = isToday
+      ? 'Today'
+      : '${l.day.toString().padLeft(2, '0')}/'
+            '${l.month.toString().padLeft(2, '0')}/'
+            '${l.year}';
+  final timePart =
+      '${l.hour.toString().padLeft(2, '0')}:${l.minute.toString().padLeft(2, '0')}';
+  return '$datePart at $timePart';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 class _AboutTab extends ConsumerWidget {
   const _AboutTab();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appSettingsProvider);
+    final company  = ref.watch(selectedCompanyProvider);
+    final statsAsync = ref.watch(_aboutStatsProvider);
     final theme = Theme.of(context);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
+          // ── Hero header ───────────────────────────────────────────────────
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(32),
@@ -3042,13 +3821,14 @@ class _AboutTab extends ConsumerWidget {
               children: [
                 const Icon(Icons.point_of_sale, size: 64, color: Colors.white),
                 const SizedBox(height: 16),
-                const Text(
-                  'POS System',
-                  style: TextStyle(
+                Text(
+                  company?.name ?? 'POS System',
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
                   ),
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -3071,17 +3851,63 @@ class _AboutTab extends ConsumerWidget {
                   child: Text(
                     'API: ${settings[SettingKeys.apiBaseUrl] ?? '–'}',
                     style: const TextStyle(color: Colors.white, fontSize: 12),
+                    textAlign: TextAlign.center,
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 20),
+
+          // ── Company ───────────────────────────────────────────────────────
+          _SettingsCard(
+            title: 'COMPANY',
+            children: [
+              _InfoRow(label: 'Name',   value: company?.name       ?? '–'),
+              _InfoRow(label: 'Tax No', value: company?.taxNumber  ?? '–'),
+              _InfoRow(label: 'Phone',  value: company?.phoneNumber ?? '–'),
+              _InfoRow(label: 'Address',value: company?.address    ?? '–'),
+            ],
+          ),
+
+          // ── Database ──────────────────────────────────────────────────────
+          statsAsync.when(
+            loading: () => _SettingsCard(
+              title: 'DATABASE',
+              children: const [
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              ],
+            ),
+            error: (e, _) => _SettingsCard(
+              title: 'DATABASE',
+              children: [
+                _InfoRow(label: 'Error', value: e.toString()),
+              ],
+            ),
+            data: (s) => _SettingsCard(
+              title: 'DATABASE',
+              children: [
+                _InfoRow(label: 'Products',  value: '${s.productCount}'),
+                _InfoRow(label: 'Customers', value: '${s.customerCount}'),
+                _InfoRow(label: 'Users',     value: '${s.userCount}'),
+                _InfoRow(label: 'DB Size',   value: s.dbSizeFormatted),
+                _InfoRow(
+                  label: 'Last Sync',
+                  value: s.lastSync != null ? _fmtAboutDt(s.lastSync!) : 'Never',
+                ),
+              ],
+            ),
+          ),
+
+          // ── System ────────────────────────────────────────────────────────
           _SettingsCard(
             title: 'SYSTEM INFO',
             children: [
               _InfoRow(
-                label: 'Currency Symbol',
+                label: 'Currency',
                 value: settings[SettingKeys.currencySymbol] ?? '–',
               ),
               _InfoRow(
@@ -3093,22 +3919,20 @@ class _AboutTab extends ConsumerWidget {
                 value: settings[SettingKeys.dateFormat] ?? '–',
               ),
               _InfoRow(
-                label: 'Tax Included by Default',
-                value: (settings[SettingKeys.taxIncludedByDefault] == 'true')
-                    ? 'Yes'
-                    : 'No',
+                label: 'Industry Mode',
+                value: settings[SettingKeys.industryMode] ?? '–',
               ),
               _InfoRow(
                 label: 'Dual Currency',
-                value: (settings[SettingKeys.dualCurrencyEnabled] == 'true')
+                value: settings[SettingKeys.dualCurrencyEnabled] == 'true'
                     ? 'Enabled'
                     : 'Disabled',
               ),
               _InfoRow(
-                label: 'Backup',
-                value: (settings[SettingKeys.dbAutoBackup] == 'true')
-                    ? 'Automatic'
-                    : 'Manual',
+                label: 'Auto Backup',
+                value: settings[SettingKeys.dbAutoBackup] == 'true'
+                    ? 'On'
+                    : 'Off',
               ),
             ],
           ),

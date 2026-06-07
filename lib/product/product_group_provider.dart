@@ -1,19 +1,24 @@
+import 'package:drift/drift.dart' show OrderingTerm;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pos_app/product/product_group_model.dart';
-import 'package:pos_app/product/product_group_service.dart';
+
 import 'package:pos_app/company/company_provider.dart';
-import 'package:pos_app/utils/api_error_parser.dart';
+import 'package:pos_app/database/database_provider.dart';
+import 'package:pos_app/product/product_group_model.dart';
 
+/// Live list of product groups for the current company, streamed from Drift.
+/// Sorted by `rank` ascending to match what the menu grid expects.
 final allProductGroupsProvider =
-    FutureProvider.autoDispose<List<ProductGroup>>((ref) async {
-  final company = ref.watch(selectedCompanyProvider);
-  if (company == null) return [];
+    StreamProvider.autoDispose<List<ProductGroup>>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return const Stream.empty();
 
-  try {
-    final service = ref.watch(productGroupServiceProvider);
-    return await service.getAll(company.id);
-  } catch (e, st) {
-    rethrowApiError(e, st);
-    return [];
-  }
+  final query = db.select(db.productGroupsTable)
+    ..where((t) => t.companyId.equals(companyId))
+    ..where((t) => t.syncStatus.isNotIn(['pending_delete']))
+    ..orderBy([(t) => OrderingTerm.asc(t.rank)]);
+
+  return query
+      .watch()
+      .map((rows) => rows.map(ProductGroup.fromDrift).toList());
 });

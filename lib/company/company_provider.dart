@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_model.dart';
 import 'package:pos_app/currency/country_model.dart';
+import 'package:pos_app/database/database_provider.dart';
 
 // The currently selected company
 class SelectedCompanyNotifier extends Notifier<Company?> {
@@ -23,21 +24,25 @@ final selectedCompanyProvider =
     NotifierProvider<SelectedCompanyNotifier, Company?>(
         () => SelectedCompanyNotifier());
 
-// Fetches full company detail from GetById — always authoritative.
-final companyDetailProvider = FutureProvider.autoDispose<Company>((ref) async {
-  final selected = ref.watch(selectedCompanyProvider);
-  if (selected == null) throw Exception('No company selected');
+/// Streams the active company's full row from the Drift `companies` cache.
+/// Re-emits whenever pullCompany updates the row (e.g. logo refresh), so
+/// receipts and headers reflect the latest cached branding without any
+/// manual `ref.invalidate` plumbing.
+///
+/// Emits `null` while no company is selected OR before the first sync has
+/// populated the cache — callers should treat null as "fall back to the
+/// lightweight `selectedCompanyProvider` value."
+final companyDetailProvider = StreamProvider.autoDispose<Company?>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  final selectedId = ref.watch(selectedCompanyProvider)?.id;
+  if (selectedId == null) return Stream.value(null);
 
-  final dio = createDio();
-  final response = await dio.get(
-    '/Company/GetById',
-    queryParameters: {'id': selected.id},
-  );
-  final company = Company.fromJson(response.data as Map<String, dynamic>);
+  final query = db.select(db.companiesTable)
+    ..where((t) => t.id.equals(selectedId));
 
-  // Keep selectedCompanyProvider in sync with fresh detail data.
-  ref.read(selectedCompanyProvider.notifier).update(company);
-  return company;
+  return query
+      .watchSingleOrNull()
+      .map((row) => row == null ? null : Company.fromDrift(row));
 });
 
 // Fetch all companies for the selection screen

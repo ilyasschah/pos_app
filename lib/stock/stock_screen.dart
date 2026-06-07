@@ -666,15 +666,22 @@ class _StockScreenState extends ConsumerState<StockScreen> {
         DataCell(
           Row(
             children: [
-              product.imageBytes != null
+              // FileImage → MemoryImage → placeholder. FileImage is cached
+              // by path so the avatar decodes once per product per session.
+              product.imageFile != null
                   ? CircleAvatar(
                       radius: 14,
-                      backgroundImage: MemoryImage(product.imageBytes!),
+                      backgroundImage: FileImage(product.imageFile!),
                     )
-                  : const CircleAvatar(
-                      radius: 14,
-                      child: Icon(Icons.inventory_2, size: 14),
-                    ),
+                  : product.imageBytes != null
+                      ? CircleAvatar(
+                          radius: 14,
+                          backgroundImage: MemoryImage(product.imageBytes!),
+                        )
+                      : const CircleAvatar(
+                          radius: 14,
+                          child: Icon(Icons.inventory_2, size: 14),
+                        ),
               const SizedBox(width: 8),
               Flexible(
                 child: Text(
@@ -1250,20 +1257,25 @@ class _ProductDetailPanelState
             color: theme.colorScheme.surfaceContainerHighest,
             child: Row(
               children: [
-                product.imageBytes != null
+                product.imageFile != null
                     ? CircleAvatar(
                         radius: 24,
-                        backgroundImage:
-                            MemoryImage(product.imageBytes!),
+                        backgroundImage: FileImage(product.imageFile!),
                       )
-                    : CircleAvatar(
-                        radius: 24,
-                        backgroundColor:
-                            theme.colorScheme.primaryContainer,
-                        child: Icon(Icons.inventory_2,
-                            color: theme.colorScheme.primary,
-                            size: 22),
-                      ),
+                    : product.imageBytes != null
+                        ? CircleAvatar(
+                            radius: 24,
+                            backgroundImage:
+                                MemoryImage(product.imageBytes!),
+                          )
+                        : CircleAvatar(
+                            radius: 24,
+                            backgroundColor:
+                                theme.colorScheme.primaryContainer,
+                            child: Icon(Icons.inventory_2,
+                                color: theme.colorScheme.primary,
+                                size: 22),
+                          ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(

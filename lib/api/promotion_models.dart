@@ -1,5 +1,7 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import 'package:pos_app/database/app_database.dart';
+
 part 'promotion_models.g.dart';
 
 @JsonSerializable(createFactory: false)
@@ -14,6 +16,10 @@ class PromotionDto {
   final int daysOfWeek;
   final bool isEnabled;
   final List<PromotionItemDto> items;
+  final String syncStatus;
+
+  bool get isPendingSync => syncStatus != 'synced';
+  bool get isPendingCreate => syncStatus == 'pending_create';
 
   PromotionDto({
     required this.id,
@@ -26,6 +32,7 @@ class PromotionDto {
     required this.daysOfWeek,
     required this.isEnabled,
     this.items = const [],
+    this.syncStatus = 'synced',
   });
 
   factory PromotionDto.fromJson(Map<String, dynamic> json) {
@@ -48,6 +55,39 @@ class PromotionDto {
           .toList() ?? const [],
     );
   }
+
+  factory PromotionDto.fromDrift(
+    PromotionsTableData row, [
+    List<PromotionItemsTableData> itemRows = const [],
+  ]) {
+    return PromotionDto(
+      id: row.id,
+      companyId: row.companyId,
+      name: row.name,
+      startDate: row.startDate,
+      startTime: row.startTime,
+      endDate: row.endDate,
+      endTime: row.endTime,
+      daysOfWeek: row.daysOfWeek,
+      isEnabled: row.isEnabled,
+      syncStatus: row.syncStatus,
+      items: itemRows
+          .map((i) => PromotionItemDto(
+                id: i.id,
+                promotionId: i.promotionId,
+                productId: i.productId,
+                discountType: i.discountType,
+                priceType: i.priceType,
+                value: i.value,
+                isConditional: i.isConditional,
+                quantity: i.quantity,
+                conditionType: i.conditionType,
+                quantityLimit: i.quantityLimit,
+              ))
+          .toList(),
+    );
+  }
+
   Map<String, dynamic> toJson() => _$PromotionDtoToJson(this);
 }
 

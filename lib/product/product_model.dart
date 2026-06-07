@@ -31,6 +31,10 @@ class Product {
   final double? lastPurchasePrice;
   final int? rank;
   final List<String> barcodes;
+  final String syncStatus;
+
+  bool get isPendingSync => syncStatus != 'synced';
+  bool get isPendingCreate => syncStatus == 'pending_create';
 
   Product({
     required this.id,
@@ -59,6 +63,7 @@ class Product {
     this.lastPurchasePrice,
     this.rank,
     this.barcodes = const [],
+    this.syncStatus = 'synced',
   });
 
   factory Product.fromJson(Map<String, dynamic> json) {
@@ -96,28 +101,40 @@ class Product {
     );
   }
 
-  /// Reconstruct from a Drift row. The Drift schema stores a minimal subset
-  /// (Phase 1 decision). Fields not on the table fall back to safe defaults:
-  /// nulls for optionals, sensible booleans for required flags. Screens that
-  /// need the full set (admin product editor) should keep using
-  /// `productsByGroupProvider` / `productByIdProvider` which still fetch
-  /// from the API.
+  /// Reconstruct from a Drift row. Schema v2 (Phase 3.5) holds the full set
+  /// of admin-editable fields so the products admin screen can stream from
+  /// Drift instead of round-tripping to the API.
   factory Product.fromDrift(ProductsTableData row) {
     return Product(
       id: row.id,
       companyId: row.companyId,
       productGroupId: row.productGroupId,
       name: row.name,
+      code: row.code,
+      plu: row.plu,
+      measurementUnit: row.measurementUnit,
       price: row.price,
-      isTaxInclusivePrice: true,
-      isPriceChangeAllowed: false,
+      isTaxInclusivePrice: row.isTaxInclusivePrice,
+      currencyId: row.currencyId,
+      isPriceChangeAllowed: row.isPriceChangeAllowed,
       isService: row.isService,
-      isUsingDefaultQuantity: true,
-      isEnabled: true,
+      isUsingDefaultQuantity: row.isUsingDefaultQuantity,
+      isEnabled: row.isEnabled,
+      description: row.description,
+      // Drift stores these as DateTime; the domain model carries them as
+      // String? (legacy API contract). ISO-8601 keeps the JSON round-trip
+      // consistent if the admin form later writes back.
+      dateCreated: row.dateCreated?.toIso8601String(),
+      dateUpdated: row.dateUpdated?.toIso8601String(),
       cost: row.cost,
+      markup: row.markup,
       localImagePath: row.localImagePath,
       color: row.colorHex ?? 'Transparent',
+      ageRestriction: row.ageRestriction,
+      lastPurchasePrice: row.lastPurchasePrice,
+      rank: row.rank,
       barcodes: row.barcode != null ? [row.barcode!] : const [],
+      syncStatus: row.syncStatus,
     );
   }
 

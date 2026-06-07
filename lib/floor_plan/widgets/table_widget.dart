@@ -213,22 +213,21 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                       );
                   if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)));
                 } else {
-                  final int newOrderId = await apiClient.createPosOrder(
-                    widget.companyId,
-                    widget.userId,
-                    serviceType,
-                    widget.table.id,
-                    widget.table.name,
-                    widget.warehouseId,
-                  );
-                  KitchenPushService.notifyFromSetting(
-                    ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
-                  );
+                  // OFFLINE-FIRST: no /PosOrder/Create call. The order is
+                  // materialised in Drift at checkout time with a UUID;
+                  // here we just set up local cart context with sentinel 0.
+                  // Kitchen push is best-effort — wrapped so an offline KDS
+                  // can't block table selection.
+                  try {
+                    KitchenPushService.notifyFromSetting(
+                      ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
+                    );
+                  } catch (_) {/* kitchen push is non-critical */}
                   if (mounted) {
                     ref
                         .read(cartProvider.notifier)
                         .setOrderContext(
-                          newOrderId,
+                          0, // local-only sentinel
                           widget.warehouseId,
                           tableId: widget.table.id,
                           orderNumber: "ORD- ${widget.table.name}",

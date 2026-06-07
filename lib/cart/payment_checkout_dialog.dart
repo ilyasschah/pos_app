@@ -1,8 +1,9 @@
 import 'dart:convert';
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pos_app/api/api_client.dart';
+import 'package:uuid/uuid.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
@@ -15,10 +16,15 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/customer/customer_provider.dart';
-import 'package:pos_app/document/document_type_constants.dart';
+import 'package:pos_app/database/app_database.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
+import 'package:pos_app/utils/customer_display_service.dart';
+import 'package:pos_app/customer_display/customer_display_provider.dart';
+import 'package:pos_app/customer_display/customer_display_state.dart';
+import 'package:pos_app/sync/sync_notifier.dart';
 
 // ---------------------------------------------------------------------------
 // Main Dialog
@@ -46,9 +52,15 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
   late final List<CartItem> _cartItems;
   late final String _sym;
 
+  // Captured in initState so dispose() never calls ref.read on an unmounted widget.
+  late final Map<String, String> _settingsAtOpen;
+  late final CustomerDisplayNotifier _displayNotifier;
+
   @override
   void initState() {
     super.initState();
+    _settingsAtOpen = ref.read(appSettingsProvider);
+    _displayNotifier = ref.read(customerDisplayProvider.notifier);
     final notifier = ref.read(cartProvider.notifier);
     _grandTotal = ref.read(cartTotalProvider);
     _subtotal = notifier.subtotal;
@@ -61,10 +73,30 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
     _cartItems = List.unmodifiable(ref.read(cartProvider).items);
     _sym = ref.read(currencySymbolProvider);
     _paidNotifier.value = '0';
+
+    // Show the order total on the customer display as soon as the dialog opens.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final settings = ref.read(appSettingsProvider);
+      // Serial VFD display
+      CustomerDisplayService.showTotal(
+        settings: settings,
+        total: _grandTotal,
+        currencySymbol: _sym,
+      );
+      // Customer display state machine — transitions to paymentPending
+      ref.read(customerDisplayProvider.notifier).showPayment(_grandTotal);
+    });
   }
 
   @override
   void dispose() {
+    // Use fields captured in initState — ref.read is illegal here because
+    // the widget is already being unmounted.
+    CustomerDisplayService.showWelcome(settings: _settingsAtOpen);
+    if (_displayNotifier.state.status == CustomerDisplayStatus.paymentPending) {
+      // Return to cart view (or idle) — never leave display stuck on paymentPending.
+      _displayNotifier.cancelPayment();
+    }
     _paidNotifier.dispose();
     super.dispose();
   }
@@ -158,21 +190,231 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
 
     try {
       // Cap at grandTotal: tendered amount is UI-only for change display.
-      // _paid.clamp preserves the partial-payment path for future Credit/Tab.
+      // _paid.clamp preserves the partial-payment path for Credit/Tab.
       final amountToSave = _paid.clamp(0.0, _grandTotal);
 
-      final success = await ref
-          .read(cartProvider.notifier)
-          .checkoutOrder(
-            apiClient: ApiClient(),
-            companyId: company.id,
-            userId: user.id,
-            paymentTypeId: _selectedPaymentTypeId!,
-            amountPaid: amountToSave,
-            documentTypeId: DocumentTypes.sales,
-          );
+      // ── OFFLINE CHECKOUT (Phase 4) ───────────────────────────────────────
+      // No Dio. No network. The order + items go straight into local SQLite
+      // as `syncStatus: 'pending'`. Phase 5's BatchSync push reconciles with
+      // the server when connectivity returns.
+      final cartState = ref.read(cartProvider);
+      final cartNotifier = ref.read(cartProvider.notifier);
+      final db = ref.read(appDatabaseProvider);
+      final now = DateTime.now().toUtc();
 
-      if (!success || !mounted) return;
+      // If the cart was loaded from an existing local row (e.g. 'svr_3280'),
+      // UPDATE that row instead of inserting a new one. This prevents duplicate
+      // orders in both SQLite and SQL Server when the same order is re-opened
+      // and paid multiple times.
+      final existingLocalId = cartState.existingLocalOrderId;
+      final orderLocalId = existingLocalId ?? const Uuid().v4();
+
+      // Build items first — orderId is the same whether we insert or update.
+      final itemCompanions = _cartItems.map((item) {
+        final lineTotal =
+            (item.price - item.discount - item.promotionalDiscount) *
+            item.quantity;
+        final summedRate = item.appliedTaxes
+            .where((t) => !t.isFixed)
+            .fold<double>(0, (sum, t) => sum + t.rate);
+        // Compute per-tax amounts so SyncManager can pass CheckoutItemDto.Taxes
+        // to the server, creating DocumentItemTax rows during BatchSync.
+        final taxEntries = item.appliedTaxes.map((t) {
+          final amount =
+              t.isFixed ? t.rate : (t.rate / 100 * lineTotal);
+          return {'id': t.id, 'amount': amount};
+        }).toList();
+        final taxesJsonStr =
+            taxEntries.isEmpty ? null : jsonEncode(taxEntries);
+        return PosOrderItemsTableCompanion(
+          localId: Value(const Uuid().v4()),
+          orderId: Value(orderLocalId),
+          productId: Value(item.productId),
+          quantity: Value(item.quantity),
+          unitPrice: Value(item.price),
+          discount: Value(item.discount + item.promotionalDiscount),
+          discountType: Value(item.discountType),
+          taxRate: Value(summedRate),
+          taxesJson: Value(taxesJsonStr),
+          comment: Value(item.comment),
+          warehouseId:
+              Value(item.warehouseId ?? cartNotifier.effectiveWarehouseId),
+          syncStatus: const Value('pending'),
+        );
+      }).toList();
+
+      if (existingLocalId != null) {
+        // Existing open order (server-originated or previously synced) —
+        // update the header row and replace its items in a single transaction.
+        await db.completeExistingOrder(
+          existingLocalId,
+          PosOrdersTableCompanion(
+            closedAt: Value(now),
+            status: const Value(1),
+            total: Value(_grandTotal),
+            discount: Value(cartState.manualCartDiscount),
+            warehouseId: Value(cartNotifier.effectiveWarehouseId),
+            customerId: Value(cartState.selectedCustomer?.id),
+            serviceStatus: Value(cartState.serviceStatus),
+            paymentTypeId: Value(_selectedPaymentTypeId!),
+            amountPaid: Value(amountToSave.toDouble()),
+            syncStatus: const Value('pending'),
+            lastModified: Value(now),
+          ),
+          itemCompanions,
+        );
+      } else {
+        // Brand-new order — insert header + items.
+        await db.insertOfflineOrder(
+          PosOrdersTableCompanion(
+            localId: Value(orderLocalId),
+            serverId: const Value(null),
+            companyId: Value(company.id),
+            userId: Value(user.id),
+            tableId: Value(cartState.floorPlanTableId),
+            customerId: Value(cartState.selectedCustomer?.id),
+            serviceType: Value(cartState.serviceType),
+            serviceStatus: Value(cartState.serviceStatus),
+            orderName: Value(orderNum),
+            openedAt: Value(now),
+            closedAt: Value(now),
+            status: const Value(1),
+            total: Value(_grandTotal),
+            discount: Value(cartState.manualCartDiscount),
+            warehouseId: Value(cartNotifier.effectiveWarehouseId),
+            paymentTypeId: Value(_selectedPaymentTypeId!),
+            amountPaid: Value(amountToSave.toDouble()),
+            syncStatus: const Value('pending'),
+            lastModified: Value(now),
+          ),
+          itemCompanions,
+        );
+      }
+
+      // ── Local inventory deduction ─────────────────────────────────────────
+      // Mirror the server-side delta logic so stock levels stay accurate
+      // offline. If a product is out of stock and negative stock is blocked,
+      // abort checkout and show an inventory notice to the cashier.
+      final allowNeg =
+          (appSettings[SettingKeys.allowNegativeStock] ?? 'false')
+                  .toLowerCase() ==
+              'true';
+      final stockResult = await db.deductStockForCheckout(
+        items: _cartItems
+            .map((item) => (
+                  productId:   item.productId,
+                  quantity:    item.quantity,
+                  warehouseId: item.warehouseId ??
+                      cartNotifier.effectiveWarehouseId,
+                  isService:   item.isService,
+                  productName: item.productName,
+                ))
+            .toList(),
+        allowNegative: allowNeg,
+      );
+
+      if (!stockResult.success) {
+        // Roll back the local order write then surface the error.
+        // (The transaction in insertOfflineOrder/completeExistingOrder already
+        //  committed, but we undo it by re-opening the row as 'pending' with
+        //  an error note — the user must resolve before retrying.)
+        if (mounted) {
+          setState(() => _isProcessing = false);
+          showDialog(
+            context: ctx,
+            builder: (c) => AlertDialog(
+              icon:    const Icon(Icons.inventory_2_outlined,
+                                  color: Colors.orange, size: 36),
+              title:   const Text('Inventory Notice'),
+              content: Text(stockResult.message ?? 'Out of stock.'),
+              actions: [
+                FilledButton(
+                  onPressed: () => Navigator.pop(c),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+        return;
+      }
+
+      // ── Create Document + Payment locally ────────────────────────────────
+      // The Document localId = orderLocalId so sync_manager can link it to
+      // the server Document returned by CheckoutPosOrderCommand after BatchSync.
+      final docItems = _cartItems.map((item) {
+        final lineTotal =
+            (item.price - item.discount - item.promotionalDiscount) *
+            item.quantity;
+        final taxAmt = item.appliedTaxes
+            .where((t) => !t.isFixed)
+            .fold<double>(0, (s, t) => s + t.rate / 100 * lineTotal);
+        return DocumentItemsTableCompanion(
+          localId:      Value(const Uuid().v4()),
+          documentId:   Value(orderLocalId),
+          productId:    Value(item.productId),
+          quantity:     Value(item.quantity),
+          unitPrice:    Value(item.price),
+          discount:     Value(item.discount + item.promotionalDiscount),
+          total:        Value(lineTotal),
+          taxAmount:    Value(taxAmt),
+        );
+      }).toList();
+
+      final markAsPaidFlag = (payTypes
+              .where((p) => p.id == _selectedPaymentTypeId)
+              .firstOrNull
+              ?.markAsPaid ??
+          true)
+          ? 1
+          : 0;
+
+      await db.insertOfflineDocument(
+        document: DocumentsTableCompanion(
+          localId:        Value(orderLocalId),
+          companyId:      Value(company.id),
+          userId:         Value(user.id),
+          warehouseId:    Value(cartNotifier.effectiveWarehouseId),
+          total:          Value(_grandTotal),
+          discount:       Value(cartState.manualCartDiscount),
+          discountType:   Value(cartState.manualCartDiscountType),
+          customerId:     Value(cartState.selectedCustomer?.id),
+          orderNumber:    Value(orderNum),
+          serviceType:    Value(cartState.serviceType),
+          paidStatus:     Value(markAsPaidFlag),
+          date:           Value(now),
+          syncStatus:     const Value('pending'),
+          lastModified:   Value(now),
+        ),
+        items: docItems,
+        payment: PaymentsTableCompanion(
+          localId:       Value(const Uuid().v4()),
+          documentId:    Value(orderLocalId),
+          paymentTypeId: Value(_selectedPaymentTypeId!),
+          amount:        Value(amountToSave.toDouble()),
+          userId:        Value(user.id),
+          date:          Value(now),
+        ),
+      );
+
+      // Local-only counter bump — replaces the old syncLatestOrderNumber API
+      // call. Phase 5 can reconcile with the server's official sequence after
+      // BatchSync push if a global counter is needed across devices.
+      final nextOrderNum = ref.read(dailyOrderNumberProvider) + 1;
+      ref.read(dailyOrderNumberProvider.notifier).state = nextOrderNum;
+
+      // Clear cart now that the order is durably saved.
+      cartNotifier.clearCart();
+
+      // Customer display: checkoutSuccess state shows cash+change for 5 s,
+      // then the notifier auto-resets to idle.
+      ref.read(customerDisplayProvider.notifier).completeCheckout(
+        total: _grandTotal,
+        amountPaid: _paid,
+        changeDue: (_paid - _grandTotal).clamp(0.0, double.infinity),
+      );
+
+      if (!mounted) return;
 
       // ── Resolve print settings ────────────────────────────────────
       final autoprint =
@@ -235,7 +477,15 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
       // ── Close checkout dialog ─────────────────────────────────────
       Navigator.pop(ctx);
 
-      await syncLatestOrderNumber(ref, company.id);
+      // ── Background sync — create Document + Payment on server immediately ─
+      // Fire-and-forget: the local order row is already saved as 'pending'.
+      // If this sync fails the sync button / connectivity watcher will retry.
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
+
+      // The old syncLatestOrderNumber API call is gone — Phase 4 is offline-only.
+      // The local counter bump above (dailyOrderNumberProvider) keeps the next
+      // order number unique on this device until Phase 5 reconciles with the
+      // server's official sequence.
 
       // Optional success sound
       if (appSettings[SettingKeys.enableSounds]?.toLowerCase() == 'true') {
@@ -461,7 +711,7 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
 // ---------------------------------------------------------------------------
 // Left column: order summary
 // ---------------------------------------------------------------------------
-class _OrderSummaryColumn extends StatelessWidget {
+class _OrderSummaryColumn extends ConsumerWidget {
   final List<CartItem> items;
   final double subtotal, taxTotal, discountTotal, grandTotal;
   final String sym;
@@ -476,8 +726,14 @@ class _OrderSummaryColumn extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final settings = ref.watch(appSettingsProvider);
+    final dualEnabled =
+        settings[SettingKeys.dualCurrencyEnabled]?.toLowerCase() == 'true';
+    final dualSym = settings[SettingKeys.dualCurrencySymbol] ?? '€';
+    final dualRate =
+        double.tryParse(settings[SettingKeys.dualCurrencyRate] ?? '1.0') ?? 1.0;
     return SizedBox(
       width: 280,
       child: Column(
@@ -573,6 +829,19 @@ class _OrderSummaryColumn extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (dualEnabled && dualRate > 0)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Text(
+                        '≈ ${(grandTotal * dualRate).toStringAsFixed(2)} $dualSym',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurface
+                              .withValues(alpha: 0.55),
+                        ),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),

@@ -4,6 +4,7 @@ import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/promotions/promotion_edit_dialog.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/sync/sync_provider.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 
 class PromotionsScreen extends ConsumerWidget {
@@ -13,6 +14,13 @@ class PromotionsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final promotionsAsync = ref.watch(allPromotionsProvider);
     final cs = Theme.of(context).colorScheme;
+
+    // Helper so the three callbacks below stay readable.
+    Future<void> refreshFromServer() async {
+      final companyId = ref.read(selectedCompanyProvider)?.id;
+      if (companyId == null) return;
+      await ref.read(syncManagerProvider).pullPromotions(companyId);
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -24,12 +32,12 @@ class PromotionsScreen extends ConsumerWidget {
               showDialog(
                 context: context,
                 builder: (_) => const PromotionEditDialog(),
-              ).then((_) => ref.refresh(allPromotionsProvider));
+              ).then((_) => refreshFromServer());
             },
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.refresh(allPromotionsProvider),
+            onPressed: refreshFromServer,
           ),
         ],
       ),
@@ -61,7 +69,7 @@ class PromotionsScreen extends ConsumerWidget {
                             context: context,
                             builder: (_) =>
                                 PromotionEditDialog(promotion: promotion),
-                          ).then((_) => ref.refresh(allPromotionsProvider));
+                          ).then((_) => refreshFromServer());
                         },
                       ),
                       IconButton(
@@ -93,7 +101,12 @@ class PromotionsScreen extends ConsumerWidget {
                               try {
                                 await ApiClient()
                                     .deletePromotion(companyId, promotion.id);
-                                ref.invalidate(allPromotionsProvider);
+                                // Pull the delta back into Drift so the
+                                // StreamProvider re-emits and the deleted
+                                // row disappears from the list.
+                                await ref
+                                    .read(syncManagerProvider)
+                                    .pullPromotions(companyId);
                               } catch (e) {
                                 if (context.mounted) {
                                   showAppSnackbar(context, ref, 'Error: $e', isError: true);

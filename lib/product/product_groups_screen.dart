@@ -1,8 +1,15 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:dio/dio.dart';
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/database/app_database.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/product/product_group_model.dart';
 import 'package:pos_app/product/product_group_provider.dart';
 import 'package:pos_app/product/product_group_service.dart';
@@ -78,90 +85,97 @@ class _ProductGroupsScreenState extends ConsumerState<ProductGroupsScreen> {
 
   Future<void> _attemptDelete(ProductGroup group) async {
     final ctx = context;
-    showDialog(
-        context: ctx,
-        barrierDismissible: false,
-        builder: (_) => const Center(child: CircularProgressIndicator()));
+    final db = ref.read(appDatabaseProvider);
 
-    try {
-      final service = ref.read(productGroupServiceProvider);
-      List<dynamic> children = [], products = [];
-      try {
-        children = await service.getChildren(group.id, group.companyId);
-      } catch (_) {}
-      try {
-        products = await service.getProductsByGroup(group.id, group.companyId);
-      } catch (_) {}
+    // Check for children and assigned products locally (works offline).
+    final childCount = await (db.select(db.productGroupsTable)
+          ..where((t) => t.parentGroupId.equals(group.id))
+          ..where((t) => t.syncStatus.isNotIn(['pending_delete'])))
+        .get()
+        .then((r) => r.length);
 
-      if (ctx.mounted) Navigator.pop(ctx);
+    final productCount = await (db.select(db.productsTable)
+          ..where((t) => t.productGroupId.equals(group.id))
+          ..where((t) => t.syncStatus.isNotIn(['pending_delete'])))
+        .get()
+        .then((r) => r.length);
 
-      if (children.isNotEmpty || products.isNotEmpty) {
-        if (ctx.mounted) {
-          showDialog(
-            context: ctx,
-            builder: (c) => AlertDialog(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              title: const Row(children: [
-                Icon(Icons.warning_amber_rounded, color: Colors.orange),
-                SizedBox(width: 8),
-                Text("Cannot Delete"),
-              ]),
-              content: const Text(
-                  "This group has products or sub-groups and cannot be deleted."),
-              actions: [
-                TextButton(
-                    onPressed: () => Navigator.pop(c),
-                    child: const Text("OK"))
-              ],
-            ),
-          );
-        }
-        return;
-      }
-
+    if (childCount > 0 || productCount > 0) {
       if (ctx.mounted) {
-        final confirm = await showDialog<bool>(
+        showDialog(
           context: ctx,
           builder: (c) => AlertDialog(
-            title: const Text("Delete Group"),
-            content:
-                Text("Are you sure you want to delete '${group.name}'?"),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            title: const Row(children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange),
+              SizedBox(width: 8),
+              Text("Cannot Delete"),
+            ]),
+            content: const Text(
+                "This group has products or sub-groups and cannot be deleted."),
             actions: [
               TextButton(
-                  onPressed: () => Navigator.pop(c, false),
-                  child: const Text("Cancel")),
-              ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        Theme.of(c).colorScheme.error,
-                    foregroundColor:
-                        Theme.of(c).colorScheme.onError,
-                  ),
-                  onPressed: () => Navigator.pop(c, true),
-                  child: const Text("Delete")),
+                  onPressed: () => Navigator.pop(c),
+                  child: const Text("OK"))
             ],
           ),
         );
+      }
+      return;
+    }
 
-        if (confirm == true && ctx.mounted) {
-          await service.delete(group.id, group.companyId);
-          ref.invalidate(allProductGroupsProvider);
-          ref.invalidate(productsByGroupProvider);
-          if (_editingGroup?.id == group.id) _closePanel();
-          if (ctx.mounted) {
-            ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
-                content: Text("Group deleted"),
-                backgroundColor: Colors.green));
-          }
-        }
+    if (!ctx.mounted) return;
+    final confirm = await showDialog<bool>(
+      context: ctx,
+      builder: (c) => AlertDialog(
+        title: const Text("Delete Group"),
+        content: Text("Are you sure you want to delete '${group.name}'?"),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text("Cancel")),
+          ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(c).colorScheme.error,
+                foregroundColor: Theme.of(c).colorScheme.onError,
+              ),
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text("Delete")),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    if (group.isPendingCreate) {
+      // Never reached the server — hard-delete locally.
+      await (db.delete(db.productGroupsTable)
+            ..where((t) => t.id.equals(group.id)))
+          .go();
+    } else {
+      // Soft-delete so SyncManager can push it to the server on next sync.
+      await (db.update(db.productGroupsTable)
+            ..where((t) => t.id.equals(group.id)))
+          .write(const ProductGroupsTableCompanion(
+        syncStatus: Value('pending_delete'),
+      ));
+      // Try API inline while online.
+      try {
+        await ProductGroupService(createDio())
+            .delete(group.id, group.companyId);
+        await (db.delete(db.productGroupsTable)
+              ..where((t) => t.id.equals(group.id)))
+            .go();
+      } on DioException {
+        // Offline — row stays pending_delete; SyncManager retries later.
       }
-    } catch (e) {
-      if (ctx.mounted) Navigator.pop(ctx);
-      if (ctx.mounted) {
-        ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(
-            content: Text(parseApiError(e)), backgroundColor: Colors.red));
-      }
+    }
+
+    if (_editingGroup?.id == group.id) _closePanel();
+    if (ctx.mounted) {
+      ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+          content: Text("Group deleted"), backgroundColor: Colors.green));
     }
   }
 
@@ -213,11 +227,7 @@ class _ProductGroupsScreenState extends ConsumerState<ProductGroupsScreen> {
                 onSelect: _openEdit,
                 onDelete: _attemptDelete,
                 onClose: _closePanel,
-                onSaved: () {
-                  ref.invalidate(allProductGroupsProvider);
-                  ref.invalidate(productsByGroupProvider);
-                  _closePanel();
-                },
+                onSaved: _closePanel,
               );
             } else {
               return _NarrowLayout(
@@ -229,20 +239,14 @@ class _ProductGroupsScreenState extends ConsumerState<ProductGroupsScreen> {
                     builder: (_) => _GroupEditorDialog(
                       existingGroup: group,
                       onDelete: () => _attemptDelete(group),
-                      onSaved: () {
-                        ref.invalidate(allProductGroupsProvider);
-                        ref.invalidate(productsByGroupProvider);
-                      },
+                      onSaved: () {},
                     ),
                   );
                 },
                 onAdd: () => showDialog(
                   context: context,
                   builder: (_) => _GroupEditorDialog(
-                    onSaved: () {
-                      ref.invalidate(allProductGroupsProvider);
-                      ref.invalidate(productsByGroupProvider);
-                    },
+                    onSaved: () {},
                   ),
                 ),
                 onDelete: _attemptDelete,
@@ -468,18 +472,31 @@ class _TreeNodeTileState extends State<_TreeNodeTile> {
                   const SizedBox(width: 10),
                   // Name
                   Expanded(
-                    child: Text(
-                      group.name,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: isSelected
-                            ? FontWeight.w600
-                            : FontWeight.normal,
-                        color: isSelected
-                            ? theme.colorScheme.onPrimaryContainer
-                            : theme.colorScheme.onSurface,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    child: Row(
+                      children: [
+                        if (group.isPendingSync)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 4),
+                            child: Icon(Icons.cloud_upload_outlined,
+                                size: 14,
+                                color: theme.colorScheme.tertiary),
+                          ),
+                        Flexible(
+                          child: Text(
+                            group.name,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.normal,
+                              color: isSelected
+                                  ? theme.colorScheme.onPrimaryContainer
+                                  : theme.colorScheme.onSurface,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   // Delete button
@@ -636,32 +653,115 @@ class _GroupEditorPanelState extends ConsumerState<_GroupEditorPanel>
     if (!_formKey.currentState!.validate()) return;
     final company = ref.read(selectedCompanyProvider);
     if (company == null) return;
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    try {
-      final service = ref.read(productGroupServiceProvider);
-      final payload = <String, dynamic>{
-        'name': _nameCtrl.text.trim(),
-        'parentGroupId': _selectedParentId,
-        'color': _selectedHexColor,
-        'image': _selectedImageBase64 ?? '',
-        'rank': int.tryParse(_rankCtrl.text.trim()) ?? 0,
-      };
-      if (_isEditing) {
-        payload['id'] = widget.existingGroup!.id;
-        await service.update(company.id, payload);
-      } else {
-        await service.add(company.id, payload);
-      }
-      widget.onSaved();
-    } catch (e) {
-      setState(() {
-        _errorMessage = parseApiError(e);
-        _isLoading = false;
-      });
+
+    // Capture all mutable state before any async gap.
+    final db = ref.read(appDatabaseProvider);
+    final isEditing = _isEditing;
+    final tempId = isEditing
+        ? widget.existingGroup!.id
+        : -(DateTime.now().millisecondsSinceEpoch);
+    final name = _nameCtrl.text.trim();
+    final rank = int.tryParse(_rankCtrl.text.trim()) ?? 0;
+    final color = _selectedHexColor;
+    final parentId = _selectedParentId;
+    final imageBase64 = _selectedImageBase64;
+    final existingImagePath =
+        isEditing ? widget.existingGroup!.localImagePath : null;
+
+    setState(() { _isLoading = true; _errorMessage = null; });
+
+    // ── 1. Save image to disk (if user picked one) ───────────────────────────
+    String? localImagePath = existingImagePath;
+    if (imageBase64 != null && imageBase64.isNotEmpty) {
+      try {
+        final dir = await getApplicationDocumentsDirectory();
+        final folder = Directory('${dir.path}/group_images');
+        if (!folder.existsSync()) folder.createSync(recursive: true);
+        final file = File('${folder.path}/${tempId}_image.png');
+        await file.writeAsBytes(base64Decode(imageBase64));
+        localImagePath = file.path;
+      } catch (_) {}
     }
+
+    // ── 2. Write to Drift first ───────────────────────────────────────────────
+    await db.into(db.productGroupsTable).insertOnConflictUpdate(
+          ProductGroupsTableCompanion(
+            id: Value(tempId),
+            companyId: Value(company.id),
+            name: Value(name),
+            parentGroupId: Value(parentId),
+            colorHex: Value(color),
+            rank: Value(rank),
+            localImagePath: Value(localImagePath),
+            lastModified: Value(DateTime.now().toUtc()),
+            syncStatus:
+                Value(isEditing ? 'pending_update' : 'pending_create'),
+          ),
+        );
+
+    setState(() => _isLoading = false);
+    widget.onSaved(); // Close panel/dialog immediately.
+
+    // ── 3. Try API inline (no context or ref needed after onSaved) ────────────
+    try {
+      final dio = createDio();
+      final payload = <String, dynamic>{
+        'name': name,
+        'parentGroupId': parentId,
+        'color': color,
+        'image': imageBase64 ?? '',
+        'rank': rank,
+      };
+
+      if (isEditing) {
+        payload['id'] = tempId;
+        await dio.patch('/ProductGroups/Update',
+            queryParameters: {'companyId': company.id}, data: payload);
+        await (db.update(db.productGroupsTable)
+              ..where((t) => t.id.equals(tempId)))
+            .write(const ProductGroupsTableCompanion(
+          syncStatus: Value('synced'),
+        ));
+      } else {
+        final res = await dio.post<dynamic>('/ProductGroups/Add',
+            queryParameters: {'companyId': company.id}, data: payload);
+        final serverId = (res.data is Map
+                ? (res.data as Map)['id']
+                : null) as int?;
+        if (serverId != null) {
+          // Rename temp image file to the real server ID.
+          String? newPath = localImagePath;
+          if (localImagePath != null) {
+            try {
+              final renamed = localImagePath.replaceAll(
+                  '${tempId}_image', '${serverId}_image');
+              await File(localImagePath).rename(renamed);
+              newPath = renamed;
+            } catch (_) {}
+          }
+          await db.transaction(() async {
+            await (db.delete(db.productGroupsTable)
+                  ..where((t) => t.id.equals(tempId)))
+                .go();
+            await db.into(db.productGroupsTable).insertOnConflictUpdate(
+                  ProductGroupsTableCompanion(
+                    id: Value(serverId),
+                    companyId: Value(company.id),
+                    name: Value(name),
+                    parentGroupId: Value(parentId),
+                    colorHex: Value(color),
+                    rank: Value(rank),
+                    localImagePath: Value(newPath),
+                    lastModified: Value(DateTime.now().toUtc()),
+                    syncStatus: const Value('synced'),
+                  ),
+                );
+          });
+        }
+      }
+    } on DioException {
+      // Offline — row stays pending until SyncManager pushPendingProductGroupOps.
+    } catch (_) {}
   }
 
   Future<void> _saveAssignments() async {

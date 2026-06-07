@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/sync/server_status_provider.dart';
 
 // ── Layout constant (non-colour — safe to keep const) ─────────────────────────
 const kSidebarW = 220.0;
@@ -110,27 +111,7 @@ class NavSidebarHeader extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: accent,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      "Online",
-                      style: TextStyle(
-                        color: accent,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+                _ServerStatusRow(accent: accent),
               ],
             ),
           ),
@@ -144,6 +125,46 @@ class NavSidebarHeader extends ConsumerWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+// ── Real-time server reachability dot ────────────────────────────────────────
+// Watches the periodic ping in serverStatusProvider and renders a coloured
+// dot + label. The `accent` colour is reused for the Online state so the
+// sidebar header still matches the company theme; offline falls back to a
+// muted neutral so it doesn't scream at the cashier during a brief outage.
+
+class _ServerStatusRow extends ConsumerWidget {
+  final Color accent;
+  const _ServerStatusRow({required this.accent});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // `.value ?? false` covers both the "first ping in flight" (AsyncLoading)
+    // and "ping just threw" (AsyncError) cases — both show as Offline, which
+    // is the conservative default.
+    final isOnline = ref.watch(serverStatusProvider).value ?? false;
+    final color = isOnline ? accent : Theme.of(context).disabledColor;
+    final label = isOnline ? 'Online' : 'Offline';
+
+    return Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 }

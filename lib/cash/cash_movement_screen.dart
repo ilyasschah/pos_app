@@ -1,11 +1,13 @@
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
 import 'package:intl/intl.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/database/app_database.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/reports/report_models.dart';
 
 // ── Provider ──────────────────────────────────────────────────────────────────
@@ -80,27 +82,28 @@ class _CashMovementScreenState extends ConsumerState<CashMovementScreen> {
     });
 
     try {
-      final dio = createDio();
-      await dio.post(
-        '/StartingCash/Add',
-        queryParameters: {
-          'companyId':        company.id,
-          'userId':           user.id,
-          'amount':           amount,
-          'startingCashType': _type,
-          if (_descCtrl.text.trim().isNotEmpty)
-            'description': _descCtrl.text.trim(),
-        },
+      // OFFLINE WRITE (Phase 7): persist locally as `pending`. The sync
+      // engine flushes to /StartingCash/Add when network is available.
+      // The today's-entries list below still reads from the server, so the
+      // newly-added row won't appear until after sync — acceptable for V1.
+      final db = ref.read(appDatabaseProvider);
+      await db.insertOfflineCashMovement(
+        CashMovementsTableCompanion.insert(
+          localId: '', // helper fills a UUID when blank
+          companyId: company.id,
+          userId: user.id,
+          amount: amount,
+          type: _type == 0 ? 'in' : 'out',
+          note: Value(_descCtrl.text.trim().isEmpty
+              ? null
+              : _descCtrl.text.trim()),
+          createdAt: DateTime.now().toUtc(),
+        ),
       );
       _amountCtrl.text = '0';
       _descCtrl.clear();
       setState(() => _saving = false);
       ref.invalidate(_cashEntriesProvider);
-    } on DioException catch (e) {
-      setState(() {
-        _error  = e.response?.data?.toString() ?? 'Failed to save cash movement.';
-        _saving = false;
-      });
     } catch (e) {
       setState(() {
         _error  = e.toString();

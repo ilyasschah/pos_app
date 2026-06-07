@@ -7,6 +7,7 @@ import 'package:pos_app/currency/country_model.dart';
 import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/api/customer_discount_models.dart';
 import 'package:pos_app/customer/customer_provider.dart';
+import 'package:pos_app/sync/sync_provider.dart';
 
 class CustomersScreen extends ConsumerWidget {
   const CustomersScreen({super.key});
@@ -39,7 +40,9 @@ class CustomersScreen extends ConsumerWidget {
                         builder: (_) =>
                             _CustomerFormDialog(companyId: company.id),
                       );
-                      ref.invalidate(allCustomersProvider);
+                      await ref
+                          .read(syncManagerProvider)
+                          .pullCustomers(company.id);
                     },
             ),
           ],
@@ -137,7 +140,9 @@ class _CustomerList extends ConsumerWidget {
                     builder: (_) =>
                         _CustomerFormDialog(companyId: companyId, customer: c),
                   );
-                  ref.invalidate(allCustomersProvider);
+                  await ref
+                      .read(syncManagerProvider)
+                      .pullCustomers(companyId);
                 },
               ),
               IconButton(
@@ -200,7 +205,7 @@ class _CustomerList extends ConsumerWidget {
           backgroundColor: Colors.green,
         ),
       );
-      ref.invalidate(allCustomersProvider);
+      await ref.read(syncManagerProvider).pullCustomers(companyId);
     } on DioException catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

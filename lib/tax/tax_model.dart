@@ -31,15 +31,16 @@ class Tax {
     );
   }
 
-  /// Reconstruct from a Drift row. The Drift schema stores a minimal subset
-  /// (id/name/rate); fields not on the table fall back to their defaults.
-  /// If the admin tax screen needs `code`/`isFixed`/etc, expand TaxesTable
-  /// in a follow-up Drift migration.
+  /// Reconstruct from a Drift row. Schema v2 (Phase 3.5) holds the full set.
   factory Tax.fromDrift(TaxesTableData row) {
     return Tax(
       id: row.id,
       name: row.name,
       rate: row.rate,
+      code: row.code,
+      isFixed: row.isFixed,
+      isTaxOnTotal: row.isTaxOnTotal,
+      isEnabled: row.isEnabled,
     );
   }
 }

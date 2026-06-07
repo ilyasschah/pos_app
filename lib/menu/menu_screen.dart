@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -28,6 +29,8 @@ import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/api/promotion_models.dart';
 import 'package:pos_app/promotions/promotions_list_screen.dart';
 import 'package:pos_app/bookings/bookings_provider.dart';
+import 'package:pos_app/sync/sync_notifier.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table.dart';
 import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/product/product_comment_model.dart';
@@ -35,7 +38,10 @@ import 'package:pos_app/product/product_comment_provider.dart';
 // import 'package:pos_app/menu/open_orders_screen.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
 import 'package:pos_app/refund/refund_dialog.dart';
+import 'package:pos_app/utils/error_handler.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
+import 'package:pos_app/utils/scale_barcode_parser.dart';
+import 'package:pos_app/customer_display/customer_display_provider.dart';
 import 'package:pos_app/stock/stock_provider.dart';
 
 final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
@@ -327,7 +333,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                                       );
                                 } catch (e) {
                                   if (context.mounted) {
-                                    showAppSnackbar(context, ref, 'Error creating order: $e', isError: true);
+                                    showAppSnackbar(context, ref, friendlyErrorMessage(e), isError: true);
                                   }
                                 }
                               }
@@ -851,6 +857,192 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
   List<PromotionDto> _activePromos = const [];
   Map<int, double> _stockMap = const {};
   String? _activeSearchMode;
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Called when the search field is submitted (e.g. barcode scanner sends Enter).
+  /// Tries scale-barcode parsing first; falls back to exact barcode lookup.
+  /// On a match the item is added to the cart and the search field is cleared.
+  Future<void> _handleBarcodeSubmit(String input) async {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return;
+
+    final settings = ref.read(appSettingsProvider);
+    final allProducts = ref.read(allProductsListProvider).value ?? [];
+
+    final scaleData = parseScaleBarcode(trimmed, settings);
+
+    Product? match;
+    double quantity;
+
+    if (scaleData != null) {
+      // Scale barcode path: look up by product code or barcode field
+      match = allProducts.where((p) {
+        if (!p.isEnabled) return false;
+        final code = scaleData.productCode.toLowerCase();
+        return (p.code?.toLowerCase() == code) ||
+            p.barcodes.any((b) => b.toLowerCase() == code);
+      }).firstOrNull;
+
+      if (match == null) {
+        if (mounted) {
+          showAppSnackbar(
+            context, ref,
+            'Scale barcode: product "${scaleData.productCode}" not found.',
+            isError: true,
+          );
+        }
+        return;
+      }
+
+      if (scaleData.isPrice) {
+        final unitPrice = match.price;
+        if (unitPrice <= 0) {
+          if (mounted) {
+            showAppSnackbar(
+              context, ref,
+              'Cannot calculate quantity: unit price is zero.',
+              isError: true,
+            );
+          }
+          return;
+        }
+        quantity = scaleData.parsedValue / unitPrice;
+      } else {
+        quantity = scaleData.parsedValue;
+      }
+
+      if (quantity <= 0) {
+        if (mounted) {
+          showAppSnackbar(
+            context, ref,
+            'Parsed quantity is zero — check scale barcode configuration.',
+            isError: true,
+          );
+        }
+        return;
+      }
+    } else {
+      // Standard barcode path: exact match only; non-match leaves search text intact
+      match = allProducts
+          .where((p) =>
+              p.isEnabled &&
+              p.barcodes.any((b) => b.toLowerCase() == trimmed.toLowerCase()))
+          .firstOrNull;
+      if (match == null) return;
+      quantity = 1.0;
+    }
+
+    // Ensure an active order exists (same logic as product-card tap)
+    final cartState = ref.read(cartProvider);
+    if (cartState.activePosOrderId == null) {
+      final floorPlanOn =
+          settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+      if (cartState.serviceType != 0 || !floorPlanOn) {
+        final companyId = ref.read(selectedCompanyProvider)?.id;
+        final user = ref.read(currentUserProvider);
+        if (companyId == null || user == null) return;
+        try {
+          await ref.read(cartProvider.notifier).startTablelessOrder(
+            ApiClient(), companyId, user.id, cartState.serviceType,
+          );
+        } catch (e) {
+          if (!mounted) return;
+          showAppSnackbar(context, ref, 'Error creating order: $e', isError: true);
+          return;
+        }
+      } else {
+        if (mounted) {
+          showAppSnackbar(context, ref, 'Please select a table first!', isError: true);
+        }
+        return;
+      }
+    }
+
+    // Negative-inventory guard
+    if (!match.isService) {
+      final preventNeg =
+          settings[SettingKeys.preventNegativeInventory]?.toLowerCase() == 'true';
+      if (preventNeg) {
+        final stock = _stockMap[match.id];
+        if (stock != null) {
+          final cartQty = ref
+              .read(cartProvider)
+              .items
+              .where((i) => i.productId == match!.id)
+              .fold(0.0, (s, i) => s + i.quantity);
+          if (cartQty + quantity > stock) {
+            if (mounted) {
+              showAppSnackbar(
+                context, ref,
+                'Out of stock! Negative inventory is disabled.',
+                isError: true,
+              );
+            }
+            return;
+          }
+        }
+      }
+    }
+
+    // Age restriction check
+    if (match.ageRestriction != null) {
+      final confirmed =
+          await _showAgeRestrictionDialog(context, match.ageRestriction!);
+      if (!confirmed || !mounted) return;
+    }
+
+    // Add to cart and clear the search bar
+    try {
+      final menuProduct = MenuProduct(
+        id: match.id,
+        name: match.name,
+        price: match.price,
+        cost: match.cost,
+        isTaxInclusivePrice: match.isTaxInclusivePrice,
+        color: match.color,
+        stockQuantity: 9999,
+        taxes: [],
+        isEnabled: match.isEnabled,
+        ageRestriction: match.ageRestriction,
+        isPriceChangeAllowed: match.isPriceChangeAllowed,
+        isUsingDefaultQuantity: match.isUsingDefaultQuantity,
+        measurementUnit: match.measurementUnit,
+        isService: match.isService,
+      );
+      ref.read(cartProvider.notifier).addItem(
+        menuProduct,
+        quantity: quantity,
+        measurementUnit: match.measurementUnit,
+      );
+      _searchCtrl.clear();
+      ref.read(searchQueryProvider.notifier).state = '';
+    } catch (e) {
+      if (mounted) {
+        showAppSnackbar(
+          context, ref,
+          e.toString().replaceAll('Exception: ', ''),
+          isError: true,
+        );
+      }
+    }
+  }
+
+  void _sortProducts(List<Product> products, String sortBy) {
+    if (sortBy == 'Code') {
+      products.sort((a, b) => (a.code ?? '').compareTo(b.code ?? ''));
+    } else if (sortBy == 'Barcode') {
+      products.sort((a, b) =>
+          (a.barcodes.firstOrNull ?? '').compareTo(b.barcodes.firstOrNull ?? ''));
+    } else {
+      products.sort((a, b) => a.name.compareTo(b.name));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -894,8 +1086,9 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
     final showSearchOptions =
         settings[SettingKeys.showSearchOptions]?.toLowerCase() != 'false';
 
+    final sortBy = settings[SettingKeys.productSorting] ?? 'Name';
     if (isSearching) {
-      itemsToDisplay = allProducts.where((p) {
+      final List<Product> filtered = allProducts.where((p) {
         if (!p.isEnabled) return false;
         final query = searchQuery.toLowerCase();
         switch (effectiveMode) {
@@ -912,13 +1105,16 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
             return p.name.toLowerCase().contains(query);
         }
       }).toList();
+      _sortProducts(filtered, sortBy);
+      itemsToDisplay = filtered;
     } else {
       final visibleGroups = allGroups
           .where((g) => g.parentGroupId == currentGroup?.id)
           .toList();
-      final visibleProducts = allProducts
+      final List<Product> visibleProducts = allProducts
           .where((p) => p.productGroupId == currentGroup?.id && p.isEnabled)
           .toList();
+      _sortProducts(visibleProducts, sortBy);
       itemsToDisplay = [...visibleGroups, ...visibleProducts];
     }
 
@@ -947,6 +1143,8 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
               children: [
                 Expanded(
                   child: TextField(
+                    controller: _searchCtrl,
+                    textInputAction: TextInputAction.search,
                     decoration: InputDecoration(
                       hintText: 'Search products...',
                       prefixIcon: const PhosphorIcon(
@@ -957,9 +1155,10 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
                           ? IconButton(
                               icon: const PhosphorIcon(
                                   PhosphorIconsRegular.x, size: 18),
-                              onPressed: () =>
-                                  ref.read(searchQueryProvider.notifier).state =
-                                      '',
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                ref.read(searchQueryProvider.notifier).state = '';
+                              },
                             )
                           : null,
                       border: OutlineInputBorder(
@@ -971,6 +1170,7 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
                     ),
                     onChanged: (v) =>
                         ref.read(searchQueryProvider.notifier).state = v,
+                    onSubmitted: _handleBarcodeSubmit,
                   ),
                 ),
                 if (showSearchOptions) ...[
@@ -1177,9 +1377,13 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
           children: [
             Expanded(
               flex: 3,
-              child: group.imageBytes != null
-                  ? Image.memory(group.imageBytes!, fit: BoxFit.cover)
-                  : Container(
+              // 3-tier fallback: disk file (FileImage, cached by path) →
+              // base64 bytes (legacy/admin-edit flow) → folder icon.
+              child: group.imageFile != null
+                  ? Image.file(group.imageFile!, fit: BoxFit.cover)
+                  : group.imageBytes != null
+                      ? Image.memory(group.imageBytes!, fit: BoxFit.cover)
+                      : Container(
                       color: accent.withValues(alpha: 0.1),
                       child: Center(
                         child: PhosphorIcon(
@@ -1366,18 +1570,25 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
             children: [
               Expanded(
                 flex: 3,
-                child: showImages && product.imageBytes != null
-                    ? Image.memory(product.imageBytes!, fit: BoxFit.cover)
-                    : Container(
-                        color: cs.surfaceContainerHighest,
-                        child: Center(
-                          child: PhosphorIcon(
-                            PhosphorIconsRegular.forkKnife,
-                            size: 44,
-                            color: cs.onSurface.withValues(alpha: 0.2),
+                // 3-tier fallback: disk file (fast, cached by path) →
+                // base64 bytes (legacy/edit-flow) → placeholder icon.
+                // Image.file is preferred for Drift-sourced products because
+                // Flutter's image cache reuses the decoded copy across the
+                // whole grid — Image.memory(Uint8List) bypasses that cache.
+                child: showImages && product.imageFile != null
+                    ? Image.file(product.imageFile!, fit: BoxFit.cover)
+                    : showImages && product.imageBytes != null
+                        ? Image.memory(product.imageBytes!, fit: BoxFit.cover)
+                        : Container(
+                            color: cs.surfaceContainerHighest,
+                            child: Center(
+                              child: PhosphorIcon(
+                                PhosphorIconsRegular.forkKnife,
+                                size: 44,
+                                color: cs.onSurface.withValues(alpha: 0.2),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
               ),
               Container(
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
@@ -1550,174 +1761,74 @@ class CartSection extends ConsumerStatefulWidget {
 
 class _CartSectionState extends ConsumerState<CartSection> {
   Future<void> _handleSave(BuildContext context, WidgetRef ref) async {
-    final companyId = ref.read(selectedCompanyProvider)?.id;
-    if (companyId == null) return;
+    final company = ref.read(selectedCompanyProvider);
+    if (company == null) return;
     final currentUser = ref.read(currentUserProvider);
-    final List<String> capturedWarnings = [];
 
     final wasBookingOrder = ref.read(cartProvider).bookingId != null;
-    final wasTableOrder = ref.read(cartProvider).floorPlanTableId != null;
-    final savedSettings = ref.read(appSettingsProvider);
-    final bookingEnabled =
-        savedSettings[SettingKeys.featureBookingEnabled]?.toLowerCase() ==
-        'true';
+    final wasTableOrder   = ref.read(cartProvider).floorPlanTableId != null;
+    final savedSettings   = ref.read(appSettingsProvider);
+    final bookingEnabled  =
+        savedSettings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
     final floorPlanEnabled =
-        savedSettings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() ==
-        'true';
+        savedSettings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
 
     try {
-      final result = await ref
-          .read(cartProvider.notifier)
-          .saveOrderToServer(
-            apiClient: ApiClient(),
-            companyId: companyId,
-            userId: currentUser?.id ?? 0,
-            onWarnings: (warnings) {
-              capturedWarnings.addAll(warnings);
-            },
-          );
+      // Step 1: Save to local SQLite immediately — always works offline.
+      await ref.read(cartProvider.notifier).saveOrderLocally(
+        companyId: company.id,
+        userId: currentUser?.id ?? 0,
+      );
 
       if (!context.mounted) return;
 
-      if (result['success'] == true) {
-        if (capturedWarnings.isNotEmpty) {
-          await showDialog(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              title: Row(
-                children: const [
-                  Icon(
-                    Icons.warning_amber_rounded,
-                    color: Colors.amber,
-                    size: 28,
-                  ),
-                  SizedBox(width: 10),
-                  Text("Stock Warning"),
-                ],
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: capturedWarnings
-                    .map(
-                      (w) => Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4.0),
-                        child: Text("• $w"),
-                      ),
-                    )
-                    .toList(),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text("OK"),
-                ),
-              ],
-            ),
-          );
-        } else {
-          showAppSnackbar(
-            context,
-            ref,
-            wasBookingOrder
-                ? 'Booking Saved!'
-                : wasTableOrder
-                ? 'Order Saved to Table!'
-                : 'Order Saved!',
-          );
-        }
+      // Step 2: Show success — the local save is durable regardless of network.
+      showAppSnackbar(
+        context,
+        ref,
+        wasBookingOrder
+            ? 'Booking Saved!'
+            : wasTableOrder
+            ? 'Order Saved to Table!'
+            : 'Order Saved!',
+      );
 
-        if (wasBookingOrder && bookingEnabled) {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const MainLayout(initialIndex: 2),
-            ),
-            (route) => false,
-          );
-        } else if (wasTableOrder && floorPlanEnabled) {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const MainLayout(initialIndex: 4),
-            ),
-            (route) => false,
-          );
-        } else if (bookingEnabled) {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const MainLayout(initialIndex: 2),
-            ),
-            (route) => false,
-          );
-        } else if (floorPlanEnabled) {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const MainLayout(initialIndex: 4),
-            ),
-            (route) => false,
-          );
-        } else {
-          ref.read(cartProvider.notifier).clearCart();
-          await syncLatestOrderNumber(ref, companyId);
-        }
-      } else {
-        final fallbackWarehouses = result['fallbackWarehouses'] as List?;
-
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Row(
-              children: const [
-                Icon(Icons.inventory, color: Colors.orange, size: 28),
-                SizedBox(width: 10),
-                Text("Inventory Notice"),
-              ],
-            ),
-            content: Text(result['message'] ?? "Unknown inventory error."),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("Cancel"),
-              ),
-              if (fallbackWarehouses != null)
-                ...fallbackWarehouses.map(
-                  (wh) => ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      ref.read(cartProvider.notifier).setWarehouseId(wh['id']);
-                      _handleSave(context, ref);
-                    },
-                    child: Text("Switch to ${wh['name']} & Retry"),
-                  ),
-                ),
-            ],
-          ),
+      // Step 3: Navigate.
+      if (wasBookingOrder && bookingEnabled) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 2)),
+          (r) => false,
         );
+      } else if (wasTableOrder && floorPlanEnabled) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 4)),
+          (r) => false,
+        );
+      } else if (bookingEnabled) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 2)),
+          (r) => false,
+        );
+      } else if (floorPlanEnabled) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 4)),
+          (r) => false,
+        );
+      } else {
+        ref.read(cartProvider.notifier).clearCart();
       }
+
+      // Step 4: Fire-and-forget sync push so the server sees the open order
+      // as soon as possible.  Failures are silent — the row stays 'pending'
+      // and the next manual/auto sync will retry.
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
     } catch (e) {
       if (context.mounted) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Row(
-              children: const [
-                Icon(Icons.error_outline, color: Colors.red, size: 28),
-                SizedBox(width: 10),
-                Text("Error"),
-              ],
-            ),
-            content: Text(e.toString()),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("CLOSE"),
-              ),
-            ],
-          ),
-        );
+        showAppSnackbar(context, ref, 'Save failed: $e', isError: true);
       }
     }
   }
@@ -1772,43 +1883,82 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final wasTableOrder   = cartState.floorPlanTableId != null;
 
     try {
-      // Step 3: Save each item as a PosVoid record
-      if (cartItems.isNotEmpty) {
-        final dio = createDio();
-        for (final item in cartItems) {
-          final total = item.price * item.quantity;
-          await dio.post('/PosVoids/Add', queryParameters: {
-            'companyId':    companyId,
-            'orderNumber':  cartState.orderNumber ?? 'UNKNOWN',
-            'userId':       user?.id,
-            'userName':     user?.displayName ?? 'Unknown',
-            'productId':    item.productId,
-            'productName':  item.productName,
-            'roundNumber':  item.roundNumber,
-            'quantity':     item.quantity,
-            'price':        item.price,
-            'discount':     item.discount,
-            'discountType': item.discountType,
-            'total':        total,
-            'voidedById':   user?.id,
-            'voidedByName': user?.displayName ?? 'Unknown',
-            if (item.bundle != null) 'bundle': item.bundle,
-            if (selectedReason != null) 'reason': selectedReason,
-          });
+      final db           = ref.read(appDatabaseProvider);
+      final serverId     = cartState.activePosOrderId ?? 0;
+      final warehouseId  = cartState.activeWarehouseId ?? 1;
+      final orderNumber  = cartState.orderNumber ?? 'UNKNOWN';
+      final existLocalId = cartState.existingLocalOrderId;
+
+      // Build the void items JSON payload (same shape used by /PosVoids/Add).
+      final itemsJson = jsonEncode(cartItems.map((item) => {
+        'productId':   item.productId,
+        'productName': item.productName,
+        'roundNumber': item.roundNumber,
+        'quantity':    item.quantity,
+        'price':       item.price,
+        'discount':    item.discount,
+        'discountType':item.discountType,
+        'total':       item.price * item.quantity,
+        'userName':    user?.displayName ?? 'Unknown',
+        if (item.bundle != null) 'bundle': item.bundle,
+      }).toList());
+
+      if (serverId > 0) {
+        // Order has a server record — queue the void for sync and delete
+        // the local open-order row.  SyncManager will POST /PosVoids/Add
+        // and DELETE /PosOrder/Delete when connectivity returns.
+        final localId = existLocalId ?? 'svr_$serverId';
+        await db.queueVoidAndDeleteOrder(
+          localId:       localId,
+          serverOrderId: serverId,
+          companyId:     companyId,
+          userId:        user?.id ?? 0,
+          orderNumber:   orderNumber,
+          warehouseId:   warehouseId,
+          itemsJson:     itemsJson,
+          reason:        selectedReason,
+        );
+        // Restore local stock for voided items.
+        await db.deductStockForCheckout(
+          items: cartItems
+              .map((item) => (
+                    productId:   item.productId,
+                    quantity:    -item.quantity,  // negative = add back to stock
+                    warehouseId: item.warehouseId ?? warehouseId,
+                    isService:   item.isService,
+                    productName: item.productName,
+                  ))
+              .toList(),
+          allowNegative: true, // always allow restoring stock
+        );
+        // Fire-and-forget sync so the server is updated immediately if online.
+        ref.read(syncStateProvider.notifier).sync().catchError((_) {});
+      } else {
+        // Local-only order (never pushed to server) — just delete the row.
+        if (existLocalId != null) {
+          await (db.delete(db.posOrdersTable)
+                ..where((t) => t.localId.equals(existLocalId)))
+              .go();
+          // Restore local stock.
+          await db.deductStockForCheckout(
+            items: cartItems
+                .map((item) => (
+                      productId:   item.productId,
+                      quantity:    -item.quantity,
+                      warehouseId: item.warehouseId ?? warehouseId,
+                      isService:   item.isService,
+                      productName: item.productName,
+                    ))
+                .toList(),
+            allowNegative: true,
+          );
         }
       }
 
-      // Step 4: Delete the order
-      await ApiClient().deletePosOrder(
-        companyId,
-        cartState.activePosOrderId!,
-        cartState.activeWarehouseId ?? 1,
-      );
       KitchenPushService.notifyFromSetting(
         ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
       );
       ref.read(cartProvider.notifier).clearCart();
-      await syncLatestOrderNumber(ref, companyId);
 
       if (!context.mounted) return;
       showAppSnackbar(context, ref, 'Order Voided', isError: true);
@@ -1816,10 +1966,10 @@ class _CartSectionState extends ConsumerState<CartSection> {
       final bookingEnabled   = settings[SettingKeys.featureBookingEnabled]?.toLowerCase()   == 'true';
       final floorPlanEnabled = settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
       int? navIndex;
-      if (wasBookingOrder && bookingEnabled)   navIndex = 2;
-      else if (wasTableOrder && floorPlanEnabled) navIndex = 4;
-      else if (bookingEnabled)                 navIndex = 2;
-      else if (floorPlanEnabled)               navIndex = 4;
+      if (wasBookingOrder && bookingEnabled)        navIndex = 2;
+      else if (wasTableOrder && floorPlanEnabled)   navIndex = 4;
+      else if (bookingEnabled)                      navIndex = 2;
+      else if (floorPlanEnabled)                    navIndex = 4;
 
       if (navIndex != null && context.mounted) {
         Navigator.pushAndRemoveUntil(
@@ -1843,8 +1993,40 @@ class _CartSectionState extends ConsumerState<CartSection> {
     );
   }
 
+  // Gross line total for a cart item: net amount after discounts + item-level tax
+  double _grossLineTotal(CartItem item) {
+    final net = (item.price - item.discount - item.promotionalDiscount) * item.quantity;
+    return item.appliedTaxes.fold(net, (sum, t) {
+      if (t.isFixed) return sum + t.rate * item.quantity;
+      return sum + net * (t.rate / 100);
+    });
+  }
+
+  // Full-price gross for the strikethrough label (before item discounts + tax)
+  double _grossLineFullPrice(CartItem item) {
+    final net = item.price * item.quantity;
+    return item.appliedTaxes.fold(net, (sum, t) {
+      if (t.isFixed) return sum + t.rate * item.quantity;
+      return sum + net * (t.rate / 100);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Forward every cart change into the customer display state machine.
+    ref.listen<CartState>(cartProvider, (_, next) {
+      final n = ref.read(cartProvider.notifier);
+      ref.read(customerDisplayProvider.notifier).syncFromCart(
+        cartState: next,
+        subtotal: n.subtotal,
+        discount: n.discountTotal +
+            n.customerDiscountAmount +
+            n.manualCartDiscountAmount,
+        tax: n.taxTotal,
+        total: n.grandTotal,
+      );
+    });
+
     final cartState = ref.watch(cartProvider);
     final cartNotifier = ref.watch(cartProvider.notifier);
     final cartItems = cartState.items;
@@ -1855,6 +2037,17 @@ class _CartSectionState extends ConsumerState<CartSection> {
     final taxTotal = cartNotifier.taxTotal;
     final grandTotal = cartNotifier.grandTotal;
     final sym = ref.watch(currencySymbolProvider);
+    final settings = ref.watch(appSettingsProvider);
+    final taxIncluded =
+        settings[SettingKeys.displayAndPrintTaxIncluded]?.toLowerCase() != 'false';
+    // Gross subtotal (after item discounts, including tax) used when taxIncluded=true.
+    // Math: grossSubtotal - customerDiscount - cartDiscount = grandTotal ✓
+    final grossSubtotal = subtotal - discountTotal + taxTotal;
+    final dualEnabled =
+        settings[SettingKeys.dualCurrencyEnabled]?.toLowerCase() == 'true';
+    final dualSym = settings[SettingKeys.dualCurrencySymbol] ?? '€';
+    final dualRate =
+        double.tryParse(settings[SettingKeys.dualCurrencyRate] ?? '1.0') ?? 1.0;
 
     final allUsers = ref.watch(allUsersProvider).value ?? [];
     final staffName = cartState.bookingStaffId != null
@@ -2233,7 +2426,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                               if (item.discount > 0 ||
                                   item.promotionalDiscount > 0)
                                 Text(
-                                  "${(item.price * item.quantity).toStringAsFixed(2)} $sym",
+                                  "${(taxIncluded ? _grossLineFullPrice(item) : item.price * item.quantity).toStringAsFixed(2)} $sym",
                                   style: const TextStyle(
                                     fontSize: 12,
                                     color: Colors.grey,
@@ -2241,7 +2434,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                                   ),
                                 ),
                               Text(
-                                "${((item.price - item.discount - item.promotionalDiscount) * item.quantity).toStringAsFixed(2)} $sym",
+                                "${(taxIncluded ? _grossLineTotal(item) : (item.price - item.discount - item.promotionalDiscount) * item.quantity).toStringAsFixed(2)} $sym",
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.bold,
@@ -2288,14 +2481,17 @@ class _CartSectionState extends ConsumerState<CartSection> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("Subtotal", style: TextStyle(fontSize: 16)),
                   Text(
-                    "${subtotal.toStringAsFixed(2)} $sym",
+                    taxIncluded ? "Subtotal (incl. tax)" : "Subtotal",
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  Text(
+                    "${(taxIncluded ? grossSubtotal : subtotal).toStringAsFixed(2)} $sym",
                     style: const TextStyle(fontSize: 16),
                   ),
                 ],
               ),
-              if (discountTotal > 0)
+              if (discountTotal > 0 && !taxIncluded)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Row(
@@ -2359,7 +2555,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
                     ],
                   ),
                 ),
-              if (cartNotifier.promotionalDiscountTotal > 0)
+              if (cartNotifier.promotionalDiscountTotal > 0 && !taxIncluded)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Row(
@@ -2383,10 +2579,23 @@ class _CartSectionState extends ConsumerState<CartSection> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("Taxes", style: TextStyle(fontSize: 16)),
+                  Text(
+                    taxIncluded ? "Tax (incl.)" : "Taxes",
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: taxIncluded
+                          ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45)
+                          : null,
+                    ),
+                  ),
                   Text(
                     "${taxTotal.toStringAsFixed(2)} $sym",
-                    style: const TextStyle(fontSize: 16),
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: taxIncluded
+                          ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45)
+                          : null,
+                    ),
                   ),
                 ],
               ),
@@ -2415,6 +2624,20 @@ class _CartSectionState extends ConsumerState<CartSection> {
                   ),
                 ],
               ),
+              if (dualEnabled && dualRate > 0)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text(
+                      '≈ ${(grandTotal * dualRate).toStringAsFixed(2)} $dualSym',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Theme.of(context).colorScheme.onSurface
+                            .withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ],
+                ),
               const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,

@@ -1,5 +1,7 @@
 // lib/app_settings_model.dart
 
+import 'package:pos_app/database/app_database.dart';
+
 class AppProperty {
   final int id;
   final String name;
@@ -19,6 +21,17 @@ class AppProperty {
       name: json['name'] ?? '',
       value: json['value'] ?? '',
       companyName: json['companyName'],
+    );
+  }
+
+  /// Reconstruct from a Drift row. `companyName` is null offline — that
+  /// field was a server-side join projection and isn't stored in
+  /// AppPropertiesTable. Nothing in the settings codebase reads it.
+  factory AppProperty.fromDrift(AppPropertiesTableData row) {
+    return AppProperty(
+      id: row.id,
+      name: row.name,
+      value: row.value ?? '',
     );
   }
 }
@@ -59,9 +72,17 @@ class SettingKeys {
   static const autoGenerateNumber = 'Documents.AutoGenerateNumber';
 
   // Customer Display
-  static const customerDisplayEnabled = 'CustomerDisplay.Enabled';
-  static const customerDisplayPort = 'CustomerDisplay.Port';
-  static const customerDisplayWelcomeMessage = 'CustomerDisplay.WelcomeMessage';
+  static const customerDisplayEnabled        = 'CustomerDisplay.Enabled';
+  static const customerDisplayWebEnabled    = 'CustomerDisplay.WebEnabled';
+  static const customerDisplayPort           = 'CustomerDisplay.Port';
+  static const customerDisplayBaudRate       = 'CustomerDisplay.BaudRate';
+  static const customerDisplayDataBits       = 'CustomerDisplay.DataBits';
+  static const customerDisplayParity         = 'CustomerDisplay.Parity';
+  static const customerDisplayStopBits       = 'CustomerDisplay.StopBits';
+  static const customerDisplayFlowControl    = 'CustomerDisplay.FlowControl';
+  static const customerDisplayNumChars       = 'CustomerDisplay.NumChars';
+  static const customerDisplayWelcomeMessage = 'CustomerDisplay.WelcomeMessage'; // top line
+  static const customerDisplayWelcomeBottom  = 'CustomerDisplay.WelcomeBottom';
 
   // Email
   static const emailSmtpHost = 'Email.SmtpHost';
@@ -82,19 +103,32 @@ class SettingKeys {
   static const dualCurrencyRate = 'DualCurrency.ExchangeRate';
 
   // Database
-  static const dbBackupVersion = 'Database.Backup.Version';
-  static const dbBackupPath = 'Database.BackupPath';
-  static const dbAutoBackup = 'Database.AutoBackup';
+  static const dbBackupVersion      = 'Database.Backup.Version';
+  static const dbBackupPath         = 'Database.BackupPath';
+  static const dbAutoBackup         = 'Database.AutoBackup';
+  static const dbBackupOnStart      = 'Database.Backup.OnStart';
+  static const dbBackupOnClose      = 'Database.Backup.OnClose';
+  static const dbBackupIntervalHours = 'Database.Backup.IntervalHours';
+  static const dbBackupAutoDelete   = 'Database.Backup.AutoDelete';
+  static const dbBackupRetentionDays = 'Database.Backup.RetentionDays';
 
   // License / API
   static const apiBaseUrl = 'Application.Api.BaseUrl';
   static const licenseKey = 'License.Key';
   static const licenseEmail = 'License.Email';
 
-  // Weighing Scale
+  // Weighing Scale – Serial connection
   static const scaleEnabled = 'Scale.Enabled';
   static const scalePort = 'Scale.Port';
   static const scaleBaudRate = 'Scale.BaudRate';
+
+  // Weighing Scale – Barcode parsing
+  static const scaleBarcodeEnabled       = 'Scale.Barcode.Enabled';
+  static const scaleBarcodePrefix        = 'Scale.Barcode.Prefix';
+  static const scaleBarcodeCodeLength    = 'Scale.Barcode.CodeLength';
+  static const scaleBarcodeDecimalPlaces = 'Scale.Barcode.DecimalPlaces';
+  static const scaleBarcodeTrimZeros     = 'Scale.Barcode.TrimZeros';
+  static const scaleBarcodePrintsPrice   = 'Scale.Barcode.PrintsPrice';
 
   // Appearance
   static const themeMode = 'Theme_Mode';
@@ -299,9 +333,17 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.defaultDocumentType: 'Sales',
   SettingKeys.invoicePrefix: 'INV',
   SettingKeys.autoGenerateNumber: 'true',
-  SettingKeys.customerDisplayEnabled: 'false',
-  SettingKeys.customerDisplayPort: 'COM1',
-  SettingKeys.customerDisplayWelcomeMessage: 'Welcome!',
+  SettingKeys.customerDisplayEnabled:        'false',
+  SettingKeys.customerDisplayWebEnabled:     'false',
+  SettingKeys.customerDisplayPort:           'COM1',
+  SettingKeys.customerDisplayBaudRate:       '9600',
+  SettingKeys.customerDisplayDataBits:       '8',
+  SettingKeys.customerDisplayParity:         'None',
+  SettingKeys.customerDisplayStopBits:       '1',
+  SettingKeys.customerDisplayFlowControl:    'None',
+  SettingKeys.customerDisplayNumChars:       '20',
+  SettingKeys.customerDisplayWelcomeMessage: 'WELCOME!',
+  SettingKeys.customerDisplayWelcomeBottom:  '',
   SettingKeys.emailSmtpHost: '',
   SettingKeys.emailSmtpPort: '587',
   SettingKeys.emailFromAddress: '',
@@ -314,15 +356,26 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.dualCurrencyEnabled: 'false',
   SettingKeys.dualCurrencySymbol: '€',
   SettingKeys.dualCurrencyRate: '1.0',
-  SettingKeys.dbBackupVersion: 'v2',
-  SettingKeys.dbBackupPath: '',
-  SettingKeys.dbAutoBackup: 'false',
+  SettingKeys.dbBackupVersion:       'v2',
+  SettingKeys.dbBackupPath:          '',
+  SettingKeys.dbAutoBackup:          'false',
+  SettingKeys.dbBackupOnStart:       'false',
+  SettingKeys.dbBackupOnClose:       'false',
+  SettingKeys.dbBackupIntervalHours: '0',
+  SettingKeys.dbBackupAutoDelete:    'false',
+  SettingKeys.dbBackupRetentionDays: '10',
   SettingKeys.apiBaseUrl: 'http://192.168.11.103:5002/api',
   SettingKeys.licenseKey: '',
   SettingKeys.licenseEmail: '',
   SettingKeys.scaleEnabled: 'false',
   SettingKeys.scalePort: 'COM2',
   SettingKeys.scaleBaudRate: '9600',
+  SettingKeys.scaleBarcodeEnabled:       'false',
+  SettingKeys.scaleBarcodePrefix:        '',
+  SettingKeys.scaleBarcodeCodeLength:    '5',
+  SettingKeys.scaleBarcodeDecimalPlaces: '3',
+  SettingKeys.scaleBarcodeTrimZeros:     'true',
+  SettingKeys.scaleBarcodePrintsPrice:   'false',
   SettingKeys.themeMode: 'dark',
   SettingKeys.themeAccentColor: '#FF5733',
   SettingKeys.menuGridCols: '4',
