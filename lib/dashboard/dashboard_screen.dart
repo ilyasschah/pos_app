@@ -759,9 +759,6 @@ class _HourlySalesCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(periodicDashboardProvider);
     final sym = ref.watch(currencySymbolProvider);
-    final cs = Theme.of(context).colorScheme;
-    final tooltipBg = cs.inverseSurface;
-    final tooltipFg = cs.onInverseSurface;
 
     return _DashCard(
       title: 'HOURLY SALES',
@@ -772,118 +769,338 @@ class _HourlySalesCard extends ConsumerWidget {
         data: (data) {
           if (data.hourlySales.isEmpty) return const _EmptyState();
 
+          final sorted = List<HourlySale>.from(data.hourlySales)
+            ..sort((a, b) => a.hour.compareTo(b.hour));
           final spots =
-              (List<HourlySale>.from(data.hourlySales)
-                    ..sort((a, b) => a.hour.compareTo(b.hour)))
-                  .map((s) => FlSpot(s.hour.toDouble(), s.total))
-                  .toList();
+              sorted.map((s) => FlSpot(s.hour.toDouble(), s.total)).toList();
 
-          final maxY = spots.map((s) => s.y).reduce(max) * 1.35;
-          final minX = spots.first.x;
-          final maxX = spots.last.x;
-          final fmt = NumberFormat.currency(symbol: sym, decimalDigits: 2);
-          final grid = cs.outlineVariant.withValues(alpha: 0.25);
+          final rawMax = spots.map((s) => s.y).reduce(max);
+          final peakSpot = spots.firstWhere((s) => s.y == rawMax);
+          final avgY =
+              spots.fold(0.0, (sum, s) => sum + s.y) / spots.length;
+          final activeHours = spots.where((s) => s.y > 0).length;
 
-          return Padding(
-            padding: const EdgeInsets.fromLTRB(6, 8, 16, 12),
-            child: LineChart(
-              LineChartData(
-                minX: minX,
-                maxX: maxX,
-                minY: 0,
-                maxY: maxY,
-                gridData: FlGridData(
-                  show: true,
-                  drawVerticalLine: false,
-                  horizontalInterval: maxY / 4,
-                  getDrawingHorizontalLine: (_) =>
-                      FlLine(color: grid, strokeWidth: 0.5),
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _HourlySummaryRow(
+                peakHour: peakSpot.x.toInt(),
+                peakRevenue: peakSpot.y,
+                activeHours: activeHours,
+                fmt: NumberFormat.currency(
+                  symbol: sym,
+                  decimalDigits: 0,
                 ),
-                borderData: FlBorderData(show: false),
-                titlesData: FlTitlesData(
-                  leftTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  rightTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  topTitles: AxisTitles(
-                    sideTitles: SideTitles(showTitles: false),
-                  ),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 22,
-                      getTitlesWidget: (value, meta) => SideTitleWidget(
-                        meta: meta,
-                        child: Text(
-                          '${value.toInt()}h',
-                          style: _mono(
-                            size: 9,
-                            color: cs.onSurface.withValues(alpha: 0.38),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: spots,
-                    isCurved: true,
-                    curveSmoothness: 0.35,
-                    color: _kBlue,
-                    barWidth: 2.5,
-                    isStrokeCapRound: true,
-                    dotData: FlDotData(
-                      show: true,
-                      getDotPainter: (_, __, ___, ____) => FlDotCirclePainter(
-                        radius: 3,
-                        color: _kBlue,
-                        strokeWidth: 1.5,
-                        strokeColor: cs.surface,
-                      ),
-                    ),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      gradient: LinearGradient(
-                        colors: [
-                          _kBlue.withValues(alpha: 0.22),
-                          _kBlue.withValues(alpha: 0.0),
-                        ],
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                      ),
-                    ),
-                  ),
-                ],
-                lineTouchData: LineTouchData(
-                  touchTooltipData: LineTouchTooltipData(
-                    getTooltipColor: (_) => tooltipBg,
-                    getTooltipItems: (spots) => spots.map((s) {
-                      return LineTooltipItem(
-                        '${s.x.toInt().toString().padLeft(2, '0')}:00\n',
-                        _sans(
-                          size: 11,
-                          weight: FontWeight.w600,
-                          color: tooltipFg,
-                        ),
-                        children: [
-                          TextSpan(
-                            text: fmt.format(s.y),
-                            style: _mono(size: 11, color: _kBlue),
-                          ),
-                        ],
-                      );
-                    }).toList(),
+              ),
+              const SizedBox(height: 6),
+              Expanded(
+                child: _HourlySalesChart(
+                  spots: spots,
+                  peakSpot: peakSpot,
+                  avgY: avgY,
+                  chartMaxY: rawMax * 1.35,
+                  fmt: NumberFormat.currency(
+                    symbol: sym,
+                    decimalDigits: 2,
                   ),
                 ),
               ),
-              duration: const Duration(milliseconds: 600),
-              curve: Curves.easeOutCubic,
-            ),
+            ],
           );
         },
+      ),
+    );
+  }
+}
+
+// ── Hourly Sales: summary row ─────────────────────────────────────────────────
+
+class _HourlySummaryRow extends StatelessWidget {
+  const _HourlySummaryRow({
+    required this.peakHour,
+    required this.peakRevenue,
+    required this.activeHours,
+    required this.fmt,
+  });
+
+  final int peakHour;
+  final double peakRevenue;
+  final int activeHours;
+  final NumberFormat fmt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+      child: Row(
+        children: [
+          _HourlyStatChip(
+            icon: Icons.schedule_rounded,
+            label: 'Peak Hour',
+            value: '${peakHour.toString().padLeft(2, '0')}:00',
+            color: _kBlue,
+          ),
+          const SizedBox(width: 7),
+          _HourlyStatChip(
+            icon: Icons.trending_up_rounded,
+            label: 'Peak Revenue',
+            value: fmt.format(peakRevenue),
+            color: _kTeal,
+          ),
+          const SizedBox(width: 7),
+          _HourlyStatChip(
+            icon: Icons.bolt_rounded,
+            label: 'Active Hours',
+            value: '${activeHours}h',
+            color: _kBlue,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HourlyStatChip extends StatelessWidget {
+  const _HourlyStatChip({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: color.withValues(alpha: 0.18),
+            width: 0.75,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 10, color: color.withValues(alpha: 0.85)),
+                const SizedBox(width: 3),
+                Text(
+                  label,
+                  style: _sans(
+                    size: 9,
+                    color: cs.onSurface.withValues(alpha: 0.5),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              value,
+              style: _mono(
+                size: 12,
+                weight: FontWeight.w700,
+                color: cs.onSurface,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Hourly Sales: chart ───────────────────────────────────────────────────────
+
+class _HourlySalesChart extends StatelessWidget {
+  const _HourlySalesChart({
+    required this.spots,
+    required this.peakSpot,
+    required this.avgY,
+    required this.chartMaxY,
+    required this.fmt,
+  });
+
+  final List<FlSpot> spots;
+  final FlSpot peakSpot;
+  final double avgY;
+  final double chartMaxY;
+  final NumberFormat fmt;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final grid = cs.outlineVariant.withValues(alpha: 0.18);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 14, 10),
+      child: LineChart(
+        LineChartData(
+          minX: spots.first.x,
+          maxX: spots.last.x,
+          minY: 0,
+          maxY: chartMaxY,
+          clipData: const FlClipData.all(),
+          gridData: FlGridData(
+            show: true,
+            drawVerticalLine: false,
+            horizontalInterval: chartMaxY / 4,
+            getDrawingHorizontalLine: (_) => FlLine(
+              color: grid,
+              strokeWidth: 0.6,
+              dashArray: [3, 6],
+            ),
+          ),
+          borderData: FlBorderData(show: false),
+          extraLinesData: ExtraLinesData(
+            horizontalLines: [
+              HorizontalLine(
+                y: avgY,
+                color: _kTeal.withValues(alpha: 0.45),
+                strokeWidth: 1,
+                dashArray: [4, 5],
+                label: HorizontalLineLabel(
+                  show: true,
+                  alignment: Alignment.topRight,
+                  padding: const EdgeInsets.only(right: 4, bottom: 2),
+                  style: _sans(
+                    size: 9,
+                    color: _kTeal.withValues(alpha: 0.75),
+                  ),
+                  labelResolver: (_) => 'avg',
+                ),
+              ),
+            ],
+          ),
+          titlesData: FlTitlesData(
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            rightTitles: AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            topTitles: AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 22,
+                interval: 1,
+                getTitlesWidget: (value, meta) {
+                  final h = value.toInt();
+                  if (value != value.roundToDouble()) {
+                    return const SizedBox.shrink();
+                  }
+                  if (h % 3 != 0) return const SizedBox.shrink();
+                  return SideTitleWidget(
+                    meta: meta,
+                    child: Text(
+                      '${h.toString().padLeft(2, '0')}:00',
+                      style: _mono(
+                        size: 9,
+                        color: cs.onSurface.withValues(alpha: 0.4),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          lineBarsData: [
+            LineChartBarData(
+              spots: spots,
+              isCurved: true,
+              curveSmoothness: 0.4,
+              gradient: const LinearGradient(
+                colors: [_kTeal, _kBlue],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+              ),
+              barWidth: 2.5,
+              isStrokeCapRound: true,
+              dotData: FlDotData(
+                show: true,
+                getDotPainter: (spot, _, __, ___) {
+                  if (spot.x == peakSpot.x) {
+                    return FlDotCirclePainter(
+                      radius: 4.5,
+                      color: _kBlue,
+                      strokeWidth: 2,
+                      strokeColor: cs.surface,
+                    );
+                  }
+                  return FlDotCirclePainter(
+                    radius: 0,
+                    color: Colors.transparent,
+                    strokeWidth: 0,
+                    strokeColor: Colors.transparent,
+                  );
+                },
+              ),
+              belowBarData: BarAreaData(
+                show: true,
+                gradient: LinearGradient(
+                  colors: [
+                    _kBlue.withValues(alpha: 0.22),
+                    _kTeal.withValues(alpha: 0.10),
+                    _kBlue.withValues(alpha: 0.0),
+                  ],
+                  stops: const [0.0, 0.45, 1.0],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+            ),
+          ],
+          lineTouchData: LineTouchData(
+            touchSpotThreshold: 20,
+            handleBuiltInTouches: true,
+            touchTooltipData: LineTouchTooltipData(
+              getTooltipColor: (_) => cs.inverseSurface,
+              tooltipPadding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 6,
+              ),
+              getTooltipItems: (touchedSpots) => touchedSpots.map((s) {
+                final h = s.x.toInt();
+                final isPeak = s.x == peakSpot.x;
+                return LineTooltipItem(
+                  '${h.toString().padLeft(2, '0')}:00${isPeak ? '  ★' : ''}\n',
+                  _sans(
+                    size: 11,
+                    weight: FontWeight.w600,
+                    color: cs.onInverseSurface,
+                  ),
+                  children: [
+                    TextSpan(
+                      text: fmt.format(s.y),
+                      style: _mono(
+                        size: 11,
+                        color: isPeak ? _kTeal : _kBlue,
+                      ),
+                    ),
+                  ],
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        duration: const Duration(milliseconds: 800),
+        curve: Curves.easeOutCubic,
       ),
     );
   }

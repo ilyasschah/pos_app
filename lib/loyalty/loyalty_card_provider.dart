@@ -76,6 +76,35 @@ class LoyaltyCardNotifier extends Notifier<void> {
     ));
   }
 
+  /// Returns the loyalty card for [customerId] in the current company, or null.
+  Future<LoyaltyCardsTableData?> findByCustomerId(int customerId) async {
+    final companyId = _companyId;
+    if (companyId == null) return null;
+    return (_db.select(_db.loyaltyCardsTable)
+          ..where((t) => t.customerId.equals(customerId))
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.syncStatus.isNotIn(['pending_delete']))
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
+  /// Adds [delta] to the customer's loyalty card points (negative to deduct).
+  /// Clamps the result at 0. No-op if the customer has no card.
+  Future<void> adjustPoints(int customerId, double delta) async {
+    final card = await findByCustomerId(customerId);
+    if (card == null) return;
+    final newPoints = (card.points + delta).clamp(0, double.infinity);
+    final isNew = card.syncStatus == 'pending_create';
+    await (_db.update(_db.loyaltyCardsTable)
+          ..where((t) => t.id.equals(card.id)))
+        .write(LoyaltyCardsTableCompanion(
+      points: Value(newPoints.toDouble()),
+      lastModified: Value(DateTime.now().toUtc()),
+      syncStatus: Value(isNew ? 'pending_create' : 'pending_update'),
+      syncError: const Value(null),
+    ));
+  }
+
   Future<void> deleteCard(int id) async {
     final existing = await (_db.select(_db.loyaltyCardsTable)
           ..where((t) => t.id.equals(id)))

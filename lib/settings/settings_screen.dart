@@ -23,7 +23,9 @@ import 'package:pos_app/app_settings/service_type_model.dart';
 import 'package:pos_app/app_settings/service_status_model.dart';
 import 'package:pos_app/app_settings/booking_settings_model.dart';
 import 'package:pos_app/auth/auth_provider.dart';
+import 'package:pos_app/auth/auth_storage.dart';
 import 'package:pos_app/auth/login_screen.dart';
+import 'package:pos_app/auth/master_login_screen.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
@@ -1779,6 +1781,96 @@ class _OptionTile extends StatelessWidget {
   }
 }
 
+// ── Device Registration Card ──────────────────────────────────────────────────
+
+class _DeviceCard extends ConsumerStatefulWidget {
+  const _DeviceCard();
+
+  @override
+  ConsumerState<_DeviceCard> createState() => _DeviceCardState();
+}
+
+class _DeviceCardState extends ConsumerState<_DeviceCard> {
+  String? _email;
+
+  @override
+  void initState() {
+    super.initState();
+    ref.read(authStorageProvider).getRegisteredEmail().then((e) {
+      if (mounted) setState(() => _email = e);
+    });
+  }
+
+  Future<void> _signOut() async {
+    final cs = Theme.of(context).colorScheme;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sign Out Device'),
+        content: Text(
+          _email != null
+              ? 'This will unlink $_email from this terminal. '
+                  'You will need to sign in online to use the POS again.'
+              : 'This will unlink this terminal. '
+                  'You will need to sign in online to use the POS again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: cs.error,
+              foregroundColor: cs.onError,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sign Out Device'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    await ref.read(authStorageProvider).unlinkDevice();
+
+    if (!mounted) return;
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const MasterLoginScreen()),
+      (_) => false,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
+    return _SettingsCard(
+      title: 'DEVICE',
+      children: [
+        ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+          leading: CircleAvatar(
+            backgroundColor: cs.primaryContainer,
+            child: Icon(Icons.person_outline, color: cs.onPrimaryContainer, size: 20),
+          ),
+          title: Text(
+            _email ?? 'Unknown',
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          subtitle: const Text('Registered account'),
+          trailing: TextButton.icon(
+            icon: Icon(Icons.logout, size: 16, color: cs.error),
+            label: Text('Sign Out', style: TextStyle(color: cs.error)),
+            onPressed: _signOut,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 // ── General ──────────────────────────────────────────────────────────────────
 class _GeneralTab extends ConsumerWidget {
   const _GeneralTab();
@@ -1787,6 +1879,7 @@ class _GeneralTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return _TabScrollView(
       cards: [
+        const _DeviceCard(),
         _SettingsCard(
           title: 'REGIONAL',
           children: [

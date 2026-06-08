@@ -24,6 +24,8 @@ import 'package:pos_app/utils/snackbar_helper.dart';
 import 'package:pos_app/utils/customer_display_service.dart';
 import 'package:pos_app/customer_display/customer_display_provider.dart';
 import 'package:pos_app/customer_display/customer_display_state.dart';
+import 'package:pos_app/customer/customer_picker_dialog.dart';
+import 'package:pos_app/loyalty/loyalty_card_provider.dart';
 import 'package:pos_app/sync/sync_notifier.dart';
 
 // ---------------------------------------------------------------------------
@@ -43,6 +45,17 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
 
   int? _selectedPaymentTypeId;
   bool _isProcessing = false;
+
+  // Loyalty points state
+  bool _loyaltyChecked = false;
+  double _pointsUsed = 0;
+  double _pointsEarned = 0;
+  double _pointsBalance = 0;
+  double _pointValue = 1.0;
+  LoyaltyCardsTableData? _loyaltyCard; // pre-loaded at dialog open
+  double get _pointsDiscount => _pointsUsed * _pointValue;
+  double get _effectiveTotal =>
+      (_grandTotal - _pointsDiscount).clamp(0.0, double.infinity);
 
   // Snapshot captured once at open — never re-read during numpad input
   late final double _grandTotal;
@@ -73,6 +86,9 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
     _cartItems = List.unmodifiable(ref.read(cartProvider).items);
     _sym = ref.read(currencySymbolProvider);
     _paidNotifier.value = '0';
+    _pointValue = double.tryParse(
+            _settingsAtOpen[SettingKeys.loyaltyPointValue] ?? '1.0') ??
+        1.0;
 
     // Show the order total on the customer display as soon as the dialog opens.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -85,20 +101,57 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
       );
       // Customer display state machine — transitions to paymentPending
       ref.read(customerDisplayProvider.notifier).showPayment(_grandTotal);
+      // Pre-load loyalty card so the info row shows immediately
+      _loadLoyaltyCard();
     });
   }
 
   @override
   void dispose() {
-    // Use fields captured in initState — ref.read is illegal here because
-    // the widget is already being unmounted.
     CustomerDisplayService.showWelcome(settings: _settingsAtOpen);
     if (_displayNotifier.state.status == CustomerDisplayStatus.paymentPending) {
-      // Return to cart view (or idle) — never leave display stuck on paymentPending.
-      _displayNotifier.cancelPayment();
+      // Defer the provider write — Riverpod forbids state mutation inside dispose
+      // because the widget tree is still being finalized at that point.
+      Future.microtask(_displayNotifier.cancelPayment);
     }
     _paidNotifier.dispose();
     super.dispose();
+  }
+
+  // ── Loyalty card pre-load ─────────────────────────────────────────────────
+  Future<void> _loadLoyaltyCard() async {
+    if (_settingsAtOpen[SettingKeys.loyaltyEnabled]?.toLowerCase() != 'true') {
+      return;
+    }
+    final customer = ref.read(cartProvider).selectedCustomer;
+    if (customer == null || customer.code == 'C000') return;
+    final card = await ref
+        .read(loyaltyCardNotifierProvider.notifier)
+        .findByCustomerId(customer.id);
+    if (mounted && card != null && card.points > 0) {
+      setState(() => _loyaltyCard = card);
+    }
+  }
+
+  // ── Loyalty redemption dialog (user-initiated from the info row) ──────────
+  Future<void> _showLoyaltyDialog(BuildContext ctx) async {
+    final card = _loyaltyCard;
+    if (card == null) return;
+    _loyaltyChecked = true; // prevents _handleLoyaltyStep from firing again
+    final customer = ref.read(cartProvider).selectedCustomer;
+    final result = await showDialog<double>(
+      context: ctx,
+      barrierDismissible: false,
+      builder: (_) => _LoyaltyPointsDialog(
+        customerName: customer?.name ?? '',
+        currentPoints: card.points,
+        pointValue: _pointValue,
+        maxUsable: _grandTotal,
+      ),
+    );
+    if (result != null && mounted) {
+      setState(() => _pointsUsed = result);
+    }
   }
 
   // ── Numpad logic ──────────────────────────────────────────────────────────
@@ -129,9 +182,46 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
 
   double get _paid => double.tryParse(_paidNotifier.value) ?? 0;
 
+  // ── Loyalty points step (runs once, before checkout starts) ──────────────
+  Future<void> _handleLoyaltyStep(BuildContext ctx) async {
+    if (_loyaltyChecked) return;
+    _loyaltyChecked = true;
+
+    if (_settingsAtOpen[SettingKeys.loyaltyEnabled]?.toLowerCase() != 'true') {
+      return;
+    }
+    final customer = ref.read(cartProvider).selectedCustomer;
+    if (customer == null || customer.code == 'C000') return;
+
+    final card = await ref
+        .read(loyaltyCardNotifierProvider.notifier)
+        .findByCustomerId(customer.id);
+    if (card == null || card.points <= 0) return;
+    if (!mounted) return;
+
+    final result = await showDialog<double>(
+      context: ctx,
+      barrierDismissible: false,
+      builder: (_) => _LoyaltyPointsDialog(
+        customerName: customer.name,
+        currentPoints: card.points,
+        pointValue: _pointValue,
+        maxUsable: _grandTotal,
+      ),
+    );
+    if (result != null && result > 0 && mounted) {
+      setState(() => _pointsUsed = result);
+    }
+  }
+
   // ── Checkout ──────────────────────────────────────────────────────────────
   Future<void> _complete(BuildContext ctx) async {
     if (_selectedPaymentTypeId == null) return;
+
+    // Loyalty step runs once before processing, while UI is still interactive.
+    await _handleLoyaltyStep(ctx);
+    if (!mounted) return;
+
     setState(() => _isProcessing = true);
 
     final user = ref.read(currentUserProvider);
@@ -189,9 +279,8 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
     final appSettings = ref.read(appSettingsProvider);
 
     try {
-      // Cap at grandTotal: tendered amount is UI-only for change display.
-      // _paid.clamp preserves the partial-payment path for Credit/Tab.
-      final amountToSave = _paid.clamp(0.0, _grandTotal);
+      // Cap at effectiveTotal (grand total minus any points discount).
+      final amountToSave = _paid.clamp(0.0, _effectiveTotal);
 
       // ── OFFLINE CHECKOUT (Phase 4) ───────────────────────────────────────
       // No Dio. No network. The order + items go straight into local SQLite
@@ -251,7 +340,7 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
           PosOrdersTableCompanion(
             closedAt: Value(now),
             status: const Value(1),
-            total: Value(_grandTotal),
+            total: Value(_effectiveTotal),
             discount: Value(cartState.manualCartDiscount),
             warehouseId: Value(cartNotifier.effectiveWarehouseId),
             customerId: Value(cartState.selectedCustomer?.id),
@@ -279,7 +368,7 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
             openedAt: Value(now),
             closedAt: Value(now),
             status: const Value(1),
-            total: Value(_grandTotal),
+            total: Value(_effectiveTotal),
             discount: Value(cartState.manualCartDiscount),
             warehouseId: Value(cartNotifier.effectiveWarehouseId),
             paymentTypeId: Value(_selectedPaymentTypeId!),
@@ -375,7 +464,7 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
           companyId:      Value(company.id),
           userId:         Value(user.id),
           warehouseId:    Value(cartNotifier.effectiveWarehouseId),
-          total:          Value(_grandTotal),
+          total:          Value(_effectiveTotal),
           discount:       Value(cartState.manualCartDiscount),
           discountType:   Value(cartState.manualCartDiscountType),
           customerId:     Value(cartState.selectedCustomer?.id),
@@ -406,12 +495,35 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
       // Clear cart now that the order is durably saved.
       cartNotifier.clearCart();
 
+      // ── Loyalty points: earn and deduct ──────────────────────────────────
+      final loyaltyCustomer = cartState.selectedCustomer;
+      if (_settingsAtOpen[SettingKeys.loyaltyEnabled]?.toLowerCase() == 'true' &&
+          loyaltyCustomer != null &&
+          loyaltyCustomer.code != 'C000') {
+        final minAmt =
+            double.tryParse(_settingsAtOpen[SettingKeys.loyaltyMinAmount] ?? '100') ?? 100;
+        final ptsPerThreshold =
+            double.tryParse(_settingsAtOpen[SettingKeys.loyaltyPointsPerThreshold] ?? '10') ?? 10;
+        final earned = minAmt > 0
+            ? ((_grandTotal / minAmt).floor() * ptsPerThreshold).toDouble()
+            : 0.0;
+        final loyaltyNotifier = ref.read(loyaltyCardNotifierProvider.notifier);
+        await loyaltyNotifier.adjustPoints(loyaltyCustomer.id, earned - _pointsUsed);
+        final updatedCard = await loyaltyNotifier.findByCustomerId(loyaltyCustomer.id);
+        if (mounted) {
+          setState(() {
+            _pointsEarned = earned;
+            _pointsBalance = updatedCard?.points ?? 0;
+          });
+        }
+      }
+
       // Customer display: checkoutSuccess state shows cash+change for 5 s,
       // then the notifier auto-resets to idle.
       ref.read(customerDisplayProvider.notifier).completeCheckout(
-        total: _grandTotal,
+        total: _effectiveTotal,
         amountPaid: _paid,
-        changeDue: (_paid - _grandTotal).clamp(0.0, double.infinity),
+        changeDue: (_paid - _effectiveTotal).clamp(0.0, double.infinity),
       );
 
       if (!mounted) return;
@@ -440,6 +552,10 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
             amountPaid: _paid,
             logoBytes: logoBytes,
             roleSettings: appSettings,
+            pointsUsed: _pointsUsed,
+            pointsEarned: _pointsEarned,
+            pointsBalance: _pointsBalance,
+            pointValue: _pointValue,
           )
           .catchError((_) {});
 
@@ -556,45 +672,25 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
     }
   }
 
-  void _pickCustomer(BuildContext ctx, List<Customer> customers) {
-    showDialog(
-      context: ctx,
-      builder: (c) => AlertDialog(
-        title: const Text('Select Customer'),
-        content: SizedBox(
-          width: 360,
-          height: 360,
-          child: Material(
-            color: Colors.transparent,
-            child: ListView.separated(
-              itemCount: customers.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (c2, i) {
-                final cu = customers[i];
-                final isSelected =
-                    ref.read(cartProvider).selectedCustomer?.id == cu.id;
-                return ListTile(
-                  leading: const Icon(Icons.person),
-                  title: Text(cu.name),
-                  subtitle: Text(cu.phoneNumber ?? cu.email ?? ''),
-                  selected: isSelected,
-                  onTap: () {
-                    final companyId = ref.read(selectedCompanyProvider)?.id;
-                    ref.read(currentCustomerProvider.notifier).setCustomer(cu);
-                    if (companyId != null) {
-                      ref
-                          .read(cartProvider.notifier)
-                          .setCustomer(companyId, cu);
-                    }
-                    Navigator.pop(c);
-                  },
-                );
-              },
-            ),
-          ),
-        ),
-      ),
+  void _pickCustomer(BuildContext ctx, List<Customer> customers) async {
+    final selected = await showCustomerPickerDialog(
+      ctx,
+      customers,
+      selectedId: ref.read(cartProvider).selectedCustomer?.id,
     );
+    if (selected == null || !mounted) return;
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    ref.read(currentCustomerProvider.notifier).setCustomer(selected);
+    if (companyId != null) {
+      ref.read(cartProvider.notifier).setCustomer(companyId, selected);
+    }
+    // Reset loyalty state for the newly selected customer
+    _loyaltyChecked = false;
+    setState(() {
+      _loyaltyCard = null;
+      _pointsUsed = 0;
+    });
+    _loadLoyaltyCard();
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -642,6 +738,7 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
                 taxTotal: _taxTotal,
                 discountTotal: _totalDiscount,
                 grandTotal: _grandTotal,
+                pointsDiscount: _pointsDiscount,
                 sym: _sym,
               ),
               VerticalDivider(
@@ -674,7 +771,7 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
 
                   // Totals display
                   _TotalsDisplay(
-                    grandTotal: _grandTotal,
+                    grandTotal: _effectiveTotal,
                     sym: _sym,
                     paidNotifier: _paidNotifier,
                     markAsPaid: markAsPaid,
@@ -688,6 +785,16 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
                       onRemove: _clearCustomer,
                     ),
 
+                  // Loyalty info row — visible when the customer has points
+                  if (_loyaltyCard != null)
+                    _LoyaltyInfoRow(
+                      card: _loyaltyCard!,
+                      pointValue: _pointValue,
+                      pointsUsed: _pointsUsed,
+                      sym: _sym,
+                      onTap: () => _showLoyaltyDialog(context),
+                    ),
+
                   _Numpad(
                     onKey: _onKey,
                     onComplete: _selectedPaymentTypeId != null && !_isProcessing
@@ -695,7 +802,7 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
                         : null,
                     isProcessing: _isProcessing,
                     paidNotifier: _paidNotifier,
-                    grandTotal: _grandTotal,
+                    grandTotal: _effectiveTotal,
                     markAsPaid: markAsPaid,
                   ),
                 ],
@@ -713,7 +820,7 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
 // ---------------------------------------------------------------------------
 class _OrderSummaryColumn extends ConsumerWidget {
   final List<CartItem> items;
-  final double subtotal, taxTotal, discountTotal, grandTotal;
+  final double subtotal, taxTotal, discountTotal, grandTotal, pointsDiscount;
   final String sym;
 
   const _OrderSummaryColumn({
@@ -722,6 +829,7 @@ class _OrderSummaryColumn extends ConsumerWidget {
     required this.taxTotal,
     required this.discountTotal,
     required this.grandTotal,
+    required this.pointsDiscount,
     required this.sym,
   });
 
@@ -810,6 +918,14 @@ class _OrderSummaryColumn extends ConsumerWidget {
                     color: Colors.green,
                   ),
                 if (taxTotal > 0) _SummaryRow('Taxes', taxTotal, sym, theme),
+                if (pointsDiscount > 0)
+                  _SummaryRow(
+                    'Points Redeemed',
+                    -pointsDiscount,
+                    sym,
+                    theme,
+                    color: Colors.green,
+                  ),
                 const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -821,7 +937,7 @@ class _OrderSummaryColumn extends ConsumerWidget {
                       ),
                     ),
                     Text(
-                      '$sym ${grandTotal.toStringAsFixed(2)}',
+                      '$sym ${(grandTotal - pointsDiscount).toStringAsFixed(2)}',
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                         color: theme.colorScheme.primary,
@@ -834,7 +950,7 @@ class _OrderSummaryColumn extends ConsumerWidget {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       Text(
-                        '≈ ${(grandTotal * dualRate).toStringAsFixed(2)} $dualSym',
+                        '≈ ${((grandTotal - pointsDiscount) * dualRate).toStringAsFixed(2)} $dualSym',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurface
                               .withValues(alpha: 0.55),
@@ -1556,6 +1672,257 @@ class _CustomerDetailCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Loyalty info row (visible in the right column before checkout is confirmed)
+// ---------------------------------------------------------------------------
+class _LoyaltyInfoRow extends StatelessWidget {
+  final LoyaltyCardsTableData card;
+  final double pointValue;
+  final double pointsUsed;
+  final String sym;
+  final VoidCallback onTap;
+
+  const _LoyaltyInfoRow({
+    required this.card,
+    required this.pointValue,
+    required this.pointsUsed,
+    required this.sym,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final discount = pointsUsed * pointValue;
+    final hasRedeemed = pointsUsed > 0;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: hasRedeemed
+              ? cs.tertiaryContainer.withValues(alpha: 0.35)
+              : cs.surfaceContainerHigh,
+          border: const Border(
+            left: BorderSide(color: Colors.amber, width: 3),
+          ),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.loyalty, color: Colors.amber, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '${card.points.toStringAsFixed(0)} pts'
+                    ' = ${(card.points * pointValue).toStringAsFixed(2)} $sym',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                  Text(
+                    hasRedeemed
+                        ? 'Redeeming ${pointsUsed.toStringAsFixed(0)} pts'
+                            ' (−${discount.toStringAsFixed(2)} $sym)'
+                        : 'Tap to redeem points',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: hasRedeemed
+                          ? Colors.green
+                          : cs.onSurface.withValues(alpha: 0.55),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right,
+              size: 20,
+              color: cs.onSurface.withValues(alpha: 0.4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Loyalty points redemption dialog
+// ---------------------------------------------------------------------------
+class _LoyaltyPointsDialog extends StatefulWidget {
+  final String customerName;
+  final double currentPoints;
+  final double pointValue;
+  final double maxUsable; // grand total cap — can't redeem more DH than the order total
+
+  const _LoyaltyPointsDialog({
+    required this.customerName,
+    required this.currentPoints,
+    required this.pointValue,
+    required this.maxUsable,
+  });
+
+  @override
+  State<_LoyaltyPointsDialog> createState() => _LoyaltyPointsDialogState();
+}
+
+class _LoyaltyPointsDialogState extends State<_LoyaltyPointsDialog> {
+  final _ctrl = TextEditingController();
+
+  double get _maxPts {
+    final maxByTotal = widget.pointValue > 0
+        ? (widget.maxUsable / widget.pointValue).floor().toDouble()
+        : widget.currentPoints;
+    return widget.currentPoints < maxByTotal ? widget.currentPoints : maxByTotal;
+  }
+
+  double get _ptsEntered => double.tryParse(_ctrl.text) ?? 0;
+  double get _discount => _ptsEntered * widget.pointValue;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final max = _maxPts;
+    final entered = _ptsEntered;
+    final valid = entered > 0 && entered <= max;
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(Icons.loyalty, color: cs.primary),
+          const SizedBox(width: 8),
+          const Text('Redeem Points'),
+        ],
+      ),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Customer info card
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: cs.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.customerName,
+                    style: theme.textTheme.titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Balance: ${widget.currentPoints.toStringAsFixed(0)} pts'
+                    ' = ${(widget.currentPoints * widget.pointValue).toStringAsFixed(2)} DH',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  Text(
+                    'Max usable this order: ${max.toStringAsFixed(0)} pts',
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: cs.onSurface.withValues(alpha: 0.6)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Points input
+            TextField(
+              controller: _ctrl,
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: false),
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: InputDecoration(
+                labelText: 'Points to use',
+                helperText: _discount > 0
+                    ? 'Discount: ${_discount.toStringAsFixed(2)} DH'
+                    : null,
+                suffixText: 'pts',
+                border: const OutlineInputBorder(),
+                errorText:
+                    entered > max && entered > 0 ? 'Exceeds maximum' : null,
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 10),
+            // +/- stepper row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton.outlined(
+                  onPressed: entered > 0
+                      ? () {
+                          _ctrl.text = (entered - 1).toStringAsFixed(0);
+                          setState(() {});
+                        }
+                      : null,
+                  icon: const Icon(Icons.remove),
+                  tooltip: '−1 pt',
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Text(
+                    '${entered.toStringAsFixed(0)} pts',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                ),
+                IconButton.outlined(
+                  onPressed: entered < max
+                      ? () {
+                          _ctrl.text = (entered + 1).toStringAsFixed(0);
+                          setState(() {});
+                        }
+                      : null,
+                  icon: const Icon(Icons.add),
+                  tooltip: '+1 pt',
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            OutlinedButton.icon(
+              onPressed: () {
+                _ctrl.text = max.toStringAsFixed(0);
+                setState(() {});
+              },
+              icon: const Icon(Icons.flash_on, size: 16),
+              label: Text('Use Max (${max.toStringAsFixed(0)} pts)'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, 0.0),
+          child: const Text('Skip'),
+        ),
+        FilledButton(
+          onPressed: valid ? () => Navigator.pop(context, entered) : null,
+          child: const Text('Redeem'),
+        ),
+      ],
     );
   }
 }

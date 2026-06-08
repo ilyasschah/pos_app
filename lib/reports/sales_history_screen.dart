@@ -348,9 +348,10 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
       _fetchDocuments();
     } on DioException catch (e) {
       if (!mounted) return;
+      final data = e.response?.data;
+      final msg = (data is Map ? data['message'] : data?.toString()) ?? 'Delete failed';
       showAppSnackbar(
-        context, ref,
-        e.response?.data?.toString() ?? 'Delete failed',
+        context, ref, msg,
         isError: true,
       );
     }

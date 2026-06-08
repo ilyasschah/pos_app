@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/auth/auth_storage.dart';
@@ -11,7 +12,13 @@ import 'package:window_manager/window_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await windowManager.ensureInitialized();
+  // window_manager only exists on desktop — skip on Android/iOS.
+  if (!kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+       defaultTargetPlatform == TargetPlatform.macOS ||
+       defaultTargetPlatform == TargetPlatform.linux)) {
+    await windowManager.ensureInitialized();
+  }
   final prefs = await SharedPreferences.getInstance();
 
   runApp(

@@ -13,6 +13,7 @@ class AuthStorage {
   static const _keyDeviceId = 'device_id';
   static const _keyCompanyId = 'company_id';
   static const _keyCachedUsers = 'cached_users';
+  static const _keyRegisteredEmail = 'registered_email';
 
   Future<String> getOrCreateDeviceId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -41,11 +42,22 @@ class AuthStorage {
     return prefs.getInt(_keyCompanyId);
   }
 
+  Future<void> saveRegisteredEmail(String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyRegisteredEmail, email);
+  }
+
+  Future<String?> getRegisteredEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyRegisteredEmail);
+  }
+
   Future<void> unlinkDevice() async {
     await _secureStorage.delete(key: _keyJwt);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyCompanyId);
     await prefs.remove(_keyCachedUsers);
+    await prefs.remove(_keyRegisteredEmail);
   }
 
   Future<bool> isDeviceRegistered() async {

@@ -31,8 +31,6 @@ class SyncManager {
   final AuthStorage authStorage;
   final ImageSyncHelper imageHelper;
 
-  // Entity keys for sync_meta — keep as constants so a typo doesn't silently
-  // create a duplicate row and break the watermark.
   static const _kProducts = 'products';
   static const _kTaxes = 'taxes';
   static const _kFloorPlans = 'floor_plans';
@@ -44,33 +42,14 @@ class SyncManager {
   static const _kCustomers = 'customers';
   static const _kPromotions = 'promotions';
   static const _kProductComments = 'product_comments';
-  static const _kDocuments       = 'documents';
-  static const _kLoyaltyCards    = 'loyalty_cards';
+  static const _kDocuments = 'documents';
+  static const _kLoyaltyCards = 'loyalty_cards';
 
-  // ==========================================================================
-  // PUBLIC ENTRYPOINT
-  // ==========================================================================
-
-  /// Full bidirectional sync: push every pending offline write (orders,
-  /// cash movements, Z-reports) then pull fresh master data. Push runs
-  /// first so server-side side effects (e.g. stock deltas, new generated
-  /// Z-report rows) are reflected in the subsequent pull.
-  ///
-  /// Order matters: Z-reports push LAST so that all the day's orders and
-  /// cash movements they need to aggregate over already exist server-side
-  /// by the time `/ZReports/Generate` runs.
   Future<void> sync(int companyId) async {
-    // Product groups first — products reference group IDs.
     await pushPendingProductGroupOps(companyId);
-    // Product mutations after groups so group IDs are resolved.
     await pushPendingProductOps(companyId);
-    // Barcode mutations after products so new product IDs are resolved first.
     await pushPendingBarcodeOps(companyId);
-    // Promotion mutations after products so new product IDs referenced by
-    // promotion items are already on the server.
     await pushPendingPromotionOps(companyId);
-    // Open orders first — they must exist on the server before any completed
-    // order that references the same items is processed by BatchSync.
     await pushPendingOpenOrders(companyId);
     await pushPendingOrders(companyId);
     await pushPendingVoids(companyId);
@@ -80,14 +59,12 @@ class SyncManager {
     await pushPendingCustomerOps(companyId);
     await pushPendingCustomerDiscountOps(companyId);
     await pushPendingLoyaltyCardOps(companyId);
+    await pushPendingShifts(companyId);
+    await pushPendingTimeClockEntries(companyId);
     await pullMasterData(companyId);
-    // Pull Documents last — after BatchSync has created them on the server —
-    // so local Document rows pick up server-assigned numbers and IDs.
     await pullDocuments(companyId);
   }
 
-  /// Pull-only path. Used by login (no orders to push yet) and by targeted
-  /// post-mutation refreshes that already know nothing's pending.
   Future<void> pullMasterData(int companyId) async {
     await pullProducts(companyId);
     await pullTaxes(companyId);
@@ -95,45 +72,22 @@ class SyncManager {
     await pullFloorPlanTables(companyId);
     await pullUsers(companyId);
     await pullAppProperties(companyId);
-    // Phase 3.6 additions — the four entities that previously hung the POS
-    // screen offline. Pull last so they don't slow the first-paint critical
-    // path (products/taxes/floor_plans are what the menu grid needs first).
     await pullProductGroups(companyId);
     await pullPaymentTypes(companyId);
     await pullCustomers(companyId);
     await pullPromotions(companyId);
     await pullProductComments(companyId);
-    // Security key rules — full replace each sync (tiny table, no watermark).
-    // Pulled here so SecurityGuard reflects any admin changes made since last sync.
     await pullSecurityKeys(companyId);
-    // Company offline cache — single-row pull so receipts can render with
-    // real branding (name/address/tax number/logo) when network drops.
     await pullCompany(companyId);
-    // Stock levels — pulled last so any inventory changes from the preceding
-    // pushes (BatchSync deductions, etc.) are reflected in the local cache.
     await pullStocks(companyId);
     await pullLoyaltyCards(companyId);
   }
 
-  // ==========================================================================
-  // PUSH — pending offline orders to /PosOrder/BatchSync
-  // ==========================================================================
-
-  /// Pushes every `syncStatus = 'pending'` order in the local DB to the
-  /// server's `/PosOrder/BatchSync` endpoint. On success per item, the row's
-  /// `syncStatus` flips to `'synced'` and `serverId` is populated. On per-
-  /// item failure, the row flips to `'failed'` and stores the error — it
-  /// can be retried later from the Failed Syncs screen.
-  ///
-  /// Whole-batch failure (network down, 500) leaves rows untouched so the
-  /// next push retries them.
   Future<void> pushPendingOrders(int companyId) async {
     final pending = await db.getPendingOrders();
     if (pending.isEmpty) return;
 
-    final payload = {
-      'orders': pending.map(_orderToBatchJson).toList(),
-    };
+    final payload = {'orders': pending.map(_orderToBatchJson).toList()};
 
     final List<dynamic> results;
     try {
@@ -144,8 +98,6 @@ class SyncManager {
       );
       results = (res.data?['results'] as List<dynamic>?) ?? const [];
     } catch (_) {
-      // Whole-batch failure — leave every row pending so the next push retries.
-      // Do NOT mark them failed; that's for per-item server-side rejections.
       rethrow;
     }
 
@@ -159,35 +111,25 @@ class SyncManager {
         if (success) {
           final serverId = r['serverId'] as int?;
           if (serverId != null) {
-            // For paid orders the server returns the Document.Id (not PosOrder.Id
-            // — the PosOrder is deleted by CheckoutPosOrderCommand on the server).
-            // Stamp this onto the local Document row so it can be found/updated
-            // when the pull syncs Documents back from the server.
             await db.linkDocumentToServer(localId, serverId);
-            // Delete the completed PosOrder — items cascade via FK.
             await db.deleteCompletedOrder(localId);
           } else {
             await db.markOrderFailed(
-                localId, 'Server returned success without a serverId.');
+              localId,
+              'Server returned success without a serverId.',
+            );
           }
         } else {
           final error = r['error'] as String? ?? 'Unknown server error.';
           await db.markOrderFailed(localId, error);
         }
-      } catch (_) {
-        // DB write failure is rare — swallow so one bad row doesn't abort
-        // the rest of the batch. Next push will see the original row still
-        // pending and retry from scratch.
-      }
+      } catch (_) {}
     }
   }
 
   Map<String, dynamic> _orderToBatchJson(PosOrderWithItems o) {
     return {
       'localId': o.order.localId,
-      // Non-null for orders that were loaded from the server (e.g. 'svr_3280').
-      // The backend uses this to call Checkout on the existing PosOrder rather
-      // than creating a new one — preventing duplicate rows in SQL Server.
       'existingServerId': o.order.serverId,
       'paymentTypeId': o.order.paymentTypeId,
       'amountPaid': o.order.amountPaid,
@@ -196,7 +138,7 @@ class SyncManager {
         'userId': o.order.userId,
         'number': o.order.orderName,
         'discount': o.order.discount,
-        'discountType': 0,
+        'discountType': o.order.discountType,
         'total': o.order.total,
         'customerId': o.order.customerId,
         'serviceType': o.order.serviceType,
@@ -205,53 +147,31 @@ class SyncManager {
         'warehouseId': o.order.warehouseId,
       },
       'items': o.items.map((item) {
-            // Decode per-item tax data stored at checkout time.
-            // Shape stored: [{"id": 1, "amount": 2.50}]
-            final List<Map<String, dynamic>> taxEntries = item.taxesJson != null
-                ? (jsonDecode(item.taxesJson!) as List)
-                    .cast<Map<String, dynamic>>()
-                : const [];
-            final appliedTaxIds =
-                taxEntries.map((t) => t['id'] as int).toList();
-            // CheckoutItemDto.Taxes expects {taxId, amount} pairs.
-            final taxes = taxEntries
-                .map((t) => {
-                      'taxId': t['id'] as int,
-                      'amount': t['amount'],
-                    })
-                .toList();
-            return {
-              'posOrderId': 0,
-              'productId': item.productId,
-              'roundNumber': 1,
-              'quantity': item.quantity,
-              'price': item.unitPrice,
-              'discount': item.discount,
-              'discountType': item.discountType,
-              'discountAppliedType': 0,
-              'comment': item.comment,
-              'bundle': null,
-              'appliedTaxIds': appliedTaxIds,
-              'taxes': taxes,
-            };
-          }).toList(),
+        final List<Map<String, dynamic>> taxEntries = item.taxesJson != null
+            ? (jsonDecode(item.taxesJson!) as List).cast<Map<String, dynamic>>()
+            : const [];
+        final appliedTaxIds = taxEntries.map((t) => t['id'] as int).toList();
+        final taxes = taxEntries
+            .map((t) => {'taxId': t['id'] as int, 'amount': t['amount']})
+            .toList();
+        return {
+          'posOrderId': 0,
+          'productId': item.productId,
+          'roundNumber': 1,
+          'quantity': item.quantity,
+          'price': item.unitPrice,
+          'discount': item.discount,
+          'discountType': item.discountType,
+          'discountAppliedType': 0,
+          'comment': item.comment,
+          'bundle': null,
+          'appliedTaxIds': appliedTaxIds,
+          'taxes': taxes,
+        };
+      }).toList(),
     };
   }
 
-  // ==========================================================================
-  // PUSH — pending open orders to /PosOrder/Create + /PosOrderItem/BulkAdd
-  // ==========================================================================
-
-  /// Pushes every `status=0, syncStatus='pending'` (saved-but-unpaid) order
-  /// to the server so other devices can see it in open-orders lists.
-  ///
-  /// Two-phase per order:
-  ///   1. If no serverId → POST /PosOrder/Create → store serverId locally.
-  ///   2. POST /PosOrderItem/BulkAdd — server's delta logic handles re-saves.
-  ///   3. Mark synced.
-  ///
-  /// A failure at phase 2 leaves the row with a serverId but still 'pending',
-  /// so the next sync retries only the item-add step (no duplicate header).
   Future<void> pushPendingOpenOrders(int companyId) async {
     final pending = await db.getPendingOpenOrders();
     if (pending.isEmpty) return;
@@ -259,9 +179,7 @@ class SyncManager {
     for (final o in pending) {
       try {
         int serverId;
-
         if (o.order.serverId == null) {
-          // Phase 1: create the order header on the server.
           final res = await dio.post<dynamic>(
             '/PosOrder/Create',
             queryParameters: {'companyId': companyId},
@@ -269,7 +187,7 @@ class SyncManager {
               'userId': o.order.userId,
               'number': o.order.orderName ?? 'ORD',
               'discount': o.order.discount,
-              'discountType': 0,
+              'discountType': o.order.discountType,
               'total': o.order.total ?? 0,
               'customerId': o.order.customerId,
               'serviceType': o.order.serviceType,
@@ -281,52 +199,68 @@ class SyncManager {
           final data = res.data;
           serverId = data is int
               ? data
-              : (data['id'] ?? data['Id'] ?? data['posOrderId'] ??
-                    data['PosOrderId']) as int;
+              : (data['id'] ??
+                        data['Id'] ??
+                        data['posOrderId'] ??
+                        data['PosOrderId'])
+                    as int;
 
-          // Persist serverId so a crash before phase 2 doesn't re-create the header.
           await db.setServerId(o.order.localId, serverId);
         } else {
           serverId = o.order.serverId!;
+          await dio.patch<dynamic>(
+            '/PosOrder/Update',
+            queryParameters: {'companyId': companyId},
+            data: {
+              "id": serverId,
+              "userId": o.order.userId,
+              "number": o.order.orderName,
+              "discount": o.order.discount,
+              "discountType": o.order.discountType,
+              "total": o.order.total,
+              "customerId": o.order.customerId,
+              "serviceType": o.order.serviceType,
+              "serviceStatus": o.order.serviceStatus,
+              "floorPlanTableId": o.order.tableId,
+              "warehouseId": o.order.warehouseId,
+            },
+          );
         }
 
-        // Phase 2: add / update items (server delta logic handles re-saves).
         if (o.items.isNotEmpty) {
-          final itemsJson = o.items
-              .map((item) {
-                final List<Map<String, dynamic>> taxEntries =
-                    item.taxesJson != null
-                        ? (jsonDecode(item.taxesJson!) as List)
-                            .cast<Map<String, dynamic>>()
-                        : const [];
-                final appliedTaxIds =
-                    taxEntries.map((t) => t['id'] as int).toList();
-                return {
-                  'posOrderId': serverId,
-                  'PosOrderId': serverId,
-                  'productId': item.productId,
-                  'ProductId': item.productId,
-                  'quantity': item.quantity,
-                  'Quantity': item.quantity,
-                  'price': item.unitPrice,
-                  'Price': item.unitPrice,
-                  'discount': item.discount,
-                  'Discount': item.discount,
-                  'discountType': item.discountType,
-                  'DiscountType': item.discountType,
-                  'discountAppliedType': 0,
-                  'DiscountAppliedType': 0,
-                  'comment': item.comment,
-                  'Comment': item.comment,
-                  'roundNumber': 1,
-                  'RoundNumber': 1,
-                  'bundle': null,
-                  'Bundle': null,
-                  'appliedTaxIds': appliedTaxIds,
-                  'AppliedTaxIds': appliedTaxIds,
-                };
-              })
-              .toList();
+          final itemsJson = o.items.map((item) {
+            final List<Map<String, dynamic>> taxEntries = item.taxesJson != null
+                ? (jsonDecode(item.taxesJson!) as List)
+                      .cast<Map<String, dynamic>>()
+                : const [];
+            final appliedTaxIds = taxEntries
+                .map((t) => t['id'] as int)
+                .toList();
+            return {
+              'posOrderId': serverId,
+              'PosOrderId': serverId,
+              'productId': item.productId,
+              'ProductId': item.productId,
+              'quantity': item.quantity,
+              'Quantity': item.quantity,
+              'price': item.unitPrice,
+              'Price': item.unitPrice,
+              'discount': item.discount,
+              'Discount': item.discount,
+              'discountType': item.discountType,
+              'DiscountType': item.discountType,
+              'discountAppliedType': 0,
+              'DiscountAppliedType': 0,
+              'comment': item.comment,
+              'Comment': item.comment,
+              'roundNumber': 1,
+              'RoundNumber': 1,
+              'bundle': null,
+              'Bundle': null,
+              'appliedTaxIds': appliedTaxIds,
+              'AppliedTaxIds': appliedTaxIds,
+            };
+          }).toList();
 
           await dio.post<dynamic>(
             '/PosOrderItem/BulkAdd',
@@ -348,40 +282,33 @@ class SyncManager {
     }
   }
 
-  // ==========================================================================
-  // PUSH — pending voids to /PosVoids/Add + /PosOrder/Delete
-  // ==========================================================================
-
-  /// Pushes every `syncStatus='pending'` void record to the server.
-  /// Each void: (1) POSTs one PosVoid record per item, (2) DELETEs the server
-  /// PosOrder. Both steps are required to match what the online void flow does.
   Future<void> pushPendingVoids(int companyId) async {
     final pending = await db.getPendingVoids();
     if (pending.isEmpty) return;
 
     for (final v in pending) {
       try {
-        final items =
-            (jsonDecode(v.itemsJson) as List).cast<Map<String, dynamic>>();
+        final items = (jsonDecode(v.itemsJson) as List)
+            .cast<Map<String, dynamic>>();
 
         // Step 1: post a PosVoid row for every voided item.
         for (final item in items) {
           await dio.post<dynamic>(
             '/PosVoids/Add',
             queryParameters: {
-              'companyId':    companyId,
-              'orderNumber':  v.orderNumber,
-              'userId':       v.userId,
-              'userName':     (item['userName'] ?? '') as String,
-              'productId':    item['productId'] as int,
-              'productName':  (item['productName'] ?? '') as String,
-              'roundNumber':  (item['roundNumber'] ?? 1) as int,
-              'quantity':     item['quantity'],
-              'price':        item['price'],
-              'discount':     (item['discount'] ?? 0),
+              'companyId': companyId,
+              'orderNumber': v.orderNumber,
+              'userId': v.userId,
+              'userName': (item['userName'] ?? '') as String,
+              'productId': item['productId'] as int,
+              'productName': (item['productName'] ?? '') as String,
+              'roundNumber': (item['roundNumber'] ?? 1) as int,
+              'quantity': item['quantity'],
+              'price': item['price'],
+              'discount': (item['discount'] ?? 0),
               'discountType': (item['discountType'] ?? 0) as int,
-              'total':        item['total'],
-              'voidedById':   v.userId,
+              'total': item['total'],
+              'voidedById': v.userId,
               'voidedByName': (item['userName'] ?? '') as String,
               if (v.reason != null) 'reason': v.reason,
             },
@@ -392,8 +319,8 @@ class SyncManager {
         await dio.delete<dynamic>(
           '/PosOrder/Delete',
           queryParameters: {
-            'id':          v.serverOrderId,
-            'companyId':   companyId,
+            'id': v.serverOrderId,
+            'companyId': companyId,
             'warehouseId': v.warehouseId,
           },
         );
@@ -476,10 +403,7 @@ class SyncManager {
       try {
         final res = await dio.post<dynamic>(
           '/ZReports/Generate',
-          queryParameters: {
-            'companyId': companyId,
-            'userId': report.userId,
-          },
+          queryParameters: {'companyId': companyId, 'userId': report.userId},
         );
 
         final data = res.data;
@@ -510,14 +434,17 @@ class SyncManager {
   /// Must run BEFORE pushPendingOrders so newly created products exist on the
   /// server before any order that references them is synced.
   Future<void> pushPendingProductOps(int companyId) async {
-    final pending = await (db.select(db.productsTable)
-          ..where((t) => t.companyId.equals(companyId))
-          ..where((t) => t.syncStatus.isIn([
-                'pending_create',
-                'pending_update',
-                'pending_delete',
-              ])))
-        .get();
+    final pending =
+        await (db.select(db.productsTable)
+              ..where((t) => t.companyId.equals(companyId))
+              ..where(
+                (t) => t.syncStatus.isIn([
+                  'pending_create',
+                  'pending_update',
+                  'pending_delete',
+                ]),
+              ))
+            .get();
 
     if (pending.isEmpty) return;
 
@@ -561,37 +488,42 @@ class SyncManager {
             );
             final body = res.data?['data'] ?? res.data;
             final realId = (body['id'] as num?)?.toInt();
-            if (realId == null) throw Exception('Server returned no id for product create');
+            if (realId == null)
+              throw Exception('Server returned no id for product create');
 
             // Replace the temp row: delete by temp id, insert with real id.
             await db.transaction(() async {
-              await (db.delete(db.productsTable)
-                    ..where((t) => t.id.equals(p.id)))
-                  .go();
-              await db.into(db.productsTable).insert(ProductsTableCompanion(
-                id: Value(realId),
-                companyId: Value(p.companyId),
-                name: Value(p.name),
-                price: Value(p.price),
-                cost: Value(p.cost),
-                productGroupId: Value(p.productGroupId),
-                isService: Value(p.isService),
-                colorHex: Value(p.colorHex),
-                localImagePath: Value(p.localImagePath),
-                code: Value(p.code),
-                plu: Value(p.plu),
-                measurementUnit: Value(p.measurementUnit),
-                description: Value(p.description),
-                markup: Value(p.markup),
-                rank: Value(p.rank),
-                ageRestriction: Value(p.ageRestriction),
-                isPriceChangeAllowed: Value(p.isPriceChangeAllowed),
-                isUsingDefaultQuantity: Value(p.isUsingDefaultQuantity),
-                isTaxInclusivePrice: Value(p.isTaxInclusivePrice),
-                isEnabled: Value(p.isEnabled),
-                syncStatus: const Value('synced'),
-                lastModified: Value(DateTime.now().toUtc()),
-              ));
+              await (db.delete(
+                db.productsTable,
+              )..where((t) => t.id.equals(p.id))).go();
+              await db
+                  .into(db.productsTable)
+                  .insert(
+                    ProductsTableCompanion(
+                      id: Value(realId),
+                      companyId: Value(p.companyId),
+                      name: Value(p.name),
+                      price: Value(p.price),
+                      cost: Value(p.cost),
+                      productGroupId: Value(p.productGroupId),
+                      isService: Value(p.isService),
+                      colorHex: Value(p.colorHex),
+                      localImagePath: Value(p.localImagePath),
+                      code: Value(p.code),
+                      plu: Value(p.plu),
+                      measurementUnit: Value(p.measurementUnit),
+                      description: Value(p.description),
+                      markup: Value(p.markup),
+                      rank: Value(p.rank),
+                      ageRestriction: Value(p.ageRestriction),
+                      isPriceChangeAllowed: Value(p.isPriceChangeAllowed),
+                      isUsingDefaultQuantity: Value(p.isUsingDefaultQuantity),
+                      isTaxInclusivePrice: Value(p.isTaxInclusivePrice),
+                      isEnabled: Value(p.isEnabled),
+                      syncStatus: const Value('synced'),
+                      lastModified: Value(DateTime.now().toUtc()),
+                    ),
+                  );
             });
 
           // ── UPDATE ──────────────────────────────────────────────────────
@@ -629,12 +561,14 @@ class SyncManager {
                 'imageBase64': imageBase64,
               },
             );
-            await (db.update(db.productsTable)
-                  ..where((t) => t.id.equals(p.id)))
-                .write(const ProductsTableCompanion(
-              syncStatus: Value('synced'),
-              syncError: Value(null),
-            ));
+            await (db.update(
+              db.productsTable,
+            )..where((t) => t.id.equals(p.id))).write(
+              const ProductsTableCompanion(
+                syncStatus: Value('synced'),
+                syncError: Value(null),
+              ),
+            );
 
           // ── DELETE ──────────────────────────────────────────────────────
           case 'pending_delete':
@@ -642,12 +576,14 @@ class SyncManager {
               '/Products/Delete',
               queryParameters: {'id': p.id, 'companyId': companyId},
             );
-            await (db.delete(db.productsTable)
-                  ..where((t) => t.id.equals(p.id)))
-                .go();
+            await (db.delete(
+              db.productsTable,
+            )..where((t) => t.id.equals(p.id))).go();
         }
       } catch (e) {
-        debugPrint('pushPendingProductOps: product ${p.id} (${p.syncStatus}) failed — $e');
+        debugPrint(
+          'pushPendingProductOps: product ${p.id} (${p.syncStatus}) failed — $e',
+        );
         // Record the error; leave syncStatus unchanged so next sync retries.
         try {
           await (db.update(db.productsTable)..where((t) => t.id.equals(p.id)))
@@ -661,10 +597,11 @@ class SyncManager {
   /// the server. Runs after [pushPendingProductOps] so new product IDs are
   /// already resolved before we try to associate barcodes with them.
   Future<void> pushPendingBarcodeOps(int companyId) async {
-    final pending = await (db.select(db.barcodesTable)
-          ..where((t) => t.companyId.equals(companyId))
-          ..where((t) => t.syncStatus.isNotIn(['synced'])))
-        .get();
+    final pending =
+        await (db.select(db.barcodesTable)
+              ..where((t) => t.companyId.equals(companyId))
+              ..where((t) => t.syncStatus.isNotIn(['synced'])))
+            .get();
 
     for (final b in pending) {
       try {
@@ -675,32 +612,31 @@ class SyncManager {
               queryParameters: {'companyId': companyId},
               data: {'productId': b.productId, 'value': b.value},
             );
-            final serverId =
-                (res.data is Map ? res.data['id'] : null) as int?;
-            await (db.update(db.barcodesTable)
-                  ..where((t) => t.localId.equals(b.localId)))
-                .write(BarcodesTableCompanion(
-              serverId: Value(serverId),
-              syncStatus: const Value('synced'),
-            ));
+            final serverId = (res.data is Map ? res.data['id'] : null) as int?;
+            await (db.update(
+              db.barcodesTable,
+            )..where((t) => t.localId.equals(b.localId))).write(
+              BarcodesTableCompanion(
+                serverId: Value(serverId),
+                syncStatus: const Value('synced'),
+              ),
+            );
 
           case 'pending_delete':
             if (b.serverId != null) {
               await dio.delete<dynamic>(
                 '/Barcodes/Delete',
-                queryParameters: {
-                  'id': b.serverId,
-                  'companyId': companyId,
-                },
+                queryParameters: {'id': b.serverId, 'companyId': companyId},
               );
             }
-            await (db.delete(db.barcodesTable)
-                  ..where((t) => t.localId.equals(b.localId)))
-                .go();
+            await (db.delete(
+              db.barcodesTable,
+            )..where((t) => t.localId.equals(b.localId))).go();
         }
       } catch (e) {
         debugPrint(
-            'pushPendingBarcodeOps: barcode ${b.localId} (${b.syncStatus}) failed — $e');
+          'pushPendingBarcodeOps: barcode ${b.localId} (${b.syncStatus}) failed — $e',
+        );
       }
     }
   }
@@ -710,14 +646,16 @@ class SyncManager {
   // ==========================================================================
 
   Future<DateTime?> _getLastSync(String entity) async {
-    final row = await (db.select(db.syncMetaTable)
-          ..where((t) => t.entity.equals(entity)))
-        .getSingleOrNull();
+    final row = await (db.select(
+      db.syncMetaTable,
+    )..where((t) => t.entity.equals(entity))).getSingleOrNull();
     return row?.lastSyncedAt;
   }
 
   Future<void> _setLastSync(String entity, DateTime time) async {
-    await db.into(db.syncMetaTable).insertOnConflictUpdate(
+    await db
+        .into(db.syncMetaTable)
+        .insertOnConflictUpdate(
           SyncMetaTableCompanion(
             entity: Value(entity),
             lastSyncedAt: Value(time.toUtc()),
@@ -728,9 +666,9 @@ class SyncManager {
   /// Encodes the watermark in the form the C# `modifiedAfter` query param
   /// expects: ISO-8601 with the trailing `Z` so it parses as `DateTimeKind.Utc`.
   Map<String, dynamic> _query(int companyId, DateTime? watermark) => {
-        'companyId': companyId,
-        if (watermark != null) 'modifiedAfter': watermark.toUtc().toIso8601String(),
-      };
+    'companyId': companyId,
+    if (watermark != null) 'modifiedAfter': watermark.toUtc().toIso8601String(),
+  };
 
   /// Parses a server timestamp into UTC. Falls back to `now` so a missing
   /// `lastModified` (server not yet backfilled) doesn't write `default(DateTime)`
@@ -792,7 +730,9 @@ class SyncManager {
       if (localImagePath != null) imageSuccessCount++;
       productCount++;
 
-      await db.into(db.productsTable).insertOnConflictUpdate(
+      await db
+          .into(db.productsTable)
+          .insertOnConflictUpdate(
             ProductsTableCompanion(
               id: Value(id),
               companyId: Value(json['companyId'] as int? ?? companyId),
@@ -814,16 +754,20 @@ class SyncManager {
               rank: Value(json['rank'] as int? ?? 0),
               currencyId: Value(json['currencyId'] as int?),
               ageRestriction: Value(json['ageRestriction'] as int?),
-              lastPurchasePrice:
-                  Value((json['lastPurchasePrice'] as num?)?.toDouble()),
+              lastPurchasePrice: Value(
+                (json['lastPurchasePrice'] as num?)?.toDouble(),
+              ),
               dateCreated: Value(_parseNullableDate(json['dateCreated'])),
               dateUpdated: Value(_parseNullableDate(json['dateUpdated'])),
-              isPriceChangeAllowed:
-                  Value(json['isPriceChangeAllowed'] as bool? ?? false),
-              isUsingDefaultQuantity:
-                  Value(json['isUsingDefaultQuantity'] as bool? ?? true),
-              isTaxInclusivePrice:
-                  Value(json['isTaxInclusivePrice'] as bool? ?? true),
+              isPriceChangeAllowed: Value(
+                json['isPriceChangeAllowed'] as bool? ?? false,
+              ),
+              isUsingDefaultQuantity: Value(
+                json['isUsingDefaultQuantity'] as bool? ?? true,
+              ),
+              isTaxInclusivePrice: Value(
+                json['isTaxInclusivePrice'] as bool? ?? true,
+              ),
               isEnabled: Value(json['isEnabled'] as bool? ?? true),
               lastModified: Value(_parseLastModified(json['lastModified'])),
             ),
@@ -833,8 +777,9 @@ class SyncManager {
     await _setLastSync(_kProducts, startedAt);
 
     debugPrint(
-        'pullProducts: saved $productCount products. '
-        'Successfully cached $imageSuccessCount images.');
+      'pullProducts: saved $productCount products. '
+      'Successfully cached $imageSuccessCount images.',
+    );
   }
 
   String? _firstBarcode(Map<String, dynamic> json) {
@@ -955,10 +900,7 @@ class SyncManager {
 
     final res = await dio.get<List<dynamic>>(
       '/Users/GetAllUsers',
-      queryParameters: {
-        ..._query(companyId, watermark),
-        'deviceId': deviceId,
-      },
+      queryParameters: {..._query(companyId, watermark), 'deviceId': deviceId},
     );
     final rows = res.data ?? const [];
 
@@ -968,26 +910,26 @@ class SyncManager {
         // server slips up and sends one. (Plan rule.)
         final hashedPin = json['hashedPin'] as String?;
         final firstName = _nullIfBlank(json['firstName'] as String?);
-        final lastName  = _nullIfBlank(json['lastName']  as String?);
-        final username  = _nullIfBlank(json['username']  as String?);
-        final displayName = [firstName, lastName]
-            .whereType<String>()
-            .join(' ')
-            .trim();
+        final lastName = _nullIfBlank(json['lastName'] as String?);
+        final username = _nullIfBlank(json['username'] as String?);
+        final displayName = [
+          firstName,
+          lastName,
+        ].whereType<String>().join(' ').trim();
 
         batch.insert(
           db.usersTable,
           UsersTableCompanion(
-            id:           Value(json['id'] as int),
-            companyId:    Value(json['companyId'] as int? ?? companyId),
-            name:         Value(displayName.isEmpty ? (username ?? '') : displayName),
-            firstName:    Value(firstName),
-            lastName:     Value(lastName),
-            username:     Value(username),
-            email:        Value(json['email'] as String?),
-            pinHash:      Value(hashedPin),
-            role:         Value(json['accessLevel'] as int? ?? 0),
-            isEnabled:    Value(json['isEnabled'] as bool? ?? true),
+            id: Value(json['id'] as int),
+            companyId: Value(json['companyId'] as int? ?? companyId),
+            name: Value(displayName.isEmpty ? (username ?? '') : displayName),
+            firstName: Value(firstName),
+            lastName: Value(lastName),
+            username: Value(username),
+            email: Value(json['email'] as String?),
+            pinHash: Value(hashedPin),
+            role: Value(json['accessLevel'] as int? ?? 0),
+            isEnabled: Value(json['isEnabled'] as bool? ?? true),
             lastModified: Value(_parseLastModified(json['lastModified'])),
           ),
           mode: InsertMode.insertOrReplace,
@@ -1016,10 +958,11 @@ class SyncManager {
   /// the server, then lets the subsequent [pullProductGroups] bring back the
   /// canonical server data (including server-assigned IDs and image URLs).
   Future<void> pushPendingProductGroupOps(int companyId) async {
-    final pending = await (db.select(db.productGroupsTable)
-          ..where((t) => t.companyId.equals(companyId))
-          ..where((t) => t.syncStatus.isNotIn(['synced'])))
-        .get();
+    final pending =
+        await (db.select(db.productGroupsTable)
+              ..where((t) => t.companyId.equals(companyId))
+              ..where((t) => t.syncStatus.isNotIn(['synced'])))
+            .get();
 
     for (final g in pending) {
       try {
@@ -1054,17 +997,21 @@ class SyncManager {
               String? newPath = g.localImagePath;
               if (newPath != null) {
                 try {
-                  final renamed =
-                      newPath.replaceAll('${g.id}_image', '${serverId}_image');
+                  final renamed = newPath.replaceAll(
+                    '${g.id}_image',
+                    '${serverId}_image',
+                  );
                   await File(newPath).rename(renamed);
                   newPath = renamed;
                 } catch (_) {}
               }
               await db.transaction(() async {
-                await (db.delete(db.productGroupsTable)
-                      ..where((t) => t.id.equals(g.id)))
-                    .go();
-                await db.into(db.productGroupsTable).insertOnConflictUpdate(
+                await (db.delete(
+                  db.productGroupsTable,
+                )..where((t) => t.id.equals(g.id))).go();
+                await db
+                    .into(db.productGroupsTable)
+                    .insertOnConflictUpdate(
                       ProductGroupsTableCompanion(
                         id: Value(serverId),
                         companyId: Value(g.companyId),
@@ -1093,29 +1040,31 @@ class SyncManager {
                 'rank': g.rank,
               },
             );
-            await (db.update(db.productGroupsTable)
-                  ..where((t) => t.id.equals(g.id)))
-                .write(const ProductGroupsTableCompanion(
-              syncStatus: Value('synced'),
-            ));
+            await (db.update(
+              db.productGroupsTable,
+            )..where((t) => t.id.equals(g.id))).write(
+              const ProductGroupsTableCompanion(syncStatus: Value('synced')),
+            );
 
           case 'pending_delete':
             await dio.delete<dynamic>(
               '/ProductGroups/Delete',
               queryParameters: {'id': g.id, 'companyId': companyId},
             );
-            await (db.delete(db.productGroupsTable)
-                  ..where((t) => t.id.equals(g.id)))
-                .go();
+            await (db.delete(
+              db.productGroupsTable,
+            )..where((t) => t.id.equals(g.id))).go();
         }
       } catch (e) {
         debugPrint(
-            'pushPendingProductGroupOps: group ${g.id} (${g.syncStatus}) failed — $e');
+          'pushPendingProductGroupOps: group ${g.id} (${g.syncStatus}) failed — $e',
+        );
         try {
-          await (db.update(db.productGroupsTable)
-                ..where((t) => t.id.equals(g.id)))
-              .write(
-                  ProductGroupsTableCompanion(syncError: Value(e.toString())));
+          await (db.update(
+            db.productGroupsTable,
+          )..where((t) => t.id.equals(g.id))).write(
+            ProductGroupsTableCompanion(syncError: Value(e.toString())),
+          );
         } catch (_) {}
       }
     }
@@ -1140,9 +1089,9 @@ class SyncManager {
       final id = json['id'] as int;
 
       // Don't overwrite rows that have unsync-ed local edits.
-      final existing = await (db.select(db.productGroupsTable)
-            ..where((t) => t.id.equals(id)))
-          .getSingleOrNull();
+      final existing = await (db.select(
+        db.productGroupsTable,
+      )..where((t) => t.id.equals(id))).getSingleOrNull();
       if (existing != null && existing.syncStatus != 'synced') continue;
 
       // Download/decode the group icon. Returns null on null/empty source
@@ -1155,7 +1104,9 @@ class SyncManager {
       if (localImagePath != null) imageSuccessCount++;
       groupCount++;
 
-      await db.into(db.productGroupsTable).insertOnConflictUpdate(
+      await db
+          .into(db.productGroupsTable)
+          .insertOnConflictUpdate(
             ProductGroupsTableCompanion(
               id: Value(id),
               companyId: Value(json['companyId'] as int? ?? companyId),
@@ -1173,8 +1124,9 @@ class SyncManager {
     await _setLastSync(_kProductGroups, startedAt);
 
     debugPrint(
-        'pullProductGroups: saved $groupCount groups. '
-        'Successfully cached $imageSuccessCount images.');
+      'pullProductGroups: saved $groupCount groups. '
+      'Successfully cached $imageSuccessCount images.',
+    );
   }
 
   Future<void> pullPaymentTypes(int companyId) async {
@@ -1196,8 +1148,9 @@ class SyncManager {
             companyId: Value(json['companyId'] as int? ?? companyId),
             name: Value(json['name'] as String? ?? ''),
             code: Value(json['code'] as String?),
-            isCustomerRequired:
-                Value(json['isCustomerRequired'] as bool? ?? false),
+            isCustomerRequired: Value(
+              json['isCustomerRequired'] as bool? ?? false,
+            ),
             isFiscal: Value(json['isFiscal'] as bool? ?? false),
             isSlipRequired: Value(json['isSlipRequired'] as bool? ?? false),
             isChangeAllowed: Value(json['isChangeAllowed'] as bool? ?? false),
@@ -1226,14 +1179,17 @@ class SyncManager {
   ///   • pending_update → PATCH /Customer/UpdateCustomercommand
   ///   • pending_delete → DELETE /Customer/DeleteCustomercommand (then hard-delete locally)
   Future<void> pushPendingCustomerOps(int companyId) async {
-    final pending = await (db.select(db.customersTable)
-          ..where((t) => t.companyId.equals(companyId))
-          ..where((t) => t.syncStatus.isIn([
-                'pending_create',
-                'pending_update',
-                'pending_delete',
-              ])))
-        .get();
+    final pending =
+        await (db.select(db.customersTable)
+              ..where((t) => t.companyId.equals(companyId))
+              ..where(
+                (t) => t.syncStatus.isIn([
+                  'pending_create',
+                  'pending_update',
+                  'pending_delete',
+                ]),
+              ))
+            .get();
 
     if (pending.isEmpty) return;
 
@@ -1268,43 +1224,54 @@ class SyncManager {
             );
             final data = res.data;
             int realId = 0;
-            if (data is int) realId = data;
-            else if (data is Map) realId = ((data['id'] ?? data['Id']) as num?)?.toInt() ?? 0;
-            if (realId <= 0) throw Exception('Server returned no id for customer create');
+            if (data is int)
+              realId = data;
+            else if (data is Map)
+              realId = ((data['id'] ?? data['Id']) as num?)?.toInt() ?? 0;
+            if (realId <= 0)
+              throw Exception('Server returned no id for customer create');
 
             // Replace temp row with real id; also update any pending discounts
             // that reference the old temp customer id.
             await db.transaction(() async {
-              await (db.delete(db.customersTable)..where((t) => t.id.equals(c.id))).go();
-              await db.into(db.customersTable).insert(CustomersTableCompanion(
-                id: Value(realId),
-                companyId: Value(c.companyId),
-                name: Value(c.name),
-                code: Value(c.code),
-                taxNumber: Value(c.taxNumber),
-                address: Value(c.address),
-                postalCode: Value(c.postalCode),
-                city: Value(c.city),
-                countryId: Value(c.countryId),
-                email: Value(c.email),
-                phoneNumber: Value(c.phoneNumber),
-                isEnabled: Value(c.isEnabled),
-                isCustomer: Value(c.isCustomer),
-                isSupplier: Value(c.isSupplier),
-                dueDatePeriod: Value(c.dueDatePeriod),
-                streetName: Value(c.streetName),
-                additionalStreetName: Value(c.additionalStreetName),
-                buildingNumber: Value(c.buildingNumber),
-                plotIdentification: Value(c.plotIdentification),
-                citySubdivisionName: Value(c.citySubdivisionName),
-                isTaxExempt: Value(c.isTaxExempt),
-                lastModified: Value(DateTime.now().toUtc()),
-                syncStatus: const Value('synced'),
-              ));
+              await (db.delete(
+                db.customersTable,
+              )..where((t) => t.id.equals(c.id))).go();
+              await db
+                  .into(db.customersTable)
+                  .insert(
+                    CustomersTableCompanion(
+                      id: Value(realId),
+                      companyId: Value(c.companyId),
+                      name: Value(c.name),
+                      code: Value(c.code),
+                      taxNumber: Value(c.taxNumber),
+                      address: Value(c.address),
+                      postalCode: Value(c.postalCode),
+                      city: Value(c.city),
+                      countryId: Value(c.countryId),
+                      email: Value(c.email),
+                      phoneNumber: Value(c.phoneNumber),
+                      isEnabled: Value(c.isEnabled),
+                      isCustomer: Value(c.isCustomer),
+                      isSupplier: Value(c.isSupplier),
+                      dueDatePeriod: Value(c.dueDatePeriod),
+                      streetName: Value(c.streetName),
+                      additionalStreetName: Value(c.additionalStreetName),
+                      buildingNumber: Value(c.buildingNumber),
+                      plotIdentification: Value(c.plotIdentification),
+                      citySubdivisionName: Value(c.citySubdivisionName),
+                      isTaxExempt: Value(c.isTaxExempt),
+                      lastModified: Value(DateTime.now().toUtc()),
+                      syncStatus: const Value('synced'),
+                    ),
+                  );
               // Update any pending discounts that referenced the temp customer id.
-              await (db.update(db.customerDiscountsTable)
-                    ..where((t) => t.customerId.equals(c.id)))
-                  .write(CustomerDiscountsTableCompanion(customerId: Value(realId)));
+              await (db.update(
+                db.customerDiscountsTable,
+              )..where((t) => t.customerId.equals(c.id))).write(
+                CustomerDiscountsTableCompanion(customerId: Value(realId)),
+              );
             });
 
           case 'pending_update':
@@ -1334,24 +1301,31 @@ class SyncManager {
                 'citySubdivisionName': c.citySubdivisionName,
               },
             );
-            await (db.update(db.customersTable)..where((t) => t.id.equals(c.id)))
-                .write(const CustomersTableCompanion(
-              syncStatus: Value('synced'),
-              syncError: Value(null),
-            ));
+            await (db.update(
+              db.customersTable,
+            )..where((t) => t.id.equals(c.id))).write(
+              const CustomersTableCompanion(
+                syncStatus: Value('synced'),
+                syncError: Value(null),
+              ),
+            );
 
           case 'pending_delete':
             await dio.delete<dynamic>(
               '/Customer/DeleteCustomercommand',
               queryParameters: {'id': c.id, 'companyId': companyId},
             );
-            await (db.delete(db.customerDiscountsTable)
-                  ..where((t) => t.customerId.equals(c.id)))
-                .go();
-            await (db.delete(db.customersTable)..where((t) => t.id.equals(c.id))).go();
+            await (db.delete(
+              db.customerDiscountsTable,
+            )..where((t) => t.customerId.equals(c.id))).go();
+            await (db.delete(
+              db.customersTable,
+            )..where((t) => t.id.equals(c.id))).go();
         }
       } catch (e) {
-        debugPrint('pushPendingCustomerOps: customer ${c.id} (${c.syncStatus}) failed — $e');
+        debugPrint(
+          'pushPendingCustomerOps: customer ${c.id} (${c.syncStatus}) failed — $e',
+        );
         try {
           await (db.update(db.customersTable)..where((t) => t.id.equals(c.id)))
               .write(CustomersTableCompanion(syncError: Value(e.toString())));
@@ -1365,14 +1339,17 @@ class SyncManager {
   /// customers that haven't been synced yet; [pushPendingCustomerOps] resolves
   /// the real customerId first, so the next sync cycle picks these up.
   Future<void> pushPendingCustomerDiscountOps(int companyId) async {
-    final pending = await (db.select(db.customerDiscountsTable)
-          ..where((t) => t.companyId.equals(companyId))
-          ..where((t) => t.syncStatus.isIn([
-                'pending_create',
-                'pending_update',
-                'pending_delete',
-              ])))
-        .get();
+    final pending =
+        await (db.select(db.customerDiscountsTable)
+              ..where((t) => t.companyId.equals(companyId))
+              ..where(
+                (t) => t.syncStatus.isIn([
+                  'pending_create',
+                  'pending_update',
+                  'pending_delete',
+                ]),
+              ))
+            .get();
 
     if (pending.isEmpty) return;
 
@@ -1395,24 +1372,27 @@ class SyncManager {
             );
             final data = res.data;
             int realId = 0;
-            if (data is Map) realId = ((data['id'] ?? data['Id']) as num?)?.toInt() ?? 0;
+            if (data is Map)
+              realId = ((data['id'] ?? data['Id']) as num?)?.toInt() ?? 0;
             await db.transaction(() async {
-              await (db.delete(db.customerDiscountsTable)
-                    ..where((t) => t.id.equals(d.id)))
-                  .go();
+              await (db.delete(
+                db.customerDiscountsTable,
+              )..where((t) => t.id.equals(d.id))).go();
               if (realId > 0) {
-                await db.into(db.customerDiscountsTable).insert(
-                  CustomerDiscountsTableCompanion(
-                    id: Value(realId),
-                    companyId: Value(d.companyId),
-                    customerId: Value(d.customerId),
-                    type: Value(d.type),
-                    uid: Value(d.uid),
-                    value: Value(d.value),
-                    lastModified: Value(DateTime.now().toUtc()),
-                    syncStatus: const Value('synced'),
-                  ),
-                );
+                await db
+                    .into(db.customerDiscountsTable)
+                    .insert(
+                      CustomerDiscountsTableCompanion(
+                        id: Value(realId),
+                        companyId: Value(d.companyId),
+                        customerId: Value(d.customerId),
+                        type: Value(d.type),
+                        uid: Value(d.uid),
+                        value: Value(d.value),
+                        lastModified: Value(DateTime.now().toUtc()),
+                        syncStatus: const Value('synced'),
+                      ),
+                    );
               }
             });
 
@@ -1422,12 +1402,14 @@ class SyncManager {
               queryParameters: {'companyId': companyId},
               data: {'id': d.id, 'type': d.type, 'value': d.value},
             );
-            await (db.update(db.customerDiscountsTable)
-                  ..where((t) => t.id.equals(d.id)))
-                .write(const CustomerDiscountsTableCompanion(
-              syncStatus: Value('synced'),
-              syncError: Value(null),
-            ));
+            await (db.update(
+              db.customerDiscountsTable,
+            )..where((t) => t.id.equals(d.id))).write(
+              const CustomerDiscountsTableCompanion(
+                syncStatus: Value('synced'),
+                syncError: Value(null),
+              ),
+            );
 
           case 'pending_delete':
             if (d.id > 0) {
@@ -1436,16 +1418,20 @@ class SyncManager {
                 queryParameters: {'id': d.id, 'companyId': companyId},
               );
             }
-            await (db.delete(db.customerDiscountsTable)
-                  ..where((t) => t.id.equals(d.id)))
-                .go();
+            await (db.delete(
+              db.customerDiscountsTable,
+            )..where((t) => t.id.equals(d.id))).go();
         }
       } catch (e) {
         debugPrint(
-            'pushPendingCustomerDiscountOps: discount ${d.id} (${d.syncStatus}) failed — $e');
+          'pushPendingCustomerDiscountOps: discount ${d.id} (${d.syncStatus}) failed — $e',
+        );
         try {
-          await (db.update(db.customerDiscountsTable)..where((t) => t.id.equals(d.id)))
-              .write(CustomerDiscountsTableCompanion(syncError: Value(e.toString())));
+          await (db.update(
+            db.customerDiscountsTable,
+          )..where((t) => t.id.equals(d.id))).write(
+            CustomerDiscountsTableCompanion(syncError: Value(e.toString())),
+          );
         } catch (_) {}
       }
     }
@@ -1466,38 +1452,44 @@ class SyncManager {
     // overwritten by stale server data. Same pattern as pullProductGroups.
     for (final json in rows.cast<Map<String, dynamic>>()) {
       final id = json['id'] as int;
-      final existing = await (db.select(db.customersTable)
-            ..where((t) => t.id.equals(id)))
-          .getSingleOrNull();
+      final existing = await (db.select(
+        db.customersTable,
+      )..where((t) => t.id.equals(id))).getSingleOrNull();
       if (existing != null && existing.syncStatus != 'synced') continue;
 
-      await db.into(db.customersTable).insertOnConflictUpdate(
-        CustomersTableCompanion(
-          id: Value(id),
-          companyId: Value(json['companyId'] as int? ?? companyId),
-          code: Value(json['code'] as String?),
-          name: Value(json['name'] as String? ?? 'Unknown'),
-          taxNumber: Value(json['taxNumber'] as String?),
-          address: Value(json['address'] as String?),
-          postalCode: Value(json['postalCode'] as String?),
-          city: Value(json['city'] as String?),
-          countryId: Value(json['countryId'] as int?),
-          email: Value(json['email'] as String?),
-          phoneNumber: Value(json['phoneNumber'] as String?),
-          isEnabled: Value(json['isEnabled'] as bool? ?? true),
-          isCustomer: Value(json['isCustomer'] as bool? ?? true),
-          isSupplier: Value(json['isSupplier'] as bool? ?? false),
-          dueDatePeriod: Value(json['dueDatePeriod'] as int?),
-          streetName: Value(json['streetName'] as String?),
-          additionalStreetName: Value(json['additionalStreetName'] as String?),
-          buildingNumber: Value(json['buildingNumber'] as String?),
-          plotIdentification: Value(json['plotIdentification'] as String?),
-          citySubdivisionName: Value(json['citySubdivisionName'] as String?),
-          isTaxExempt: Value(json['isTaxExempt'] as bool? ?? false),
-          lastModified: Value(_parseLastModified(json['lastModified'])),
-          syncStatus: const Value('synced'),
-        ),
-      );
+      await db
+          .into(db.customersTable)
+          .insertOnConflictUpdate(
+            CustomersTableCompanion(
+              id: Value(id),
+              companyId: Value(json['companyId'] as int? ?? companyId),
+              code: Value(json['code'] as String?),
+              name: Value(json['name'] as String? ?? 'Unknown'),
+              taxNumber: Value(json['taxNumber'] as String?),
+              address: Value(json['address'] as String?),
+              postalCode: Value(json['postalCode'] as String?),
+              city: Value(json['city'] as String?),
+              countryId: Value(json['countryId'] as int?),
+              email: Value(json['email'] as String?),
+              phoneNumber: Value(json['phoneNumber'] as String?),
+              isEnabled: Value(json['isEnabled'] as bool? ?? true),
+              isCustomer: Value(json['isCustomer'] as bool? ?? true),
+              isSupplier: Value(json['isSupplier'] as bool? ?? false),
+              dueDatePeriod: Value(json['dueDatePeriod'] as int?),
+              streetName: Value(json['streetName'] as String?),
+              additionalStreetName: Value(
+                json['additionalStreetName'] as String?,
+              ),
+              buildingNumber: Value(json['buildingNumber'] as String?),
+              plotIdentification: Value(json['plotIdentification'] as String?),
+              citySubdivisionName: Value(
+                json['citySubdivisionName'] as String?,
+              ),
+              isTaxExempt: Value(json['isTaxExempt'] as bool? ?? false),
+              lastModified: Value(_parseLastModified(json['lastModified'])),
+              syncStatus: const Value('synced'),
+            ),
+          );
     }
 
     await _setLastSync(_kCustomers, startedAt);
@@ -1524,7 +1516,9 @@ class SyncManager {
       folder: 'company_logos',
     );
 
-    await db.into(db.companiesTable).insertOnConflictUpdate(
+    await db
+        .into(db.companiesTable)
+        .insertOnConflictUpdate(
           CompaniesTableCompanion(
             id: Value(json['id'] as int? ?? companyId),
             name: Value(json['name'] as String? ?? ''),
@@ -1553,11 +1547,11 @@ class SyncManager {
     final companions = rows.map((r) {
       final m = r as Map<String, dynamic>;
       return StocksTableCompanion(
-        id:          Value(m['id'] as int),
-        productId:   Value(m['productId'] as int),
+        id: Value(m['id'] as int),
+        productId: Value(m['productId'] as int),
         warehouseId: Value(m['warehouseId'] as int),
-        companyId:   Value(m['companyId'] as int),
-        quantity:    Value(((m['quantity'] ?? 0) as num).toDouble()),
+        companyId: Value(m['companyId'] as int),
+        quantity: Value(((m['quantity'] ?? 0) as num).toDouble()),
         lastModified: Value(now),
       );
     }).toList();
@@ -1580,7 +1574,7 @@ class SyncManager {
   ///   2. No local row (created on another device) → insert a new 'srv_X'
   ///      sentinel row so the local history is complete across all devices.
   Future<void> pullDocuments(int companyId) async {
-    final now  = DateTime.now().toUtc();
+    final now = DateTime.now().toUtc();
     final from = now.subtract(const Duration(days: 90));
 
     try {
@@ -1589,7 +1583,7 @@ class SyncManager {
         queryParameters: {
           'companyId': companyId,
           'startDate': from.toIso8601String().substring(0, 10),
-          'endDate':   now.toIso8601String().substring(0, 10),
+          'endDate': now.toIso8601String().substring(0, 10),
         },
       );
 
@@ -1600,28 +1594,31 @@ class SyncManager {
         if (serverId == 0) continue;
 
         final dateStr = (d['stockDate'] ?? d['date'] ?? '') as String;
-        final date    = DateTime.tryParse(dateStr) ?? now;
-        final total   = ((d['total']    as num?)?.toDouble()) ?? 0.0;
-        final disc    = ((d['discount'] as num?)?.toDouble()) ?? 0.0;
-        final number  = (d['number']      as String?) ?? '';
-        final orderNo = d['orderNumber']  as String?;
-        final paid    = (d['paidStatus']  as num?)?.toInt() ?? 1;
+        final date = DateTime.tryParse(dateStr) ?? now;
+        final total = ((d['total'] as num?)?.toDouble()) ?? 0.0;
+        final disc = ((d['discount'] as num?)?.toDouble()) ?? 0.0;
+        final number = (d['number'] as String?) ?? '';
+        final orderNo = d['orderNumber'] as String?;
+        final paid = (d['paidStatus'] as num?)?.toInt() ?? 1;
 
         // Case 1: already in local DB by serverId — just stamp the number.
-        final existing = await (db.select(db.documentsTable)
-              ..where((t) => t.serverId.equals(serverId))
-              ..limit(1))
-            .getSingleOrNull();
+        final existing =
+            await (db.select(db.documentsTable)
+                  ..where((t) => t.serverId.equals(serverId))
+                  ..limit(1))
+                .getSingleOrNull();
 
         if (existing != null) {
           if (existing.number != number || existing.syncStatus != 'synced') {
-            await (db.update(db.documentsTable)
-                  ..where((t) => t.localId.equals(existing.localId)))
-                .write(DocumentsTableCompanion(
-              number:       Value(number),
-              syncStatus:   const Value('synced'),
-              lastModified: Value(date),
-            ));
+            await (db.update(
+              db.documentsTable,
+            )..where((t) => t.localId.equals(existing.localId))).write(
+              DocumentsTableCompanion(
+                number: Value(number),
+                syncStatus: const Value('synced'),
+                lastModified: Value(date),
+              ),
+            );
           }
           continue;
         }
@@ -1630,18 +1627,18 @@ class SyncManager {
         // userId / warehouseId are not returned by GetSalesHistory; use 0.
         await db.upsertServerDocument(
           document: DocumentsTableCompanion(
-            localId:      Value('srv_$serverId'),
-            serverId:     Value(serverId),
-            companyId:    Value(companyId),
-            userId:       const Value(0),
-            warehouseId:  const Value(0),
-            number:       Value(number),
-            total:        Value(total),
-            discount:     Value(disc),
-            orderNumber:  Value(orderNo),
-            paidStatus:   Value(paid),
-            date:         Value(date),
-            syncStatus:   const Value('synced'),
+            localId: Value('srv_$serverId'),
+            serverId: Value(serverId),
+            companyId: Value(companyId),
+            userId: const Value(0),
+            warehouseId: const Value(0),
+            number: Value(number),
+            total: Value(total),
+            discount: Value(disc),
+            orderNumber: Value(orderNo),
+            paidStatus: Value(paid),
+            date: Value(date),
+            syncStatus: const Value('synced'),
             lastModified: Value(date),
           ),
           items: const [],
@@ -1691,9 +1688,9 @@ class SyncManager {
   /// Each op is attempted independently; a failure leaves the row for the next
   /// sync retry. On success the row is deleted.
   Future<void> pushPendingUserOps(int companyId) async {
-    final ops = await (db.select(db.pendingUserOpsTable)
-          ..where((t) => t.companyId.equals(companyId)))
-        .get();
+    final ops = await (db.select(
+      db.pendingUserOpsTable,
+    )..where((t) => t.companyId.equals(companyId))).get();
     if (ops.isEmpty) return;
 
     for (final op in ops) {
@@ -1719,22 +1716,20 @@ class SyncManager {
             await dio.patch(
               '/SecurityKeys/Update',
               queryParameters: {'companyId': companyId},
-              data: {
-                'name': payload['name'],
-                'level': payload['level'],
-              },
+              data: {'name': payload['name'], 'level': payload['level']},
             );
           default:
             debugPrint('pushPendingUserOps: unknown op "${op.operation}"');
         }
         // Success — remove from queue.
-        await (db.delete(db.pendingUserOpsTable)
-              ..where((t) => t.id.equals(op.id)))
-            .go();
+        await (db.delete(
+          db.pendingUserOpsTable,
+        )..where((t) => t.id.equals(op.id))).go();
       } on DioException {
         // Still offline or transient error — leave the row for next retry.
         debugPrint(
-            'pushPendingUserOps: op ${op.id} (${op.operation}) failed — will retry');
+          'pushPendingUserOps: op ${op.id} (${op.operation}) failed — will retry',
+        );
       }
     }
   }
@@ -1753,18 +1748,20 @@ class SyncManager {
       final rows = (res.data ?? const []).cast<Map<String, dynamic>>();
 
       await db.transaction(() async {
-        await (db.delete(db.securityKeysTable)
-              ..where((t) => t.companyId.equals(companyId)))
-            .go();
+        await (db.delete(
+          db.securityKeysTable,
+        )..where((t) => t.companyId.equals(companyId))).go();
         if (rows.isNotEmpty) {
           await db.batch((b) {
             b.insertAll(
               db.securityKeysTable,
-              rows.map((j) => SecurityKeysTableCompanion(
-                    companyId: Value(companyId),
-                    name: Value(j['name'] as String? ?? ''),
-                    level: Value((j['level'] as num?)?.toInt() ?? 1),
-                  )),
+              rows.map(
+                (j) => SecurityKeysTableCompanion(
+                  companyId: Value(companyId),
+                  name: Value(j['name'] as String? ?? ''),
+                  level: Value((j['level'] as num?)?.toInt() ?? 1),
+                ),
+              ),
             );
           });
         }
@@ -1788,13 +1785,15 @@ class SyncManager {
       final promoId = (json['id'] as num?)?.toInt() ?? 0;
 
       // Don't overwrite rows that have unsync-ed local edits.
-      final existing = await (db.select(db.promotionsTable)
-            ..where((t) => t.id.equals(promoId)))
-          .getSingleOrNull();
+      final existing = await (db.select(
+        db.promotionsTable,
+      )..where((t) => t.id.equals(promoId))).getSingleOrNull();
       if (existing != null && existing.syncStatus != 'synced') continue;
 
       await db.transaction(() async {
-        await db.into(db.promotionsTable).insertOnConflictUpdate(
+        await db
+            .into(db.promotionsTable)
+            .insertOnConflictUpdate(
               PromotionsTableCompanion(
                 id: Value(promoId),
                 companyId: Value(json['companyId'] as int? ?? companyId),
@@ -1803,42 +1802,47 @@ class SyncManager {
                 isEnabled: Value(json['isEnabled'] as bool? ?? true),
                 startDate: Value(_parseNullableDate(json['startDate'])),
                 startTime: Value(
-                    (json['startTime'] as String?)?.isEmpty == true
-                        ? null
-                        : json['startTime'] as String?),
+                  (json['startTime'] as String?)?.isEmpty == true
+                      ? null
+                      : json['startTime'] as String?,
+                ),
                 endDate: Value(_parseNullableDate(json['endDate'])),
                 endTime: Value(
-                    (json['endTime'] as String?)?.isEmpty == true
-                        ? null
-                        : json['endTime'] as String?),
+                  (json['endTime'] as String?)?.isEmpty == true
+                      ? null
+                      : json['endTime'] as String?,
+                ),
                 lastModified: Value(_parseLastModified(json['lastModified'])),
                 syncStatus: const Value('synced'),
               ),
             );
         // Replace items for this promotion with the server version.
-        await (db.delete(db.promotionItemsTable)
-              ..where((t) => t.promotionId.equals(promoId)))
-            .go();
-        final items =
-            ((json['items'] as List<dynamic>?) ?? []).cast<Map<String, dynamic>>();
+        await (db.delete(
+          db.promotionItemsTable,
+        )..where((t) => t.promotionId.equals(promoId))).go();
+        final items = ((json['items'] as List<dynamic>?) ?? [])
+            .cast<Map<String, dynamic>>();
         for (final item in items) {
-          await db.into(db.promotionItemsTable).insertOnConflictUpdate(
+          await db
+              .into(db.promotionItemsTable)
+              .insertOnConflictUpdate(
                 PromotionItemsTableCompanion(
                   id: Value((item['id'] as num?)?.toInt() ?? 0),
                   promotionId: Value(promoId),
                   productId: Value((item['productId'] as num?)?.toInt() ?? 0),
-                  discountType:
-                      Value((item['discountType'] as num?)?.toInt() ?? 0),
+                  discountType: Value(
+                    (item['discountType'] as num?)?.toInt() ?? 0,
+                  ),
                   priceType: Value((item['priceType'] as num?)?.toInt() ?? 0),
                   value: Value((item['value'] as num?)?.toDouble() ?? 0),
-                  isConditional:
-                      Value(item['isConditional'] as bool? ?? false),
-                  quantity:
-                      Value((item['quantity'] as num?)?.toDouble() ?? 1),
-                  conditionType:
-                      Value((item['conditionType'] as num?)?.toInt() ?? 0),
-                  quantityLimit:
-                      Value((item['quantityLimit'] as num?)?.toDouble() ?? 0),
+                  isConditional: Value(item['isConditional'] as bool? ?? false),
+                  quantity: Value((item['quantity'] as num?)?.toDouble() ?? 1),
+                  conditionType: Value(
+                    (item['conditionType'] as num?)?.toInt() ?? 0,
+                  ),
+                  quantityLimit: Value(
+                    (item['quantityLimit'] as num?)?.toDouble() ?? 0,
+                  ),
                 ),
               );
         }
@@ -1852,16 +1856,17 @@ class SyncManager {
   /// server. Runs in [sync] after product ops so any newly-created products
   /// referenced by promotion items already exist server-side.
   Future<void> pushPendingPromotionOps(int companyId) async {
-    final pending = await (db.select(db.promotionsTable)
-          ..where((t) => t.companyId.equals(companyId))
-          ..where((t) => t.syncStatus.isNotIn(['synced'])))
-        .get();
+    final pending =
+        await (db.select(db.promotionsTable)
+              ..where((t) => t.companyId.equals(companyId))
+              ..where((t) => t.syncStatus.isNotIn(['synced'])))
+            .get();
 
     for (final p in pending) {
       try {
-        final localItems = await (db.select(db.promotionItemsTable)
-              ..where((t) => t.promotionId.equals(p.id)))
-            .get();
+        final localItems = await (db.select(
+          db.promotionItemsTable,
+        )..where((t) => t.promotionId.equals(p.id))).get();
 
         switch (p.syncStatus) {
           case 'pending_create':
@@ -1873,16 +1878,18 @@ class SyncManager {
               'endDate': p.endDate?.toUtc().toIso8601String(),
               'endTime': p.endTime,
               'items': localItems
-                  .map((i) => {
-                        'productId': i.productId,
-                        'discountType': i.discountType,
-                        'priceType': i.priceType,
-                        'value': i.value,
-                        'isConditional': i.isConditional,
-                        'quantity': i.quantity,
-                        'conditionType': i.conditionType,
-                        'quantityLimit': i.quantityLimit,
-                      })
+                  .map(
+                    (i) => {
+                      'productId': i.productId,
+                      'discountType': i.discountType,
+                      'priceType': i.priceType,
+                      'value': i.value,
+                      'isConditional': i.isConditional,
+                      'quantity': i.quantity,
+                      'conditionType': i.conditionType,
+                      'quantityLimit': i.quantityLimit,
+                    },
+                  )
                   .toList(),
             };
             final res = await dio.post<dynamic>(
@@ -1895,13 +1902,15 @@ class SyncManager {
             final serverItems = ((serverJson['items'] as List<dynamic>?) ?? [])
                 .cast<Map<String, dynamic>>();
             await db.transaction(() async {
-              await (db.delete(db.promotionsTable)
-                    ..where((t) => t.id.equals(p.id)))
-                  .go();
-              await (db.delete(db.promotionItemsTable)
-                    ..where((t) => t.promotionId.equals(p.id)))
-                  .go();
-              await db.into(db.promotionsTable).insertOnConflictUpdate(
+              await (db.delete(
+                db.promotionsTable,
+              )..where((t) => t.id.equals(p.id))).go();
+              await (db.delete(
+                db.promotionItemsTable,
+              )..where((t) => t.promotionId.equals(p.id))).go();
+              await db
+                  .into(db.promotionsTable)
+                  .insertOnConflictUpdate(
                     PromotionsTableCompanion(
                       id: Value(serverId),
                       companyId: Value(p.companyId),
@@ -1917,26 +1926,34 @@ class SyncManager {
                     ),
                   );
               for (final item in serverItems) {
-                await db.into(db.promotionItemsTable).insertOnConflictUpdate(
+                await db
+                    .into(db.promotionItemsTable)
+                    .insertOnConflictUpdate(
                       PromotionItemsTableCompanion(
                         id: Value((item['id'] as num?)?.toInt() ?? 0),
                         promotionId: Value(serverId),
-                        productId:
-                            Value((item['productId'] as num?)?.toInt() ?? 0),
-                        discountType:
-                            Value((item['discountType'] as num?)?.toInt() ?? 0),
-                        priceType:
-                            Value((item['priceType'] as num?)?.toInt() ?? 0),
-                        value:
-                            Value((item['value'] as num?)?.toDouble() ?? 0),
-                        isConditional:
-                            Value(item['isConditional'] as bool? ?? false),
-                        quantity:
-                            Value((item['quantity'] as num?)?.toDouble() ?? 1),
-                        conditionType:
-                            Value((item['conditionType'] as num?)?.toInt() ?? 0),
-                        quantityLimit:
-                            Value((item['quantityLimit'] as num?)?.toDouble() ?? 0),
+                        productId: Value(
+                          (item['productId'] as num?)?.toInt() ?? 0,
+                        ),
+                        discountType: Value(
+                          (item['discountType'] as num?)?.toInt() ?? 0,
+                        ),
+                        priceType: Value(
+                          (item['priceType'] as num?)?.toInt() ?? 0,
+                        ),
+                        value: Value((item['value'] as num?)?.toDouble() ?? 0),
+                        isConditional: Value(
+                          item['isConditional'] as bool? ?? false,
+                        ),
+                        quantity: Value(
+                          (item['quantity'] as num?)?.toDouble() ?? 1,
+                        ),
+                        conditionType: Value(
+                          (item['conditionType'] as num?)?.toInt() ?? 0,
+                        ),
+                        quantityLimit: Value(
+                          (item['quantityLimit'] as num?)?.toDouble() ?? 0,
+                        ),
                       ),
                     );
               }
@@ -1953,17 +1970,19 @@ class SyncManager {
               'endDate': p.endDate?.toUtc().toIso8601String(),
               'endTime': p.endTime,
               'items': localItems
-                  .map((i) => {
-                        'id': i.id > 0 ? i.id : 0,
-                        'productId': i.productId,
-                        'discountType': i.discountType,
-                        'priceType': i.priceType,
-                        'value': i.value,
-                        'isConditional': i.isConditional,
-                        'quantity': i.quantity,
-                        'conditionType': i.conditionType,
-                        'quantityLimit': i.quantityLimit,
-                      })
+                  .map(
+                    (i) => {
+                      'id': i.id > 0 ? i.id : 0,
+                      'productId': i.productId,
+                      'discountType': i.discountType,
+                      'priceType': i.priceType,
+                      'value': i.value,
+                      'isConditional': i.isConditional,
+                      'quantity': i.quantity,
+                      'conditionType': i.conditionType,
+                      'quantityLimit': i.quantityLimit,
+                    },
+                  )
                   .toList(),
             };
             await dio.put<dynamic>(
@@ -1971,30 +1990,30 @@ class SyncManager {
               queryParameters: {'companyId': companyId},
               data: body,
             );
-            await (db.update(db.promotionsTable)
-                  ..where((t) => t.id.equals(p.id)))
-                .write(const PromotionsTableCompanion(
-              syncStatus: Value('synced'),
-            ));
+            await (db.update(
+              db.promotionsTable,
+            )..where((t) => t.id.equals(p.id))).write(
+              const PromotionsTableCompanion(syncStatus: Value('synced')),
+            );
 
           case 'pending_delete':
             await dio.delete<dynamic>(
               '/Promotions/Delete',
               queryParameters: {'id': p.id, 'companyId': companyId},
             );
-            await (db.delete(db.promotionItemsTable)
-                  ..where((t) => t.promotionId.equals(p.id)))
-                .go();
-            await (db.delete(db.promotionsTable)
-                  ..where((t) => t.id.equals(p.id)))
-                .go();
+            await (db.delete(
+              db.promotionItemsTable,
+            )..where((t) => t.promotionId.equals(p.id))).go();
+            await (db.delete(
+              db.promotionsTable,
+            )..where((t) => t.id.equals(p.id))).go();
         }
       } catch (e) {
         debugPrint(
-            'pushPendingPromotionOps: promo ${p.id} (${p.syncStatus}) failed — $e');
+          'pushPendingPromotionOps: promo ${p.id} (${p.syncStatus}) failed — $e',
+        );
         try {
-          await (db.update(db.promotionsTable)
-                ..where((t) => t.id.equals(p.id)))
+          await (db.update(db.promotionsTable)..where((t) => t.id.equals(p.id)))
               .write(PromotionsTableCompanion(syncError: Value(e.toString())));
         } catch (_) {}
       }
@@ -2025,9 +2044,9 @@ class SyncManager {
       final id = json['id'] as int;
       final serverLastModified = _parseLastModified(json['lastModified']);
 
-      final localRow = await (db.select(db.appPropertiesTable)
-            ..where((t) => t.id.equals(id)))
-          .getSingleOrNull();
+      final localRow = await (db.select(
+        db.appPropertiesTable,
+      )..where((t) => t.id.equals(id))).getSingleOrNull();
 
       if (localRow != null &&
           !serverLastModified.isAfter(localRow.lastModified)) {
@@ -2035,7 +2054,9 @@ class SyncManager {
         continue;
       }
 
-      await db.into(db.appPropertiesTable).insertOnConflictUpdate(
+      await db
+          .into(db.appPropertiesTable)
+          .insertOnConflictUpdate(
             AppPropertiesTableCompanion(
               id: Value(id),
               companyId: Value(json['companyId'] as int? ?? companyId),
@@ -2061,34 +2082,43 @@ class SyncManager {
   /// subsequent [pullLoyaltyCards] then brings back the canonical server rows
   /// with real server-assigned IDs.
   Future<void> pushPendingLoyaltyCardOps(int companyId) async {
-    final allPending = await (db.select(db.loyaltyCardsTable)
-          ..where((t) => t.companyId.equals(companyId))
-          ..where((t) => t.syncStatus.isIn([
-                'pending_create',
-                'pending_update',
-                'pending_delete',
-              ])))
-        .get();
+    final allPending =
+        await (db.select(db.loyaltyCardsTable)
+              ..where((t) => t.companyId.equals(companyId))
+              ..where(
+                (t) => t.syncStatus.isIn([
+                  'pending_create',
+                  'pending_update',
+                  'pending_delete',
+                ]),
+              ))
+            .get();
 
     if (allPending.isEmpty) return;
 
     // Split into upserts vs deletes.
-    final toUpsert =
-        allPending.where((r) => r.syncStatus != 'pending_delete').toList();
-    final toDelete =
-        allPending.where((r) => r.syncStatus == 'pending_delete').toList();
+    final toUpsert = allPending
+        .where((r) => r.syncStatus != 'pending_delete')
+        .toList();
+    final toDelete = allPending
+        .where((r) => r.syncStatus == 'pending_delete')
+        .toList();
 
     // ── Batch upsert ──────────────────────────────────────────────────────────
     if (toUpsert.isNotEmpty) {
       try {
-        final cards = toUpsert.map((r) => {
-              // Negative IDs are temp — omit so the server treats them as creates.
-              if (r.id > 0) 'id': r.id,
-              'customerId': r.customerId,
-              'cardNumber': r.cardNumber,
-              'points': r.points,
-              'lastModified': r.lastModified.toUtc().toIso8601String(),
-            }).toList();
+        final cards = toUpsert
+            .map(
+              (r) => {
+                // Negative IDs are temp — omit so the server treats them as creates.
+                if (r.id > 0) 'id': r.id,
+                'customerId': r.customerId,
+                'cardNumber': r.cardNumber,
+                'points': r.points,
+                'lastModified': r.lastModified.toUtc().toIso8601String(),
+              },
+            )
+            .toList();
 
         await dio.post<dynamic>(
           '/LoyaltyCards/BatchSync',
@@ -2100,16 +2130,18 @@ class SyncManager {
         await db.transaction(() async {
           for (final r in toUpsert) {
             if (r.id < 0) {
-              await (db.delete(db.loyaltyCardsTable)
-                    ..where((t) => t.id.equals(r.id)))
-                  .go();
+              await (db.delete(
+                db.loyaltyCardsTable,
+              )..where((t) => t.id.equals(r.id))).go();
             } else {
-              await (db.update(db.loyaltyCardsTable)
-                    ..where((t) => t.id.equals(r.id)))
-                  .write(const LoyaltyCardsTableCompanion(
-                syncStatus: Value('synced'),
-                syncError: Value(null),
-              ));
+              await (db.update(
+                db.loyaltyCardsTable,
+              )..where((t) => t.id.equals(r.id))).write(
+                const LoyaltyCardsTableCompanion(
+                  syncStatus: Value('synced'),
+                  syncError: Value(null),
+                ),
+              );
             }
           }
         });
@@ -2126,12 +2158,110 @@ class SyncManager {
           '/LoyaltyCards/Delete',
           queryParameters: {'id': r.id, 'companyId': companyId},
         );
-        await (db.delete(db.loyaltyCardsTable)..where((t) => t.id.equals(r.id)))
-            .go();
+        await (db.delete(
+          db.loyaltyCardsTable,
+        )..where((t) => t.id.equals(r.id))).go();
       } catch (e) {
         debugPrint(
-            'pushPendingLoyaltyCardOps: delete card ${r.id} failed — $e');
+          'pushPendingLoyaltyCardOps: delete card ${r.id} failed — $e',
+        );
       }
+    }
+  }
+
+  // ==========================================================================
+  // PUSH — pending shifts via /api/Shifts/BatchSync
+  // ==========================================================================
+
+  /// Pushes every `syncStatus='pending'` shift to /api/Shifts/BatchSync.
+  /// The server returns a Results list mapping each localId → serverId so we
+  /// can update the local row without a separate pull.
+  Future<void> pushPendingShifts(int companyId) async {
+    final pending = await db.getPendingShifts();
+    if (pending.isEmpty) return;
+
+    try {
+      final shifts = pending
+          .map((s) => {
+                if (s.serverId != null) 'serverId': s.serverId,
+                'localId': s.localId,
+                'userId': s.userId,
+                'openedAt': s.openedAt.toIso8601String(),
+                if (s.closedAt != null)
+                  'closedAt': s.closedAt!.toIso8601String(),
+                'startingCash': s.startingCash,
+                if (s.actualEndingCash != null)
+                  'actualEndingCash': s.actualEndingCash,
+                'status': s.status,
+                'lastModified': s.lastModified.toIso8601String(),
+              })
+          .toList();
+
+      final res = await dio.post<Map<String, dynamic>>(
+        '/Shifts/BatchSync',
+        queryParameters: {'companyId': companyId},
+        data: {'shifts': shifts},
+      );
+
+      final data = res.data;
+      final results =
+          (data?['results'] as List<dynamic>? ?? const [])
+              .cast<Map<String, dynamic>>();
+
+      for (final r in results) {
+        final localId = r['localId'] as String?;
+        final serverId = (r['serverId'] as num?)?.toInt();
+        if (localId != null && serverId != null && serverId > 0) {
+          await db.markShiftSynced(localId, serverId);
+        }
+      }
+    } catch (e) {
+      debugPrint('pushPendingShifts failed — $e');
+      // Leave rows pending for next retry; don't mark failed on transport error.
+    }
+  }
+
+  // ==========================================================================
+  // PUSH — pending time clock entries via /api/TimeClock/BatchSync
+  // ==========================================================================
+
+  Future<void> pushPendingTimeClockEntries(int companyId) async {
+    final pending = await db.getPendingTimeClockEntries();
+    if (pending.isEmpty) return;
+
+    try {
+      final entries = pending
+          .map((e) => {
+                if (e.serverId != null) 'serverId': e.serverId,
+                'localId': e.localId,
+                'userId': e.userId,
+                'clockInTime': e.clockInTime.toIso8601String(),
+                if (e.clockOutTime != null)
+                  'clockOutTime': e.clockOutTime!.toIso8601String(),
+                'lastModified': DateTime.now().toUtc().toIso8601String(),
+              })
+          .toList();
+
+      final res = await dio.post<Map<String, dynamic>>(
+        '/TimeClock/BatchSync',
+        queryParameters: {'companyId': companyId},
+        data: {'entries': entries},
+      );
+
+      final data = res.data;
+      final results =
+          (data?['results'] as List<dynamic>? ?? const [])
+              .cast<Map<String, dynamic>>();
+
+      for (final r in results) {
+        final localId = r['localId'] as String?;
+        final serverId = (r['serverId'] as num?)?.toInt();
+        if (localId != null && serverId != null && serverId > 0) {
+          await db.markTimeClockEntrySynced(localId, serverId);
+        }
+      }
+    } catch (e) {
+      debugPrint('pushPendingTimeClockEntries failed — $e');
     }
   }
 
@@ -2150,21 +2280,21 @@ class SyncManager {
         final id = (json['id'] as num?)?.toInt() ?? 0;
         if (id <= 0) continue;
 
-        final existing = await (db.select(db.loyaltyCardsTable)
-              ..where((t) => t.id.equals(id)))
-            .getSingleOrNull();
+        final existing = await (db.select(
+          db.loyaltyCardsTable,
+        )..where((t) => t.id.equals(id))).getSingleOrNull();
         if (existing != null && existing.syncStatus != 'synced') continue;
 
-        await db.into(db.loyaltyCardsTable).insertOnConflictUpdate(
+        await db
+            .into(db.loyaltyCardsTable)
+            .insertOnConflictUpdate(
               LoyaltyCardsTableCompanion(
                 id: Value(id),
                 companyId: Value(json['companyId'] as int? ?? companyId),
                 customerId: Value((json['customerId'] as num?)?.toInt() ?? 0),
                 cardNumber: Value(json['cardNumber'] as String?),
-                points:
-                    Value((json['points'] as num?)?.toDouble() ?? 0),
-                lastModified:
-                    Value(_parseLastModified(json['lastModified'])),
+                points: Value((json['points'] as num?)?.toDouble() ?? 0),
+                lastModified: Value(_parseLastModified(json['lastModified'])),
                 syncStatus: const Value('synced'),
                 syncError: const Value(null),
               ),

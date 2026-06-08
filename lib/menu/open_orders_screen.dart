@@ -48,7 +48,9 @@ final openOrdersProvider =
 });
 
 class OpenOrdersScreen extends ConsumerStatefulWidget {
-  const OpenOrdersScreen({super.key});
+  final VoidCallback? onMenuPressed;
+
+  const OpenOrdersScreen({super.key, this.onMenuPressed});
 
   @override
   ConsumerState<OpenOrdersScreen> createState() => _OpenOrdersScreenState();
@@ -167,6 +169,12 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: widget.onMenuPressed != null
+            ? IconButton(
+                icon: const Icon(Icons.menu),
+                onPressed: widget.onMenuPressed,
+              )
+            : null,
         title: const Text('Open Orders'),
         actions: [
           if (_syncing)

@@ -304,6 +304,13 @@ class SettingKeys {
   static const showTablesBtn     = 'ButtonBar.ShowTables';
   static const showKitchenBtn    = 'ButtonBar.ShowKitchen';
   static const showTaxBtn        = 'ButtonBar.ShowTax';
+
+  // Loyalty
+  static const loyaltyEnabled            = 'Loyalty.Enabled';
+  static const loyaltyMinAmount          = 'Loyalty.MinAmount';
+  static const loyaltyPointsPerThreshold = 'Loyalty.PointsPerThreshold';
+  static const loyaltyPointValue         = 'Loyalty.PointValue';
+
 }
 
 const Map<String, String> kSettingDefaults = {
@@ -560,4 +567,9 @@ const Map<String, String> kSettingDefaults = {
   'Kitchen.FontSize':          '100',
   'Kitchen.CashDrawer.Enabled': 'false',
   'Kitchen.CashDrawer.Command': r'\x1B\x70\x00\x19\xFA',
+
+  SettingKeys.loyaltyEnabled:            'false',
+  SettingKeys.loyaltyMinAmount:          '100',
+  SettingKeys.loyaltyPointsPerThreshold: '10',
+  SettingKeys.loyaltyPointValue:         '1.0',
 };

@@ -11,6 +11,7 @@ import 'package:pos_app/product/product_provider.dart';
 import 'package:pos_app/product/product_model.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
+import 'package:pos_app/customer/customer_picker_dialog.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
@@ -195,46 +196,28 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                           iconSize: 26,
                           icon: const Icon(Icons.person),
                           tooltip: currentCustomer?.name ?? "Select Customer",
-                          onPressed: () => showDialog(
-                            context: context,
-                            builder: (ctx) => AlertDialog(
-                              title: const Text("Select Customer"),
-                              content: SizedBox(
-                                width: double.maxFinite,
-                                height: 300,
-                                child: ListView.separated(
-                                  itemCount: customers.length,
-                                  separatorBuilder: (_, __) => const Divider(),
-                                  itemBuilder: (ctx, i) {
-                                    final c = customers[i];
-                                    return ListTile(
-                                      leading: const Icon(Icons.person),
-                                      title: Text(c.name),
-                                      subtitle: Text(
-                                        c.phoneNumber ?? c.email ?? "",
-                                      ),
-                                      onTap: () {
-                                        ref
-                                            .read(
-                                              currentCustomerProvider.notifier,
-                                            )
-                                            .setCustomer(c);
-                                        final companyId = ref
-                                            .read(selectedCompanyProvider)
-                                            ?.id;
-                                        if (companyId != null) {
-                                          ref
-                                              .read(cartProvider.notifier)
-                                              .setCustomer(companyId, c);
-                                        }
-                                        Navigator.pop(ctx);
-                                      },
-                                    );
-                                  },
-                                ),
-                              ),
-                            ),
-                          ),
+                          onPressed: () async {
+                            final selected =
+                                await showCustomerPickerDialog(
+                              context,
+                              customers,
+                              selectedId: ref
+                                  .read(cartProvider)
+                                  .selectedCustomer
+                                  ?.id,
+                            );
+                            if (selected == null || !context.mounted) return;
+                            ref
+                                .read(currentCustomerProvider.notifier)
+                                .setCustomer(selected);
+                            final companyId =
+                                ref.read(selectedCompanyProvider)?.id;
+                            if (companyId != null) {
+                              ref
+                                  .read(cartProvider.notifier)
+                                  .setCustomer(companyId, selected);
+                            }
+                          },
                         ),
                       );
                     },

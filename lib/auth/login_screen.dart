@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:pos_app/time_clock/time_clock_screen.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/auth/auth_storage.dart';
 import 'package:pos_app/auth/master_login_screen.dart';
@@ -152,6 +153,31 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           child: const Text("POS Login"),
         ),
         actions: [
+          // TIME CLOCK button — only when SelectBusinessDayOnStart == 'true'
+          if (ref.watch(appSettingsProvider)[SettingKeys.selectBusinessDayOnStart]
+                  ?.toLowerCase() ==
+              'true')
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.access_time, size: 16),
+                label: const Text('TIME CLOCK'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: cs.primary,
+                  side: BorderSide(color: cs.primary),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  textStyle: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const TimeClockScreen(),
+                  ),
+                ),
+              ),
+            ),
           IconButton(
             icon: Icon(
               ref.watch(themeModeProvider) == ThemeMode.dark

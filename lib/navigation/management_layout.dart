@@ -30,8 +30,6 @@ class _ManagementLayoutState extends State<ManagementLayout> {
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width >= 850;
-
-    // ✨ Only show the permanent sidebar if we are on Desktop AND it hasn't been hidden
     final showPermanentSidebar = isDesktop && _isSidebarVisible;
 
     void onMenuPressed() {
@@ -43,20 +41,20 @@ class _ManagementLayoutState extends State<ManagementLayout> {
     }
 
     final List<Widget> screens = [
-      const DashboardScreen(), // Index 0
-      const DocumentsScreen(), // Index 1
-      ProductsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed), // Index 2
-      ProductGroupsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed), // Index 3
-      const StockScreen(), // Index 4
-      const ReportsScreen(), // Index 5
-      const CustomersScreen(), // Index 6
-      const PromotionsListScreen(), // Index 7
-      UsersScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed), // Index 8
-      const PaymentTypesScreen(), // Index 9
-      const TaxRatesScreen(), // Index 10
-      const MyCompanyScreen(), // Index 11
-      const VoidReasonsScreen(), // Index 12
-      LoyaltyCardsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed), // Index 13
+      const DashboardScreen(),
+      const DocumentsScreen(),
+      ProductsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
+      ProductGroupsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
+      const StockScreen(),
+      const ReportsScreen(),
+      const CustomersScreen(),
+      const PromotionsListScreen(),
+      UsersScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
+      const PaymentTypesScreen(),
+      const TaxRatesScreen(),
+      const MyCompanyScreen(),
+      const VoidReasonsScreen(),
+      LoyaltyCardsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
     ];
 
     void handleNavTap(int index) {
@@ -72,28 +70,19 @@ class _ManagementLayoutState extends State<ManagementLayout> {
       child: SafeArea(
         child: Column(
           children: [
-            // ✨ Top header with Desktop collapse button
+            // Static title header — no back navigation, no tap interaction
             Container(
               padding: const EdgeInsets.fromLTRB(16, 16, 8, 16),
               alignment: Alignment.centerLeft,
               child: Row(
                 children: [
-                  Expanded(
-                    child: InkWell(
-                      onTap: () => Navigator.pop(context),
-                      child: Row(
-                        children: const [
-                          Icon(Icons.arrow_back, color: Colors.white, size: 20),
-                          SizedBox(width: 8),
-                          Text(
-                            "POS System",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
+                  const Expanded(
+                    child: Text(
+                      "Management Portal",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
@@ -108,6 +97,7 @@ class _ManagementLayoutState extends State<ManagementLayout> {
               ),
             ),
 
+            // Scrollable nav items
             Expanded(
               child: SingleChildScrollView(
                 child: Column(
@@ -201,6 +191,40 @@ class _ManagementLayoutState extends State<ManagementLayout> {
                 ),
               ),
             ),
+
+            // Pinned exit button at the bottom of the sidebar
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+              child: SizedBox(
+                width: double.infinity,
+                child: Material(
+                  color: Theme.of(context).colorScheme.error,
+                  borderRadius: BorderRadius.circular(8),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => Navigator.pop(context),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 14),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.exit_to_app, color: Colors.white, size: 20),
+                          SizedBox(width: 10),
+                          Text(
+                            "Exit Management",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -214,15 +238,17 @@ class _ManagementLayoutState extends State<ManagementLayout> {
           : Drawer(backgroundColor: context.navSidebarBg, child: sidebar),
       body: Row(
         children: [
-          // ✨ Conditionally show sidebar based on our new variable
           if (showPermanentSidebar) sidebar,
 
           Expanded(
             child: ClipRect(
               child: Column(
                 children: [
-                  // Show the top bar only when sidebar is hidden AND not on screens that provide their own header
-                  if (!showPermanentSidebar && _selectedIndex != 2 && _selectedIndex != 3 && _selectedIndex != 8 && _selectedIndex != 13)
+                  if (!showPermanentSidebar &&
+                      _selectedIndex != 2 &&
+                      _selectedIndex != 3 &&
+                      _selectedIndex != 8 &&
+                      _selectedIndex != 13)
                     Container(
                       height: kToolbarHeight,
                       color: context.navSidebarBg,
@@ -245,7 +271,6 @@ class _ManagementLayoutState extends State<ManagementLayout> {
                       ),
                     ),
 
-                  // Active Screen
                   Expanded(child: screens[_selectedIndex]),
                 ],
               ),
@@ -257,7 +282,6 @@ class _ManagementLayoutState extends State<ManagementLayout> {
   }
 }
 
-// Keep this at the bottom for any screens you haven't built yet!
 class PlaceholderScreen extends StatelessWidget {
   final String title;
   const PlaceholderScreen({super.key, required this.title});

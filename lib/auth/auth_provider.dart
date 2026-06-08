@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' show InsertMode, Value;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -67,8 +69,14 @@ final seedUsersFromApiProvider =
     FutureProvider.autoDispose.family<void, int>((ref, companyId) async {
   try {
     final db = ref.read(appDatabaseProvider);
-    final deviceId = await ref.read(authStorageProvider).getOrCreateDeviceId();
+    final storage = ref.read(authStorageProvider);
+    final deviceId = await storage.getOrCreateDeviceId();
+    final jwt = await storage.getJwt();
     final dio = createDio();
+    // Include the JWT when available so the request succeeds on secured endpoints.
+    if (jwt != null) {
+      dio.options.headers['Authorization'] = 'Bearer $jwt';
+    }
     final res = await dio.get<List<dynamic>>(
       '/Users/GetAllUsers',
       queryParameters: {
@@ -239,6 +247,15 @@ class AuthService {
       queryParameters: {'companyId': companyId},
       data: {'userId': userId, 'deviceId': deviceId, 'pin': pin},
     );
+
+    // Persist the hash locally so hasPinForThisDevice is true on the next
+    // login — without this, Drift still has null and the PIN creation prompt
+    // appears again every time. Uses the same algorithm as the backend:
+    // base64( SHA-256( UTF-8(pin) ) ).
+    final hashedPin = base64Encode(sha256.convert(utf8.encode(pin)).bytes);
+    final db = _ref.read(appDatabaseProvider);
+    await (db.update(db.usersTable)..where((t) => t.id.equals(userId)))
+        .write(UsersTableCompanion(pinHash: Value(hashedPin)));
   }
 }
 

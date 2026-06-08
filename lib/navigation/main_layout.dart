@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
@@ -18,8 +19,10 @@ import 'package:pos_app/auth/user_info_screen.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/auth/login_screen.dart';
 import 'package:pos_app/cash/cash_movement_screen.dart';
+import 'package:pos_app/time_clock/time_clock_screen.dart';
 import 'package:pos_app/reports/sales_history_screen.dart';
 import 'package:pos_app/credit/credit_payment_dialog.dart';
+import 'package:pos_app/shift/shift_management_screen.dart';
 import 'package:pos_app/sync/connectivity_watcher.dart';
 import 'package:pos_app/sync/sync_button.dart';
 import 'package:pos_app/security/security_guard.dart';
@@ -43,6 +46,16 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
   void initState() {
     super.initState();
     _selectedIndex = widget.initialIndex;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final settings = ref.read(appSettingsProvider);
+      if (settings[SettingKeys.showCashInOnStart]?.toLowerCase() == 'true') {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const CashMovementScreen()),
+        );
+      }
+    });
   }
 
   @override
@@ -74,7 +87,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
             ? () => setState(() => _isSidebarVisible = true)
             : () => _scaffoldKey.currentState?.openDrawer(),
       ),
-      const OpenOrdersScreen(),
+      OpenOrdersScreen(onMenuPressed: showPermanentSidebar ? null : isDesktop ? () => setState(() => _isSidebarVisible = true) : () => _scaffoldKey.currentState?.openDrawer()),
       bookingEnabled ? const BookingsScreen() : const SizedBox.shrink(),
       bookingEnabled ? const BookingHistoryScreen() : const SizedBox.shrink(),
       floorPlanEnabled ? const FloorPlanScreen() : const SizedBox.shrink(),
@@ -185,6 +198,25 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         isActive: _selectedIndex == 4,
                         onTap: () => handleNavTap(4),
                       ),
+
+                    NavItem(
+                      icon: Icons.schedule,
+                      label: "Shift Management",
+                      onTap: () => ref.read(securityGuardProvider).guard(
+                        context,
+                        SecurityKeys.shiftManagement,
+                        () {
+                          if (!isDesktop && Scaffold.of(context).hasDrawer)
+                            Navigator.pop(context);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const ShiftManagementScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
                     NavItem(
                       icon: Icons.download,
                       label: "Cash In / Out",
@@ -228,6 +260,11 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     ),
 
                     const NavSectionLabel("User"),
+                    // Show clocked-in status + today's total hours when Time Clock is enabled
+                    if (settings[SettingKeys.selectBusinessDayOnStart]?.toLowerCase() == 'true') ...[
+                      const TimeClockStatusChip(),
+                      const TotalHoursBadge(),
+                    ],
                     NavItem(
                       icon: Icons.person_outline,
                       label: "User info",
@@ -292,16 +329,20 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     ),
                   ),
                   const SyncButton(),
-                  NavIconButton(
-                    icon: Icons.fullscreen,
-                    tooltip: "Full Screen",
-                    onTap: () async {
-                      if (!isDesktop && Scaffold.of(context).hasDrawer)
-                        Navigator.pop(context);
-                      bool isFullScreen = await windowManager.isFullScreen();
-                      await windowManager.setFullScreen(!isFullScreen);
-                    },
-                  ),
+                  if (!kIsWeb &&
+                      (defaultTargetPlatform == TargetPlatform.windows ||
+                       defaultTargetPlatform == TargetPlatform.macOS ||
+                       defaultTargetPlatform == TargetPlatform.linux))
+                    NavIconButton(
+                      icon: Icons.fullscreen,
+                      tooltip: "Full Screen",
+                      onTap: () async {
+                        if (!isDesktop && Scaffold.of(context).hasDrawer)
+                          Navigator.pop(context);
+                        final full = await windowManager.isFullScreen();
+                        await windowManager.setFullScreen(!full);
+                      },
+                    ),
                   NavIconButton(
                     icon: Icons.power_settings_new,
                     tooltip: "Power",
@@ -334,7 +375,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
           if (showPermanentSidebar) sidebar,
           Expanded(
             child: ClipRect(
-              child: _selectedIndex != 0 && !showPermanentSidebar && isDesktop
+              child: _selectedIndex != 0 && _selectedIndex != 1 && !showPermanentSidebar && isDesktop
                   ? Stack(
                       children: [
                         screens[_selectedIndex],

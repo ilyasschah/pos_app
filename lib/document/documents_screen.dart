@@ -840,11 +840,9 @@ class _DocumentTable extends ConsumerWidget {
       showAppSnackbar(context, ref, 'Document deleted');
     } on DioException catch (e) {
       if (!context.mounted) return;
-      showAppSnackbar(
-        context, ref,
-        e.response?.data?.toString() ?? 'Delete failed',
-        isError: true,
-      );
+      final data = e.response?.data;
+      final msg = (data is Map ? data['message'] : data?.toString()) ?? 'Delete failed';
+      showAppSnackbar(context, ref, msg, isError: true);
     }
   }
 }

@@ -686,6 +686,64 @@ class LoyaltyCardsTable extends Table {
 }
 
 // ============================================================================
+// TIME CLOCK ENTRIES — offline-first employee attendance tracking.
+// Completely separate from cash drawer / shift management.
+// One row = one clock-in event. clockOutTime is null while the employee is
+// still clocked in.  syncStatus drives pushPendingTimeClockEntries.
+// ============================================================================
+
+@TableIndex(name: 'idx_time_clock_user_id',    columns: {#userId})
+@TableIndex(name: 'idx_time_clock_sync_status', columns: {#syncStatus})
+class TimeClockEntriesTable extends Table {
+  @override
+  String get tableName => 'time_clock_entries';
+
+  TextColumn get localId => text()();               // UUID — local PK
+  IntColumn get serverId => integer().nullable()(); // null until synced
+  IntColumn get companyId => integer()();
+  IntColumn get userId => integer()();
+  DateTimeColumn get clockInTime => dateTime()();
+  DateTimeColumn get clockOutTime => dateTime().nullable()();
+
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant('pending'))();
+  TextColumn get syncError => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {localId};
+}
+
+// ============================================================================
+// SHIFTS — offline-first cashier shift tracking.
+// One row per shift. status: 0=Open, 1=Closed.
+// syncStatus drives pushPendingShifts in SyncManager.
+// ============================================================================
+
+@TableIndex(name: 'idx_shifts_company_status', columns: {#companyId, #status})
+class ShiftsTable extends Table {
+  @override
+  String get tableName => 'shifts';
+
+  TextColumn get localId => text()();           // UUID — local PK
+  IntColumn get serverId => integer().nullable()(); // null until synced
+  IntColumn get companyId => integer()();
+  IntColumn get userId => integer()();
+  RealColumn get startingCash => real().withDefault(const Constant(0))();
+  RealColumn get actualEndingCash => real().nullable()();
+  IntColumn get status => integer().withDefault(const Constant(0))(); // 0=Open, 1=Closed
+  DateTimeColumn get openedAt => dateTime()();
+  DateTimeColumn get closedAt => dateTime().nullable()();
+  DateTimeColumn get lastModified => dateTime()();
+
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant('pending'))();
+  TextColumn get syncError => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {localId};
+}
+
+// ============================================================================
 // SYNC METADATA — one row per entity; holds the watermark we send as
 // `modifiedAfter` on the next delta pull.
 // ============================================================================
@@ -756,13 +814,15 @@ class PendingUserOpsTable extends Table {
     BarcodesTable,
     CustomerDiscountsTable,
     LoyaltyCardsTable,
+    TimeClockEntriesTable,
+    ShiftsTable,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 22;
+  int get schemaVersion => 24;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -1078,6 +1138,55 @@ class AppDatabase extends _$AppDatabase {
             await customStatement(
                 'CREATE INDEX IF NOT EXISTS idx_pos_order_item_taxes_order_id'
                 ' ON pos_order_item_taxes (order_id)');
+          }
+
+          // v24: Employee Time Clock — offline-first attendance tracking.
+          // Completely isolated from cash drawer / shift management.
+          // One row per clock-in event; clockOutTime null while clocked in.
+          if (from < 24) {
+            await customStatement('''
+              CREATE TABLE IF NOT EXISTS time_clock_entries (
+                local_id TEXT NOT NULL PRIMARY KEY,
+                server_id INTEGER,
+                company_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                clock_in_time INTEGER NOT NULL,
+                clock_out_time INTEGER,
+                sync_status TEXT NOT NULL DEFAULT \'pending\',
+                sync_error TEXT
+              )
+            ''');
+            await customStatement(
+                'CREATE INDEX IF NOT EXISTS idx_time_clock_user_id'
+                ' ON time_clock_entries (user_id)');
+            await customStatement(
+                'CREATE INDEX IF NOT EXISTS idx_time_clock_sync_status'
+                ' ON time_clock_entries (sync_status)');
+          }
+
+          // v23: Offline-first shift management.
+          // One row per cashier shift. status 0=Open, 1=Closed.
+          // SyncManager pushes pending rows via /api/shifts/batchsync.
+          if (from < 23) {
+            await customStatement('''
+              CREATE TABLE IF NOT EXISTS shifts (
+                local_id TEXT NOT NULL PRIMARY KEY,
+                server_id INTEGER,
+                company_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                starting_cash REAL NOT NULL DEFAULT 0,
+                actual_ending_cash REAL,
+                status INTEGER NOT NULL DEFAULT 0,
+                opened_at INTEGER NOT NULL,
+                closed_at INTEGER,
+                last_modified INTEGER NOT NULL,
+                sync_status TEXT NOT NULL DEFAULT \'pending\',
+                sync_error TEXT
+              )
+            ''');
+            await customStatement(
+                'CREATE INDEX IF NOT EXISTS idx_shifts_company_status'
+                ' ON shifts (company_id, status)');
           }
         },
         beforeOpen: (details) async {
@@ -1555,6 +1664,113 @@ extension OfflineQueueHelpers on AppDatabase {
     return (update(zReportsTable)
           ..where((t) => t.localId.equals(localId)))
         .write(ZReportsTableCompanion(
+      syncStatus: const Value('failed'),
+      syncError: Value(errorMessage),
+    ));
+  }
+
+  // ---------------- SHIFTS ----------------
+
+  Future<void> insertOfflineShift(ShiftsTableCompanion shift) async {
+    final localId = shift.localId.present && shift.localId.value.isNotEmpty
+        ? shift.localId.value
+        : const Uuid().v4();
+    await into(shiftsTable).insert(
+      shift.copyWith(localId: Value(localId)),
+      mode: InsertMode.insertOrReplace,
+    );
+  }
+
+  Future<List<ShiftsTableData>> getPendingShifts() {
+    return (select(shiftsTable)
+          ..where((t) => t.syncStatus.equals('pending')))
+        .get();
+  }
+
+  Future<ShiftsTableData?> getActiveShift(int companyId) {
+    return (select(shiftsTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.status.equals(0))
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
+  Future<List<ShiftsTableData>> getShiftHistory(int companyId) {
+    return (select(shiftsTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..orderBy([(t) => OrderingTerm.desc(t.openedAt)]))
+        .get();
+  }
+
+  Future<void> markShiftSynced(String localId, int serverId) {
+    return (update(shiftsTable)..where((t) => t.localId.equals(localId)))
+        .write(ShiftsTableCompanion(
+      serverId: Value(serverId),
+      syncStatus: const Value('synced'),
+      syncError: const Value(null),
+    ));
+  }
+
+  Future<void> markShiftFailed(String localId, String errorMessage) {
+    return (update(shiftsTable)..where((t) => t.localId.equals(localId)))
+        .write(ShiftsTableCompanion(
+      syncStatus: const Value('failed'),
+      syncError: Value(errorMessage),
+    ));
+  }
+
+  // ---------------- TIME CLOCK ----------------
+
+  Future<void> insertClockIn(TimeClockEntriesTableCompanion entry) async {
+    final localId = entry.localId.present && entry.localId.value.isNotEmpty
+        ? entry.localId.value
+        : const Uuid().v4();
+    await into(timeClockEntriesTable).insert(
+      entry.copyWith(localId: Value(localId)),
+      mode: InsertMode.insertOrReplace,
+    );
+  }
+
+  /// Finds the most recent open entry (clockOutTime == null) for [userId].
+  Future<TimeClockEntriesTableData?> getActiveClockEntry(int userId) {
+    return (select(timeClockEntriesTable)
+          ..where((t) => t.userId.equals(userId))
+          ..where((t) => t.clockOutTime.isNull())
+          ..orderBy([(t) => OrderingTerm.desc(t.clockInTime)])
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
+  Future<void> clockOut(String localId, DateTime clockOutTime) {
+    return (update(timeClockEntriesTable)
+          ..where((t) => t.localId.equals(localId)))
+        .write(TimeClockEntriesTableCompanion(
+      clockOutTime: Value(clockOutTime),
+      syncStatus: const Value('pending'),
+      syncError: const Value(null),
+    ));
+  }
+
+  Future<List<TimeClockEntriesTableData>> getPendingTimeClockEntries() {
+    return (select(timeClockEntriesTable)
+          ..where((t) => t.syncStatus.equals('pending')))
+        .get();
+  }
+
+  Future<void> markTimeClockEntrySynced(String localId, int serverId) {
+    return (update(timeClockEntriesTable)
+          ..where((t) => t.localId.equals(localId)))
+        .write(TimeClockEntriesTableCompanion(
+      serverId: Value(serverId),
+      syncStatus: const Value('synced'),
+      syncError: const Value(null),
+    ));
+  }
+
+  Future<void> markTimeClockEntryFailed(String localId, String errorMessage) {
+    return (update(timeClockEntriesTable)
+          ..where((t) => t.localId.equals(localId)))
+        .write(TimeClockEntriesTableCompanion(
       syncStatus: const Value('failed'),
       syncError: Value(errorMessage),
     ));

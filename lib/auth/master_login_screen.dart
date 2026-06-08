@@ -6,9 +6,13 @@ import 'package:gap/gap.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 import 'package:pos_app/api/api_client.dart';
+import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/auth/auth_storage.dart';
 import 'package:pos_app/auth/login_screen.dart';
+import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/settings/settings_provider.dart';
 import 'package:pos_app/utils/api_error_parser.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 class MasterLoginScreen extends ConsumerStatefulWidget {
   const MasterLoginScreen({super.key});
@@ -18,14 +22,28 @@ class MasterLoginScreen extends ConsumerStatefulWidget {
 }
 
 class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
-  final _usernameController = TextEditingController();
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final selectedCo = ref.read(selectedCompanyProvider);
+      if (selectedCo != null) return;
+      final defaultCoId = ref.read(defaultCompanyIdProvider);
+      if (defaultCoId != null) {
+        await ref.read(authServiceProvider).loadFallbackCompany(defaultCoId);
+      }
+    });
+  }
+
+  @override
   void dispose() {
-    _usernameController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -40,21 +58,40 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
       final response = await dio.post(
         '/Auth/Login',
         data: {
-          'username': _usernameController.text.trim(),
+          'email': _emailController.text.trim(),
           'password': _passwordController.text,
           'deviceId': deviceId,
         },
       );
 
-      final data = response.data;
-      if (data['success'] == true) {
-        await storage.saveMasterSession(data['token'], 1);
+      final data = response.data as Map<String, dynamic>;
+
+      if (data['success'] != true) {
         if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
-          );
+          setState(() => _isLoading = false);
+          _showError(data['message'] as String? ?? 'Invalid credentials.');
         }
+        return;
+      }
+
+      final companyId = data['companyId'] as int? ??
+          (data['user'] as Map<String, dynamic>?)?['companyId'] as int? ??
+          ref.read(defaultCompanyIdProvider) ?? 1;
+
+      await storage.saveMasterSession(data['token'] as String, companyId);
+      await storage.saveRegisteredEmail(_emailController.text.trim());
+
+      ref.read(defaultCompanyIdProvider.notifier).setDefaultCompany(companyId);
+
+      try {
+        await ref.read(seedUsersFromApiProvider(companyId).future);
+      } catch (_) {}
+
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        );
       }
     } on DioException catch (e) {
       if (mounted) {
@@ -70,10 +107,7 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(message),
-      backgroundColor: Theme.of(context).colorScheme.error,
-    ));
+    showAppSnackbar(context, ref, message, isError: true);
   }
 
   @override
@@ -96,7 +130,6 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // --- Icon ---
                 Center(
                   child: Container(
                     width: 72,
@@ -128,33 +161,32 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
                 const Gap(8),
 
                 Text(
-                  "Link this terminal to your POS account",
+                  "Sign in with your account to link this terminal",
                   textAlign: TextAlign.center,
                   style: TextStyle(color: cs.onSurfaceVariant, fontSize: 14),
                 ).animate().fadeIn(delay: 130.ms, duration: 300.ms),
 
                 const Gap(40),
 
-                // --- Username ---
                 TextField(
-                  controller: _usernameController,
-                  keyboardType: TextInputType.text,
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
+                  autocorrect: false,
                   decoration: InputDecoration(
-                    labelText: "Admin Username",
+                    labelText: "Email",
                     filled: true,
                     fillColor: cs.surfaceContainerHighest,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide.none,
                     ),
-                    prefixIcon: Icon(PhosphorIcons.user(), color: cs.onSurfaceVariant),
+                    prefixIcon: Icon(PhosphorIcons.envelope(), color: cs.onSurfaceVariant),
                   ),
                 ).animate().fadeIn(delay: 180.ms).slideY(begin: 0.15, duration: 300.ms),
 
                 const Gap(16),
 
-                // --- Password ---
                 TextField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
@@ -182,7 +214,6 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
 
                 const Gap(32),
 
-                // --- Submit ---
                 FilledButton(
                   onPressed: _isLoading ? null : _registerDevice,
                   style: FilledButton.styleFrom(

@@ -28,7 +28,7 @@ dependencies:
   url_launcher: ^6.3.2
   shared_preferences: ^2.5.5
   image_picker: ^1.2.1
-  flutter_timezone: ^5.0.2
+  flutter_timezone: ^5.1.0
   timezone: ^0.11.0
   window_manager: ^0.5.1
   flutter_secure_storage: ^10.1.0
@@ -54,6 +54,10 @@ dependencies:
 dependency_overrides:
   phosphor_flutter:
     path: patches/phosphor_flutter
+  # Force latest patch versions of Android sub-packages to eliminate KGP warnings.
+  image_picker_android: ^0.8.13+19
+  shared_preferences_android: ^2.4.25
+  url_launcher_android: ^6.3.32
 
 dev_dependencies:
   flutter_test:

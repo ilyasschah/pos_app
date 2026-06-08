@@ -145,6 +145,11 @@ class ReceiptPrinterService {
     Uint8List? logoBytes,
     Map<String, String> roleSettings = const {},
     bool isGuestCheck = false,
+    // Loyalty
+    double pointsUsed = 0,
+    double pointsEarned = 0,
+    double pointsBalance = 0,
+    double pointValue = 1.0,
   }) async {
     const role = 'Receipt';
     final fmt = _paperFmt(roleSettings['$role.PaperSize']);
@@ -318,6 +323,14 @@ class ReceiptPrinterService {
               bold: true,
               fontSize: 13,
             ),
+            if (pointsUsed > 0) ...[
+              pw.SizedBox(height: 2),
+              rowW(
+                'Points Used:',
+                '-${(pointsUsed * pointValue).toStringAsFixed(2)} $currencySymbol'
+                ' (${pointsUsed.toInt()} pts)',
+              ),
+            ],
             pw.Divider(),
             pw.SizedBox(height: 6),
 
@@ -328,6 +341,10 @@ class ReceiptPrinterService {
                 '${(amountPaid ?? grandTotal).toStringAsFixed(2)} $currencySymbol',
               ),
             rowW('Items:', itemCountStr),
+            if (!isGuestCheck && pointsEarned > 0)
+              rowW('Points Earned:', '+${pointsEarned.toInt()} pts'),
+            if (!isGuestCheck && (pointsEarned > 0 || pointsUsed > 0))
+              rowW('Points Balance:', '${pointsBalance.toInt()} pts'),
             pw.SizedBox(height: 10),
             pw.Divider(borderStyle: pw.BorderStyle.dashed),
             pw.SizedBox(height: 6),

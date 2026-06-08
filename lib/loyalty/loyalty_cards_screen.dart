@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/loyalty/loyalty_card_model.dart';
@@ -39,6 +41,12 @@ class _LoyaltyCardsScreenState extends ConsumerState<LoyaltyCardsScreen> {
             : null,
         title: const Text('Loyalty Cards'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Loyalty Settings',
+            onPressed: () => _showSettingsDialog(context),
+          ),
+          const SizedBox(width: 4),
           ElevatedButton.icon(
             icon: const Icon(Icons.add),
             label: const Text('Add Card'),
@@ -94,6 +102,15 @@ class _LoyaltyCardsScreenState extends ConsumerState<LoyaltyCardsScreen> {
           );
         },
       ),
+    );
+  }
+
+  // ── Settings dialog ─────────────────────────────────────────────────────────
+
+  void _showSettingsDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => _LoyaltySettingsDialog(),
     );
   }
 
@@ -577,6 +594,180 @@ class _EditCardDialogState extends State<_EditCardDialog> {
               const SizedBox(height: 8),
               Text(_error!, style: TextStyle(color: cs.error, fontSize: 13)),
             ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: Text('Cancel',
+              style: TextStyle(color: cs.onSurface.withValues(alpha: 0.6))),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Loyalty Settings Dialog ───────────────────────────────────────────────────
+
+class _LoyaltySettingsDialog extends ConsumerStatefulWidget {
+  @override
+  ConsumerState<_LoyaltySettingsDialog> createState() =>
+      _LoyaltySettingsDialogState();
+}
+
+class _LoyaltySettingsDialogState extends ConsumerState<_LoyaltySettingsDialog> {
+  late bool _enabled;
+  late final TextEditingController _minAmountCtrl;
+  late final TextEditingController _pointsPerThresholdCtrl;
+  late final TextEditingController _pointValueCtrl;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final s = ref.read(appSettingsProvider);
+    _enabled = s[SettingKeys.loyaltyEnabled]?.toLowerCase() == 'true';
+    _minAmountCtrl = TextEditingController(
+        text: s[SettingKeys.loyaltyMinAmount] ?? '100');
+    _pointsPerThresholdCtrl = TextEditingController(
+        text: s[SettingKeys.loyaltyPointsPerThreshold] ?? '10');
+    _pointValueCtrl = TextEditingController(
+        text: s[SettingKeys.loyaltyPointValue] ?? '1.0');
+  }
+
+  @override
+  void dispose() {
+    _minAmountCtrl.dispose();
+    _pointsPerThresholdCtrl.dispose();
+    _pointValueCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final minAmt = double.tryParse(_minAmountCtrl.text.trim());
+    final pts = double.tryParse(_pointsPerThresholdCtrl.text.trim());
+    final val = double.tryParse(_pointValueCtrl.text.trim());
+    if (minAmt == null || minAmt <= 0 || pts == null || pts <= 0 ||
+        val == null || val <= 0) {
+      showAppSnackbar(context, ref, 'All values must be positive numbers.',
+          isError: true);
+      return;
+    }
+    setState(() => _saving = true);
+    final notifier = ref.read(appSettingsProvider.notifier);
+    await notifier.set(SettingKeys.loyaltyEnabled, _enabled.toString());
+    await notifier.set(SettingKeys.loyaltyMinAmount, minAmt.toString());
+    await notifier.set(SettingKeys.loyaltyPointsPerThreshold, pts.toString());
+    await notifier.set(SettingKeys.loyaltyPointValue, val.toString());
+    if (mounted) {
+      Navigator.pop(context);
+      showAppSnackbar(context, ref, 'Loyalty settings saved');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AlertDialog(
+      backgroundColor: Theme.of(context).cardColor,
+      title: const Text('Loyalty Settings'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Enable Loyalty Points'),
+              value: _enabled,
+              onChanged: (v) => setState(() => _enabled = v),
+            ),
+            const Divider(height: 24),
+            // Earning rule
+            Text('Earning Rule',
+                style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface.withValues(alpha: 0.7),
+                    fontSize: 12)),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _minAmountCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Min. purchase amount',
+                      border: OutlineInputBorder(),
+                      suffixText: 'DH',
+                    ),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    enabled: _enabled,
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12),
+                  child: Text('→', style: TextStyle(fontSize: 18)),
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: _pointsPerThresholdCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Points earned',
+                      border: OutlineInputBorder(),
+                      suffixText: 'pts',
+                    ),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    enabled: _enabled,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'e.g. every 100 DH spent earns 10 pts',
+              style: TextStyle(
+                  fontSize: 11,
+                  color: cs.onSurface.withValues(alpha: 0.5)),
+            ),
+            const SizedBox(height: 16),
+            // Redemption rule
+            Text('Redemption Rule',
+                style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface.withValues(alpha: 0.7),
+                    fontSize: 12)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _pointValueCtrl,
+              decoration: const InputDecoration(
+                labelText: '1 point equals',
+                border: OutlineInputBorder(),
+                suffixText: 'DH',
+              ),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              enabled: _enabled,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'e.g. 1 pt = 1 DH discount at checkout',
+              style: TextStyle(
+                  fontSize: 11,
+                  color: cs.onSurface.withValues(alpha: 0.5)),
+            ),
           ],
         ),
       ),

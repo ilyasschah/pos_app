@@ -17990,6 +17990,1263 @@ class LoyaltyCardsTableCompanion
   }
 }
 
+class $TimeClockEntriesTableTable extends TimeClockEntriesTable
+    with TableInfo<$TimeClockEntriesTableTable, TimeClockEntriesTableData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $TimeClockEntriesTableTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _localIdMeta = const VerificationMeta(
+    'localId',
+  );
+  @override
+  late final GeneratedColumn<String> localId = GeneratedColumn<String>(
+    'local_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _serverIdMeta = const VerificationMeta(
+    'serverId',
+  );
+  @override
+  late final GeneratedColumn<int> serverId = GeneratedColumn<int>(
+    'server_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _companyIdMeta = const VerificationMeta(
+    'companyId',
+  );
+  @override
+  late final GeneratedColumn<int> companyId = GeneratedColumn<int>(
+    'company_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<int> userId = GeneratedColumn<int>(
+    'user_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _clockInTimeMeta = const VerificationMeta(
+    'clockInTime',
+  );
+  @override
+  late final GeneratedColumn<DateTime> clockInTime = GeneratedColumn<DateTime>(
+    'clock_in_time',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _clockOutTimeMeta = const VerificationMeta(
+    'clockOutTime',
+  );
+  @override
+  late final GeneratedColumn<DateTime> clockOutTime = GeneratedColumn<DateTime>(
+    'clock_out_time',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _syncStatusMeta = const VerificationMeta(
+    'syncStatus',
+  );
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+    'sync_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('pending'),
+  );
+  static const VerificationMeta _syncErrorMeta = const VerificationMeta(
+    'syncError',
+  );
+  @override
+  late final GeneratedColumn<String> syncError = GeneratedColumn<String>(
+    'sync_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    localId,
+    serverId,
+    companyId,
+    userId,
+    clockInTime,
+    clockOutTime,
+    syncStatus,
+    syncError,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'time_clock_entries';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TimeClockEntriesTableData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('local_id')) {
+      context.handle(
+        _localIdMeta,
+        localId.isAcceptableOrUnknown(data['local_id']!, _localIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_localIdMeta);
+    }
+    if (data.containsKey('server_id')) {
+      context.handle(
+        _serverIdMeta,
+        serverId.isAcceptableOrUnknown(data['server_id']!, _serverIdMeta),
+      );
+    }
+    if (data.containsKey('company_id')) {
+      context.handle(
+        _companyIdMeta,
+        companyId.isAcceptableOrUnknown(data['company_id']!, _companyIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_companyIdMeta);
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(
+        _userIdMeta,
+        userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('clock_in_time')) {
+      context.handle(
+        _clockInTimeMeta,
+        clockInTime.isAcceptableOrUnknown(
+          data['clock_in_time']!,
+          _clockInTimeMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_clockInTimeMeta);
+    }
+    if (data.containsKey('clock_out_time')) {
+      context.handle(
+        _clockOutTimeMeta,
+        clockOutTime.isAcceptableOrUnknown(
+          data['clock_out_time']!,
+          _clockOutTimeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+        _syncStatusMeta,
+        syncStatus.isAcceptableOrUnknown(data['sync_status']!, _syncStatusMeta),
+      );
+    }
+    if (data.containsKey('sync_error')) {
+      context.handle(
+        _syncErrorMeta,
+        syncError.isAcceptableOrUnknown(data['sync_error']!, _syncErrorMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {localId};
+  @override
+  TimeClockEntriesTableData map(
+    Map<String, dynamic> data, {
+    String? tablePrefix,
+  }) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TimeClockEntriesTableData(
+      localId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_id'],
+      )!,
+      serverId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}server_id'],
+      ),
+      companyId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}company_id'],
+      )!,
+      userId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}user_id'],
+      )!,
+      clockInTime: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}clock_in_time'],
+      )!,
+      clockOutTime: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}clock_out_time'],
+      ),
+      syncStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_status'],
+      )!,
+      syncError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_error'],
+      ),
+    );
+  }
+
+  @override
+  $TimeClockEntriesTableTable createAlias(String alias) {
+    return $TimeClockEntriesTableTable(attachedDatabase, alias);
+  }
+}
+
+class TimeClockEntriesTableData extends DataClass
+    implements Insertable<TimeClockEntriesTableData> {
+  final String localId;
+  final int? serverId;
+  final int companyId;
+  final int userId;
+  final DateTime clockInTime;
+  final DateTime? clockOutTime;
+  final String syncStatus;
+  final String? syncError;
+  const TimeClockEntriesTableData({
+    required this.localId,
+    this.serverId,
+    required this.companyId,
+    required this.userId,
+    required this.clockInTime,
+    this.clockOutTime,
+    required this.syncStatus,
+    this.syncError,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['local_id'] = Variable<String>(localId);
+    if (!nullToAbsent || serverId != null) {
+      map['server_id'] = Variable<int>(serverId);
+    }
+    map['company_id'] = Variable<int>(companyId);
+    map['user_id'] = Variable<int>(userId);
+    map['clock_in_time'] = Variable<DateTime>(clockInTime);
+    if (!nullToAbsent || clockOutTime != null) {
+      map['clock_out_time'] = Variable<DateTime>(clockOutTime);
+    }
+    map['sync_status'] = Variable<String>(syncStatus);
+    if (!nullToAbsent || syncError != null) {
+      map['sync_error'] = Variable<String>(syncError);
+    }
+    return map;
+  }
+
+  TimeClockEntriesTableCompanion toCompanion(bool nullToAbsent) {
+    return TimeClockEntriesTableCompanion(
+      localId: Value(localId),
+      serverId: serverId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(serverId),
+      companyId: Value(companyId),
+      userId: Value(userId),
+      clockInTime: Value(clockInTime),
+      clockOutTime: clockOutTime == null && nullToAbsent
+          ? const Value.absent()
+          : Value(clockOutTime),
+      syncStatus: Value(syncStatus),
+      syncError: syncError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(syncError),
+    );
+  }
+
+  factory TimeClockEntriesTableData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TimeClockEntriesTableData(
+      localId: serializer.fromJson<String>(json['localId']),
+      serverId: serializer.fromJson<int?>(json['serverId']),
+      companyId: serializer.fromJson<int>(json['companyId']),
+      userId: serializer.fromJson<int>(json['userId']),
+      clockInTime: serializer.fromJson<DateTime>(json['clockInTime']),
+      clockOutTime: serializer.fromJson<DateTime?>(json['clockOutTime']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
+      syncError: serializer.fromJson<String?>(json['syncError']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'localId': serializer.toJson<String>(localId),
+      'serverId': serializer.toJson<int?>(serverId),
+      'companyId': serializer.toJson<int>(companyId),
+      'userId': serializer.toJson<int>(userId),
+      'clockInTime': serializer.toJson<DateTime>(clockInTime),
+      'clockOutTime': serializer.toJson<DateTime?>(clockOutTime),
+      'syncStatus': serializer.toJson<String>(syncStatus),
+      'syncError': serializer.toJson<String?>(syncError),
+    };
+  }
+
+  TimeClockEntriesTableData copyWith({
+    String? localId,
+    Value<int?> serverId = const Value.absent(),
+    int? companyId,
+    int? userId,
+    DateTime? clockInTime,
+    Value<DateTime?> clockOutTime = const Value.absent(),
+    String? syncStatus,
+    Value<String?> syncError = const Value.absent(),
+  }) => TimeClockEntriesTableData(
+    localId: localId ?? this.localId,
+    serverId: serverId.present ? serverId.value : this.serverId,
+    companyId: companyId ?? this.companyId,
+    userId: userId ?? this.userId,
+    clockInTime: clockInTime ?? this.clockInTime,
+    clockOutTime: clockOutTime.present ? clockOutTime.value : this.clockOutTime,
+    syncStatus: syncStatus ?? this.syncStatus,
+    syncError: syncError.present ? syncError.value : this.syncError,
+  );
+  TimeClockEntriesTableData copyWithCompanion(
+    TimeClockEntriesTableCompanion data,
+  ) {
+    return TimeClockEntriesTableData(
+      localId: data.localId.present ? data.localId.value : this.localId,
+      serverId: data.serverId.present ? data.serverId.value : this.serverId,
+      companyId: data.companyId.present ? data.companyId.value : this.companyId,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      clockInTime: data.clockInTime.present
+          ? data.clockInTime.value
+          : this.clockInTime,
+      clockOutTime: data.clockOutTime.present
+          ? data.clockOutTime.value
+          : this.clockOutTime,
+      syncStatus: data.syncStatus.present
+          ? data.syncStatus.value
+          : this.syncStatus,
+      syncError: data.syncError.present ? data.syncError.value : this.syncError,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TimeClockEntriesTableData(')
+          ..write('localId: $localId, ')
+          ..write('serverId: $serverId, ')
+          ..write('companyId: $companyId, ')
+          ..write('userId: $userId, ')
+          ..write('clockInTime: $clockInTime, ')
+          ..write('clockOutTime: $clockOutTime, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('syncError: $syncError')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    localId,
+    serverId,
+    companyId,
+    userId,
+    clockInTime,
+    clockOutTime,
+    syncStatus,
+    syncError,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TimeClockEntriesTableData &&
+          other.localId == this.localId &&
+          other.serverId == this.serverId &&
+          other.companyId == this.companyId &&
+          other.userId == this.userId &&
+          other.clockInTime == this.clockInTime &&
+          other.clockOutTime == this.clockOutTime &&
+          other.syncStatus == this.syncStatus &&
+          other.syncError == this.syncError);
+}
+
+class TimeClockEntriesTableCompanion
+    extends UpdateCompanion<TimeClockEntriesTableData> {
+  final Value<String> localId;
+  final Value<int?> serverId;
+  final Value<int> companyId;
+  final Value<int> userId;
+  final Value<DateTime> clockInTime;
+  final Value<DateTime?> clockOutTime;
+  final Value<String> syncStatus;
+  final Value<String?> syncError;
+  final Value<int> rowid;
+  const TimeClockEntriesTableCompanion({
+    this.localId = const Value.absent(),
+    this.serverId = const Value.absent(),
+    this.companyId = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.clockInTime = const Value.absent(),
+    this.clockOutTime = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.syncError = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  TimeClockEntriesTableCompanion.insert({
+    required String localId,
+    this.serverId = const Value.absent(),
+    required int companyId,
+    required int userId,
+    required DateTime clockInTime,
+    this.clockOutTime = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.syncError = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : localId = Value(localId),
+       companyId = Value(companyId),
+       userId = Value(userId),
+       clockInTime = Value(clockInTime);
+  static Insertable<TimeClockEntriesTableData> custom({
+    Expression<String>? localId,
+    Expression<int>? serverId,
+    Expression<int>? companyId,
+    Expression<int>? userId,
+    Expression<DateTime>? clockInTime,
+    Expression<DateTime>? clockOutTime,
+    Expression<String>? syncStatus,
+    Expression<String>? syncError,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (localId != null) 'local_id': localId,
+      if (serverId != null) 'server_id': serverId,
+      if (companyId != null) 'company_id': companyId,
+      if (userId != null) 'user_id': userId,
+      if (clockInTime != null) 'clock_in_time': clockInTime,
+      if (clockOutTime != null) 'clock_out_time': clockOutTime,
+      if (syncStatus != null) 'sync_status': syncStatus,
+      if (syncError != null) 'sync_error': syncError,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  TimeClockEntriesTableCompanion copyWith({
+    Value<String>? localId,
+    Value<int?>? serverId,
+    Value<int>? companyId,
+    Value<int>? userId,
+    Value<DateTime>? clockInTime,
+    Value<DateTime?>? clockOutTime,
+    Value<String>? syncStatus,
+    Value<String?>? syncError,
+    Value<int>? rowid,
+  }) {
+    return TimeClockEntriesTableCompanion(
+      localId: localId ?? this.localId,
+      serverId: serverId ?? this.serverId,
+      companyId: companyId ?? this.companyId,
+      userId: userId ?? this.userId,
+      clockInTime: clockInTime ?? this.clockInTime,
+      clockOutTime: clockOutTime ?? this.clockOutTime,
+      syncStatus: syncStatus ?? this.syncStatus,
+      syncError: syncError ?? this.syncError,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (localId.present) {
+      map['local_id'] = Variable<String>(localId.value);
+    }
+    if (serverId.present) {
+      map['server_id'] = Variable<int>(serverId.value);
+    }
+    if (companyId.present) {
+      map['company_id'] = Variable<int>(companyId.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<int>(userId.value);
+    }
+    if (clockInTime.present) {
+      map['clock_in_time'] = Variable<DateTime>(clockInTime.value);
+    }
+    if (clockOutTime.present) {
+      map['clock_out_time'] = Variable<DateTime>(clockOutTime.value);
+    }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
+    if (syncError.present) {
+      map['sync_error'] = Variable<String>(syncError.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TimeClockEntriesTableCompanion(')
+          ..write('localId: $localId, ')
+          ..write('serverId: $serverId, ')
+          ..write('companyId: $companyId, ')
+          ..write('userId: $userId, ')
+          ..write('clockInTime: $clockInTime, ')
+          ..write('clockOutTime: $clockOutTime, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('syncError: $syncError, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ShiftsTableTable extends ShiftsTable
+    with TableInfo<$ShiftsTableTable, ShiftsTableData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ShiftsTableTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _localIdMeta = const VerificationMeta(
+    'localId',
+  );
+  @override
+  late final GeneratedColumn<String> localId = GeneratedColumn<String>(
+    'local_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _serverIdMeta = const VerificationMeta(
+    'serverId',
+  );
+  @override
+  late final GeneratedColumn<int> serverId = GeneratedColumn<int>(
+    'server_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _companyIdMeta = const VerificationMeta(
+    'companyId',
+  );
+  @override
+  late final GeneratedColumn<int> companyId = GeneratedColumn<int>(
+    'company_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<int> userId = GeneratedColumn<int>(
+    'user_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _startingCashMeta = const VerificationMeta(
+    'startingCash',
+  );
+  @override
+  late final GeneratedColumn<double> startingCash = GeneratedColumn<double>(
+    'starting_cash',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _actualEndingCashMeta = const VerificationMeta(
+    'actualEndingCash',
+  );
+  @override
+  late final GeneratedColumn<double> actualEndingCash = GeneratedColumn<double>(
+    'actual_ending_cash',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<int> status = GeneratedColumn<int>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _openedAtMeta = const VerificationMeta(
+    'openedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> openedAt = GeneratedColumn<DateTime>(
+    'opened_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _closedAtMeta = const VerificationMeta(
+    'closedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> closedAt = GeneratedColumn<DateTime>(
+    'closed_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lastModifiedMeta = const VerificationMeta(
+    'lastModified',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastModified = GeneratedColumn<DateTime>(
+    'last_modified',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _syncStatusMeta = const VerificationMeta(
+    'syncStatus',
+  );
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+    'sync_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('pending'),
+  );
+  static const VerificationMeta _syncErrorMeta = const VerificationMeta(
+    'syncError',
+  );
+  @override
+  late final GeneratedColumn<String> syncError = GeneratedColumn<String>(
+    'sync_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    localId,
+    serverId,
+    companyId,
+    userId,
+    startingCash,
+    actualEndingCash,
+    status,
+    openedAt,
+    closedAt,
+    lastModified,
+    syncStatus,
+    syncError,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'shifts';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ShiftsTableData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('local_id')) {
+      context.handle(
+        _localIdMeta,
+        localId.isAcceptableOrUnknown(data['local_id']!, _localIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_localIdMeta);
+    }
+    if (data.containsKey('server_id')) {
+      context.handle(
+        _serverIdMeta,
+        serverId.isAcceptableOrUnknown(data['server_id']!, _serverIdMeta),
+      );
+    }
+    if (data.containsKey('company_id')) {
+      context.handle(
+        _companyIdMeta,
+        companyId.isAcceptableOrUnknown(data['company_id']!, _companyIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_companyIdMeta);
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(
+        _userIdMeta,
+        userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('starting_cash')) {
+      context.handle(
+        _startingCashMeta,
+        startingCash.isAcceptableOrUnknown(
+          data['starting_cash']!,
+          _startingCashMeta,
+        ),
+      );
+    }
+    if (data.containsKey('actual_ending_cash')) {
+      context.handle(
+        _actualEndingCashMeta,
+        actualEndingCash.isAcceptableOrUnknown(
+          data['actual_ending_cash']!,
+          _actualEndingCashMeta,
+        ),
+      );
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    }
+    if (data.containsKey('opened_at')) {
+      context.handle(
+        _openedAtMeta,
+        openedAt.isAcceptableOrUnknown(data['opened_at']!, _openedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_openedAtMeta);
+    }
+    if (data.containsKey('closed_at')) {
+      context.handle(
+        _closedAtMeta,
+        closedAt.isAcceptableOrUnknown(data['closed_at']!, _closedAtMeta),
+      );
+    }
+    if (data.containsKey('last_modified')) {
+      context.handle(
+        _lastModifiedMeta,
+        lastModified.isAcceptableOrUnknown(
+          data['last_modified']!,
+          _lastModifiedMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_lastModifiedMeta);
+    }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+        _syncStatusMeta,
+        syncStatus.isAcceptableOrUnknown(data['sync_status']!, _syncStatusMeta),
+      );
+    }
+    if (data.containsKey('sync_error')) {
+      context.handle(
+        _syncErrorMeta,
+        syncError.isAcceptableOrUnknown(data['sync_error']!, _syncErrorMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {localId};
+  @override
+  ShiftsTableData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ShiftsTableData(
+      localId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_id'],
+      )!,
+      serverId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}server_id'],
+      ),
+      companyId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}company_id'],
+      )!,
+      userId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}user_id'],
+      )!,
+      startingCash: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}starting_cash'],
+      )!,
+      actualEndingCash: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}actual_ending_cash'],
+      ),
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}status'],
+      )!,
+      openedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}opened_at'],
+      )!,
+      closedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}closed_at'],
+      ),
+      lastModified: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_modified'],
+      )!,
+      syncStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_status'],
+      )!,
+      syncError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_error'],
+      ),
+    );
+  }
+
+  @override
+  $ShiftsTableTable createAlias(String alias) {
+    return $ShiftsTableTable(attachedDatabase, alias);
+  }
+}
+
+class ShiftsTableData extends DataClass implements Insertable<ShiftsTableData> {
+  final String localId;
+  final int? serverId;
+  final int companyId;
+  final int userId;
+  final double startingCash;
+  final double? actualEndingCash;
+  final int status;
+  final DateTime openedAt;
+  final DateTime? closedAt;
+  final DateTime lastModified;
+  final String syncStatus;
+  final String? syncError;
+  const ShiftsTableData({
+    required this.localId,
+    this.serverId,
+    required this.companyId,
+    required this.userId,
+    required this.startingCash,
+    this.actualEndingCash,
+    required this.status,
+    required this.openedAt,
+    this.closedAt,
+    required this.lastModified,
+    required this.syncStatus,
+    this.syncError,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['local_id'] = Variable<String>(localId);
+    if (!nullToAbsent || serverId != null) {
+      map['server_id'] = Variable<int>(serverId);
+    }
+    map['company_id'] = Variable<int>(companyId);
+    map['user_id'] = Variable<int>(userId);
+    map['starting_cash'] = Variable<double>(startingCash);
+    if (!nullToAbsent || actualEndingCash != null) {
+      map['actual_ending_cash'] = Variable<double>(actualEndingCash);
+    }
+    map['status'] = Variable<int>(status);
+    map['opened_at'] = Variable<DateTime>(openedAt);
+    if (!nullToAbsent || closedAt != null) {
+      map['closed_at'] = Variable<DateTime>(closedAt);
+    }
+    map['last_modified'] = Variable<DateTime>(lastModified);
+    map['sync_status'] = Variable<String>(syncStatus);
+    if (!nullToAbsent || syncError != null) {
+      map['sync_error'] = Variable<String>(syncError);
+    }
+    return map;
+  }
+
+  ShiftsTableCompanion toCompanion(bool nullToAbsent) {
+    return ShiftsTableCompanion(
+      localId: Value(localId),
+      serverId: serverId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(serverId),
+      companyId: Value(companyId),
+      userId: Value(userId),
+      startingCash: Value(startingCash),
+      actualEndingCash: actualEndingCash == null && nullToAbsent
+          ? const Value.absent()
+          : Value(actualEndingCash),
+      status: Value(status),
+      openedAt: Value(openedAt),
+      closedAt: closedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(closedAt),
+      lastModified: Value(lastModified),
+      syncStatus: Value(syncStatus),
+      syncError: syncError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(syncError),
+    );
+  }
+
+  factory ShiftsTableData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ShiftsTableData(
+      localId: serializer.fromJson<String>(json['localId']),
+      serverId: serializer.fromJson<int?>(json['serverId']),
+      companyId: serializer.fromJson<int>(json['companyId']),
+      userId: serializer.fromJson<int>(json['userId']),
+      startingCash: serializer.fromJson<double>(json['startingCash']),
+      actualEndingCash: serializer.fromJson<double?>(json['actualEndingCash']),
+      status: serializer.fromJson<int>(json['status']),
+      openedAt: serializer.fromJson<DateTime>(json['openedAt']),
+      closedAt: serializer.fromJson<DateTime?>(json['closedAt']),
+      lastModified: serializer.fromJson<DateTime>(json['lastModified']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
+      syncError: serializer.fromJson<String?>(json['syncError']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'localId': serializer.toJson<String>(localId),
+      'serverId': serializer.toJson<int?>(serverId),
+      'companyId': serializer.toJson<int>(companyId),
+      'userId': serializer.toJson<int>(userId),
+      'startingCash': serializer.toJson<double>(startingCash),
+      'actualEndingCash': serializer.toJson<double?>(actualEndingCash),
+      'status': serializer.toJson<int>(status),
+      'openedAt': serializer.toJson<DateTime>(openedAt),
+      'closedAt': serializer.toJson<DateTime?>(closedAt),
+      'lastModified': serializer.toJson<DateTime>(lastModified),
+      'syncStatus': serializer.toJson<String>(syncStatus),
+      'syncError': serializer.toJson<String?>(syncError),
+    };
+  }
+
+  ShiftsTableData copyWith({
+    String? localId,
+    Value<int?> serverId = const Value.absent(),
+    int? companyId,
+    int? userId,
+    double? startingCash,
+    Value<double?> actualEndingCash = const Value.absent(),
+    int? status,
+    DateTime? openedAt,
+    Value<DateTime?> closedAt = const Value.absent(),
+    DateTime? lastModified,
+    String? syncStatus,
+    Value<String?> syncError = const Value.absent(),
+  }) => ShiftsTableData(
+    localId: localId ?? this.localId,
+    serverId: serverId.present ? serverId.value : this.serverId,
+    companyId: companyId ?? this.companyId,
+    userId: userId ?? this.userId,
+    startingCash: startingCash ?? this.startingCash,
+    actualEndingCash: actualEndingCash.present
+        ? actualEndingCash.value
+        : this.actualEndingCash,
+    status: status ?? this.status,
+    openedAt: openedAt ?? this.openedAt,
+    closedAt: closedAt.present ? closedAt.value : this.closedAt,
+    lastModified: lastModified ?? this.lastModified,
+    syncStatus: syncStatus ?? this.syncStatus,
+    syncError: syncError.present ? syncError.value : this.syncError,
+  );
+  ShiftsTableData copyWithCompanion(ShiftsTableCompanion data) {
+    return ShiftsTableData(
+      localId: data.localId.present ? data.localId.value : this.localId,
+      serverId: data.serverId.present ? data.serverId.value : this.serverId,
+      companyId: data.companyId.present ? data.companyId.value : this.companyId,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      startingCash: data.startingCash.present
+          ? data.startingCash.value
+          : this.startingCash,
+      actualEndingCash: data.actualEndingCash.present
+          ? data.actualEndingCash.value
+          : this.actualEndingCash,
+      status: data.status.present ? data.status.value : this.status,
+      openedAt: data.openedAt.present ? data.openedAt.value : this.openedAt,
+      closedAt: data.closedAt.present ? data.closedAt.value : this.closedAt,
+      lastModified: data.lastModified.present
+          ? data.lastModified.value
+          : this.lastModified,
+      syncStatus: data.syncStatus.present
+          ? data.syncStatus.value
+          : this.syncStatus,
+      syncError: data.syncError.present ? data.syncError.value : this.syncError,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ShiftsTableData(')
+          ..write('localId: $localId, ')
+          ..write('serverId: $serverId, ')
+          ..write('companyId: $companyId, ')
+          ..write('userId: $userId, ')
+          ..write('startingCash: $startingCash, ')
+          ..write('actualEndingCash: $actualEndingCash, ')
+          ..write('status: $status, ')
+          ..write('openedAt: $openedAt, ')
+          ..write('closedAt: $closedAt, ')
+          ..write('lastModified: $lastModified, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('syncError: $syncError')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    localId,
+    serverId,
+    companyId,
+    userId,
+    startingCash,
+    actualEndingCash,
+    status,
+    openedAt,
+    closedAt,
+    lastModified,
+    syncStatus,
+    syncError,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ShiftsTableData &&
+          other.localId == this.localId &&
+          other.serverId == this.serverId &&
+          other.companyId == this.companyId &&
+          other.userId == this.userId &&
+          other.startingCash == this.startingCash &&
+          other.actualEndingCash == this.actualEndingCash &&
+          other.status == this.status &&
+          other.openedAt == this.openedAt &&
+          other.closedAt == this.closedAt &&
+          other.lastModified == this.lastModified &&
+          other.syncStatus == this.syncStatus &&
+          other.syncError == this.syncError);
+}
+
+class ShiftsTableCompanion extends UpdateCompanion<ShiftsTableData> {
+  final Value<String> localId;
+  final Value<int?> serverId;
+  final Value<int> companyId;
+  final Value<int> userId;
+  final Value<double> startingCash;
+  final Value<double?> actualEndingCash;
+  final Value<int> status;
+  final Value<DateTime> openedAt;
+  final Value<DateTime?> closedAt;
+  final Value<DateTime> lastModified;
+  final Value<String> syncStatus;
+  final Value<String?> syncError;
+  final Value<int> rowid;
+  const ShiftsTableCompanion({
+    this.localId = const Value.absent(),
+    this.serverId = const Value.absent(),
+    this.companyId = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.startingCash = const Value.absent(),
+    this.actualEndingCash = const Value.absent(),
+    this.status = const Value.absent(),
+    this.openedAt = const Value.absent(),
+    this.closedAt = const Value.absent(),
+    this.lastModified = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.syncError = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ShiftsTableCompanion.insert({
+    required String localId,
+    this.serverId = const Value.absent(),
+    required int companyId,
+    required int userId,
+    this.startingCash = const Value.absent(),
+    this.actualEndingCash = const Value.absent(),
+    this.status = const Value.absent(),
+    required DateTime openedAt,
+    this.closedAt = const Value.absent(),
+    required DateTime lastModified,
+    this.syncStatus = const Value.absent(),
+    this.syncError = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : localId = Value(localId),
+       companyId = Value(companyId),
+       userId = Value(userId),
+       openedAt = Value(openedAt),
+       lastModified = Value(lastModified);
+  static Insertable<ShiftsTableData> custom({
+    Expression<String>? localId,
+    Expression<int>? serverId,
+    Expression<int>? companyId,
+    Expression<int>? userId,
+    Expression<double>? startingCash,
+    Expression<double>? actualEndingCash,
+    Expression<int>? status,
+    Expression<DateTime>? openedAt,
+    Expression<DateTime>? closedAt,
+    Expression<DateTime>? lastModified,
+    Expression<String>? syncStatus,
+    Expression<String>? syncError,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (localId != null) 'local_id': localId,
+      if (serverId != null) 'server_id': serverId,
+      if (companyId != null) 'company_id': companyId,
+      if (userId != null) 'user_id': userId,
+      if (startingCash != null) 'starting_cash': startingCash,
+      if (actualEndingCash != null) 'actual_ending_cash': actualEndingCash,
+      if (status != null) 'status': status,
+      if (openedAt != null) 'opened_at': openedAt,
+      if (closedAt != null) 'closed_at': closedAt,
+      if (lastModified != null) 'last_modified': lastModified,
+      if (syncStatus != null) 'sync_status': syncStatus,
+      if (syncError != null) 'sync_error': syncError,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ShiftsTableCompanion copyWith({
+    Value<String>? localId,
+    Value<int?>? serverId,
+    Value<int>? companyId,
+    Value<int>? userId,
+    Value<double>? startingCash,
+    Value<double?>? actualEndingCash,
+    Value<int>? status,
+    Value<DateTime>? openedAt,
+    Value<DateTime?>? closedAt,
+    Value<DateTime>? lastModified,
+    Value<String>? syncStatus,
+    Value<String?>? syncError,
+    Value<int>? rowid,
+  }) {
+    return ShiftsTableCompanion(
+      localId: localId ?? this.localId,
+      serverId: serverId ?? this.serverId,
+      companyId: companyId ?? this.companyId,
+      userId: userId ?? this.userId,
+      startingCash: startingCash ?? this.startingCash,
+      actualEndingCash: actualEndingCash ?? this.actualEndingCash,
+      status: status ?? this.status,
+      openedAt: openedAt ?? this.openedAt,
+      closedAt: closedAt ?? this.closedAt,
+      lastModified: lastModified ?? this.lastModified,
+      syncStatus: syncStatus ?? this.syncStatus,
+      syncError: syncError ?? this.syncError,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (localId.present) {
+      map['local_id'] = Variable<String>(localId.value);
+    }
+    if (serverId.present) {
+      map['server_id'] = Variable<int>(serverId.value);
+    }
+    if (companyId.present) {
+      map['company_id'] = Variable<int>(companyId.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<int>(userId.value);
+    }
+    if (startingCash.present) {
+      map['starting_cash'] = Variable<double>(startingCash.value);
+    }
+    if (actualEndingCash.present) {
+      map['actual_ending_cash'] = Variable<double>(actualEndingCash.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<int>(status.value);
+    }
+    if (openedAt.present) {
+      map['opened_at'] = Variable<DateTime>(openedAt.value);
+    }
+    if (closedAt.present) {
+      map['closed_at'] = Variable<DateTime>(closedAt.value);
+    }
+    if (lastModified.present) {
+      map['last_modified'] = Variable<DateTime>(lastModified.value);
+    }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
+    if (syncError.present) {
+      map['sync_error'] = Variable<String>(syncError.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ShiftsTableCompanion(')
+          ..write('localId: $localId, ')
+          ..write('serverId: $serverId, ')
+          ..write('companyId: $companyId, ')
+          ..write('userId: $userId, ')
+          ..write('startingCash: $startingCash, ')
+          ..write('actualEndingCash: $actualEndingCash, ')
+          ..write('status: $status, ')
+          ..write('openedAt: $openedAt, ')
+          ..write('closedAt: $closedAt, ')
+          ..write('lastModified: $lastModified, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('syncError: $syncError, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -18041,6 +19298,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $CustomerDiscountsTableTable(this);
   late final $LoyaltyCardsTableTable loyaltyCardsTable =
       $LoyaltyCardsTableTable(this);
+  late final $TimeClockEntriesTableTable timeClockEntriesTable =
+      $TimeClockEntriesTableTable(this);
+  late final $ShiftsTableTable shiftsTable = $ShiftsTableTable(this);
   late final Index idxProductsGroupId = Index(
     'idx_products_group_id',
     'CREATE INDEX idx_products_group_id ON products (product_group_id)',
@@ -18077,6 +19337,18 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     'idx_loyalty_cards_sync_status',
     'CREATE INDEX idx_loyalty_cards_sync_status ON loyalty_cards (sync_status)',
   );
+  late final Index idxTimeClockUserId = Index(
+    'idx_time_clock_user_id',
+    'CREATE INDEX idx_time_clock_user_id ON time_clock_entries (user_id)',
+  );
+  late final Index idxTimeClockSyncStatus = Index(
+    'idx_time_clock_sync_status',
+    'CREATE INDEX idx_time_clock_sync_status ON time_clock_entries (sync_status)',
+  );
+  late final Index idxShiftsCompanyStatus = Index(
+    'idx_shifts_company_status',
+    'CREATE INDEX idx_shifts_company_status ON shifts (company_id, status)',
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -18111,6 +19383,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     barcodesTable,
     customerDiscountsTable,
     loyaltyCardsTable,
+    timeClockEntriesTable,
+    shiftsTable,
     idxProductsGroupId,
     idxProductsBarcode,
     idxPosOrdersSyncStatus,
@@ -18120,6 +19394,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     idxCustomerDiscountsCustomerId,
     idxLoyaltyCardsCustomerId,
     idxLoyaltyCardsSyncStatus,
+    idxTimeClockUserId,
+    idxTimeClockSyncStatus,
+    idxShiftsCompanyStatus,
   ];
   @override
   StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
@@ -28114,6 +29391,629 @@ typedef $$LoyaltyCardsTableTableProcessedTableManager =
       LoyaltyCardsTableData,
       PrefetchHooks Function()
     >;
+typedef $$TimeClockEntriesTableTableCreateCompanionBuilder =
+    TimeClockEntriesTableCompanion Function({
+      required String localId,
+      Value<int?> serverId,
+      required int companyId,
+      required int userId,
+      required DateTime clockInTime,
+      Value<DateTime?> clockOutTime,
+      Value<String> syncStatus,
+      Value<String?> syncError,
+      Value<int> rowid,
+    });
+typedef $$TimeClockEntriesTableTableUpdateCompanionBuilder =
+    TimeClockEntriesTableCompanion Function({
+      Value<String> localId,
+      Value<int?> serverId,
+      Value<int> companyId,
+      Value<int> userId,
+      Value<DateTime> clockInTime,
+      Value<DateTime?> clockOutTime,
+      Value<String> syncStatus,
+      Value<String?> syncError,
+      Value<int> rowid,
+    });
+
+class $$TimeClockEntriesTableTableFilterComposer
+    extends Composer<_$AppDatabase, $TimeClockEntriesTableTable> {
+  $$TimeClockEntriesTableTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get localId => $composableBuilder(
+    column: $table.localId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get serverId => $composableBuilder(
+    column: $table.serverId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get companyId => $composableBuilder(
+    column: $table.companyId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get clockInTime => $composableBuilder(
+    column: $table.clockInTime,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get clockOutTime => $composableBuilder(
+    column: $table.clockOutTime,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncError => $composableBuilder(
+    column: $table.syncError,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$TimeClockEntriesTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $TimeClockEntriesTableTable> {
+  $$TimeClockEntriesTableTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get localId => $composableBuilder(
+    column: $table.localId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get serverId => $composableBuilder(
+    column: $table.serverId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get companyId => $composableBuilder(
+    column: $table.companyId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get clockInTime => $composableBuilder(
+    column: $table.clockInTime,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get clockOutTime => $composableBuilder(
+    column: $table.clockOutTime,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get syncError => $composableBuilder(
+    column: $table.syncError,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$TimeClockEntriesTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $TimeClockEntriesTableTable> {
+  $$TimeClockEntriesTableTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get localId =>
+      $composableBuilder(column: $table.localId, builder: (column) => column);
+
+  GeneratedColumn<int> get serverId =>
+      $composableBuilder(column: $table.serverId, builder: (column) => column);
+
+  GeneratedColumn<int> get companyId =>
+      $composableBuilder(column: $table.companyId, builder: (column) => column);
+
+  GeneratedColumn<int> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get clockInTime => $composableBuilder(
+    column: $table.clockInTime,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get clockOutTime => $composableBuilder(
+    column: $table.clockOutTime,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get syncError =>
+      $composableBuilder(column: $table.syncError, builder: (column) => column);
+}
+
+class $$TimeClockEntriesTableTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $TimeClockEntriesTableTable,
+          TimeClockEntriesTableData,
+          $$TimeClockEntriesTableTableFilterComposer,
+          $$TimeClockEntriesTableTableOrderingComposer,
+          $$TimeClockEntriesTableTableAnnotationComposer,
+          $$TimeClockEntriesTableTableCreateCompanionBuilder,
+          $$TimeClockEntriesTableTableUpdateCompanionBuilder,
+          (
+            TimeClockEntriesTableData,
+            BaseReferences<
+              _$AppDatabase,
+              $TimeClockEntriesTableTable,
+              TimeClockEntriesTableData
+            >,
+          ),
+          TimeClockEntriesTableData,
+          PrefetchHooks Function()
+        > {
+  $$TimeClockEntriesTableTableTableManager(
+    _$AppDatabase db,
+    $TimeClockEntriesTableTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$TimeClockEntriesTableTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$TimeClockEntriesTableTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$TimeClockEntriesTableTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> localId = const Value.absent(),
+                Value<int?> serverId = const Value.absent(),
+                Value<int> companyId = const Value.absent(),
+                Value<int> userId = const Value.absent(),
+                Value<DateTime> clockInTime = const Value.absent(),
+                Value<DateTime?> clockOutTime = const Value.absent(),
+                Value<String> syncStatus = const Value.absent(),
+                Value<String?> syncError = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TimeClockEntriesTableCompanion(
+                localId: localId,
+                serverId: serverId,
+                companyId: companyId,
+                userId: userId,
+                clockInTime: clockInTime,
+                clockOutTime: clockOutTime,
+                syncStatus: syncStatus,
+                syncError: syncError,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String localId,
+                Value<int?> serverId = const Value.absent(),
+                required int companyId,
+                required int userId,
+                required DateTime clockInTime,
+                Value<DateTime?> clockOutTime = const Value.absent(),
+                Value<String> syncStatus = const Value.absent(),
+                Value<String?> syncError = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => TimeClockEntriesTableCompanion.insert(
+                localId: localId,
+                serverId: serverId,
+                companyId: companyId,
+                userId: userId,
+                clockInTime: clockInTime,
+                clockOutTime: clockOutTime,
+                syncStatus: syncStatus,
+                syncError: syncError,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$TimeClockEntriesTableTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $TimeClockEntriesTableTable,
+      TimeClockEntriesTableData,
+      $$TimeClockEntriesTableTableFilterComposer,
+      $$TimeClockEntriesTableTableOrderingComposer,
+      $$TimeClockEntriesTableTableAnnotationComposer,
+      $$TimeClockEntriesTableTableCreateCompanionBuilder,
+      $$TimeClockEntriesTableTableUpdateCompanionBuilder,
+      (
+        TimeClockEntriesTableData,
+        BaseReferences<
+          _$AppDatabase,
+          $TimeClockEntriesTableTable,
+          TimeClockEntriesTableData
+        >,
+      ),
+      TimeClockEntriesTableData,
+      PrefetchHooks Function()
+    >;
+typedef $$ShiftsTableTableCreateCompanionBuilder =
+    ShiftsTableCompanion Function({
+      required String localId,
+      Value<int?> serverId,
+      required int companyId,
+      required int userId,
+      Value<double> startingCash,
+      Value<double?> actualEndingCash,
+      Value<int> status,
+      required DateTime openedAt,
+      Value<DateTime?> closedAt,
+      required DateTime lastModified,
+      Value<String> syncStatus,
+      Value<String?> syncError,
+      Value<int> rowid,
+    });
+typedef $$ShiftsTableTableUpdateCompanionBuilder =
+    ShiftsTableCompanion Function({
+      Value<String> localId,
+      Value<int?> serverId,
+      Value<int> companyId,
+      Value<int> userId,
+      Value<double> startingCash,
+      Value<double?> actualEndingCash,
+      Value<int> status,
+      Value<DateTime> openedAt,
+      Value<DateTime?> closedAt,
+      Value<DateTime> lastModified,
+      Value<String> syncStatus,
+      Value<String?> syncError,
+      Value<int> rowid,
+    });
+
+class $$ShiftsTableTableFilterComposer
+    extends Composer<_$AppDatabase, $ShiftsTableTable> {
+  $$ShiftsTableTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get localId => $composableBuilder(
+    column: $table.localId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get serverId => $composableBuilder(
+    column: $table.serverId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get companyId => $composableBuilder(
+    column: $table.companyId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get startingCash => $composableBuilder(
+    column: $table.startingCash,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get actualEndingCash => $composableBuilder(
+    column: $table.actualEndingCash,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get openedAt => $composableBuilder(
+    column: $table.openedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get closedAt => $composableBuilder(
+    column: $table.closedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastModified => $composableBuilder(
+    column: $table.lastModified,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncError => $composableBuilder(
+    column: $table.syncError,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ShiftsTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $ShiftsTableTable> {
+  $$ShiftsTableTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get localId => $composableBuilder(
+    column: $table.localId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get serverId => $composableBuilder(
+    column: $table.serverId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get companyId => $composableBuilder(
+    column: $table.companyId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get startingCash => $composableBuilder(
+    column: $table.startingCash,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get actualEndingCash => $composableBuilder(
+    column: $table.actualEndingCash,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get openedAt => $composableBuilder(
+    column: $table.openedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get closedAt => $composableBuilder(
+    column: $table.closedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastModified => $composableBuilder(
+    column: $table.lastModified,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get syncError => $composableBuilder(
+    column: $table.syncError,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ShiftsTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ShiftsTableTable> {
+  $$ShiftsTableTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get localId =>
+      $composableBuilder(column: $table.localId, builder: (column) => column);
+
+  GeneratedColumn<int> get serverId =>
+      $composableBuilder(column: $table.serverId, builder: (column) => column);
+
+  GeneratedColumn<int> get companyId =>
+      $composableBuilder(column: $table.companyId, builder: (column) => column);
+
+  GeneratedColumn<int> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<double> get startingCash => $composableBuilder(
+    column: $table.startingCash,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get actualEndingCash => $composableBuilder(
+    column: $table.actualEndingCash,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get openedAt =>
+      $composableBuilder(column: $table.openedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get closedAt =>
+      $composableBuilder(column: $table.closedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastModified => $composableBuilder(
+    column: $table.lastModified,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get syncError =>
+      $composableBuilder(column: $table.syncError, builder: (column) => column);
+}
+
+class $$ShiftsTableTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ShiftsTableTable,
+          ShiftsTableData,
+          $$ShiftsTableTableFilterComposer,
+          $$ShiftsTableTableOrderingComposer,
+          $$ShiftsTableTableAnnotationComposer,
+          $$ShiftsTableTableCreateCompanionBuilder,
+          $$ShiftsTableTableUpdateCompanionBuilder,
+          (
+            ShiftsTableData,
+            BaseReferences<_$AppDatabase, $ShiftsTableTable, ShiftsTableData>,
+          ),
+          ShiftsTableData,
+          PrefetchHooks Function()
+        > {
+  $$ShiftsTableTableTableManager(_$AppDatabase db, $ShiftsTableTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ShiftsTableTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ShiftsTableTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ShiftsTableTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> localId = const Value.absent(),
+                Value<int?> serverId = const Value.absent(),
+                Value<int> companyId = const Value.absent(),
+                Value<int> userId = const Value.absent(),
+                Value<double> startingCash = const Value.absent(),
+                Value<double?> actualEndingCash = const Value.absent(),
+                Value<int> status = const Value.absent(),
+                Value<DateTime> openedAt = const Value.absent(),
+                Value<DateTime?> closedAt = const Value.absent(),
+                Value<DateTime> lastModified = const Value.absent(),
+                Value<String> syncStatus = const Value.absent(),
+                Value<String?> syncError = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ShiftsTableCompanion(
+                localId: localId,
+                serverId: serverId,
+                companyId: companyId,
+                userId: userId,
+                startingCash: startingCash,
+                actualEndingCash: actualEndingCash,
+                status: status,
+                openedAt: openedAt,
+                closedAt: closedAt,
+                lastModified: lastModified,
+                syncStatus: syncStatus,
+                syncError: syncError,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String localId,
+                Value<int?> serverId = const Value.absent(),
+                required int companyId,
+                required int userId,
+                Value<double> startingCash = const Value.absent(),
+                Value<double?> actualEndingCash = const Value.absent(),
+                Value<int> status = const Value.absent(),
+                required DateTime openedAt,
+                Value<DateTime?> closedAt = const Value.absent(),
+                required DateTime lastModified,
+                Value<String> syncStatus = const Value.absent(),
+                Value<String?> syncError = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ShiftsTableCompanion.insert(
+                localId: localId,
+                serverId: serverId,
+                companyId: companyId,
+                userId: userId,
+                startingCash: startingCash,
+                actualEndingCash: actualEndingCash,
+                status: status,
+                openedAt: openedAt,
+                closedAt: closedAt,
+                lastModified: lastModified,
+                syncStatus: syncStatus,
+                syncError: syncError,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ShiftsTableTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ShiftsTableTable,
+      ShiftsTableData,
+      $$ShiftsTableTableFilterComposer,
+      $$ShiftsTableTableOrderingComposer,
+      $$ShiftsTableTableAnnotationComposer,
+      $$ShiftsTableTableCreateCompanionBuilder,
+      $$ShiftsTableTableUpdateCompanionBuilder,
+      (
+        ShiftsTableData,
+        BaseReferences<_$AppDatabase, $ShiftsTableTable, ShiftsTableData>,
+      ),
+      ShiftsTableData,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -28182,4 +30082,8 @@ class $AppDatabaseManager {
       );
   $$LoyaltyCardsTableTableTableManager get loyaltyCardsTable =>
       $$LoyaltyCardsTableTableTableManager(_db, _db.loyaltyCardsTable);
+  $$TimeClockEntriesTableTableTableManager get timeClockEntriesTable =>
+      $$TimeClockEntriesTableTableTableManager(_db, _db.timeClockEntriesTable);
+  $$ShiftsTableTableTableManager get shiftsTable =>
+      $$ShiftsTableTableTableManager(_db, _db.shiftsTable);
 }
