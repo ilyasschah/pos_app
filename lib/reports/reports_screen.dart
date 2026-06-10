@@ -108,7 +108,11 @@ String _sectionOf(String reportId) {
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 class ReportsScreen extends ConsumerStatefulWidget {
-  const ReportsScreen({super.key});
+  /// Passed by ManagementLayout when the sidebar is hidden so the AppBar can
+  /// show a menu icon rather than the default back arrow.
+  final VoidCallback? onMenuPressed;
+
+  const ReportsScreen({super.key, this.onMenuPressed});
 
   @override
   ConsumerState<ReportsScreen> createState() => _ReportsScreenState();
@@ -620,7 +624,22 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final cs = Theme.of(context).colorScheme;
     final activeTab = _tabs.where((t) => t.id == _activeTabId).firstOrNull;
 
-    return Column(
+    return Scaffold(
+      backgroundColor: cs.surface,
+      appBar: AppBar(
+        title: const Text('Reports'),
+        elevation: 0,
+        // Suppress the auto back-arrow — ManagementLayout controls navigation.
+        automaticallyImplyLeading: false,
+        leading: widget.onMenuPressed != null
+            ? IconButton(
+                icon: const Icon(Icons.menu),
+                tooltip: 'Show navigation',
+                onPressed: widget.onMenuPressed,
+              )
+            : null,
+      ),
+      body: Column(
       children: [
         // ── Tab bar ─────────────────────────────────────────────────────────
         Material(
@@ -682,6 +701,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ),
         ),
       ],
+      ),
     );
   }
 }

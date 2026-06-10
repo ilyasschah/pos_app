@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -5,6 +7,8 @@ import 'package:intl/intl.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/database/app_database.dart';
 import 'package:pos_app/database/database_provider.dart';
+import 'package:pos_app/navigation/nav_widgets.dart';
+import 'package:pos_app/shift/shift_provider.dart';
 import 'package:pos_app/time_clock/time_clock_provider.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -57,11 +61,10 @@ class _TimeClockScreenState extends ConsumerState<TimeClockScreen> {
         return;
       }
 
-      final active = await db.getActiveClockEntry(user.id);
       setState(() => _processing = false);
 
       // Execute immediately after identification.
-      await _execute(user, active);
+      await _execute(user);
     } catch (e) {
       setState(() {
         _feedback = 'Error: $e';
@@ -71,15 +74,22 @@ class _TimeClockScreenState extends ConsumerState<TimeClockScreen> {
     }
   }
 
-  Future<void> _execute(UsersTableData user, TimeClockEntriesTableData? active) async {
+  Future<void> _execute(UsersTableData user) async {
     setState(() => _processing = true);
-    final notifier = ref.read(timeClockNotifierProvider.notifier);
+    // Unified pipeline: clock-in/out writes to the SAME shiftsTable as the
+    // Shift Management dashboard, attributed to the PIN-identified employee.
+    final notifier = ref.read(shiftNotifierProvider.notifier);
 
     String? error;
     if (_mode == 0) {
-      error = await notifier.clockIn(user.id);
+      if (await notifier.hasOpenShift(user.id)) {
+        error = 'Already clocked in.';
+      } else {
+        await notifier.startShift(0, userId: user.id);
+      }
     } else {
-      error = await notifier.clockOut(user.id);
+      final closed = await notifier.closeShiftForUser(user.id);
+      if (!closed) error = 'Not currently clocked in.';
     }
 
     final displayName = [user.firstName, user.lastName]
@@ -472,22 +482,54 @@ class TotalHoursBadge extends ConsumerWidget {
 // ACTIVE STATUS WIDGET  (shown in MainLayout sidebar when user is clocked in)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Small indicator widget for the sidebar: shows "Clocked in 2h 15m" with a
-/// pulsing green dot when the current POS user has an open clock entry.
-class TimeClockStatusChip extends ConsumerWidget {
+/// Live sidebar indicator: shows "Clocked in · HH:MM" with a flat status dot
+/// while the current user has an open shift. Watches [activeShiftProvider] (the
+/// unified shiftsTable source) and re-ticks once a minute so the elapsed time
+/// advances on-screen instead of sitting flat at 0m.
+class TimeClockStatusChip extends ConsumerStatefulWidget {
   const TimeClockStatusChip({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final cs = Theme.of(context).colorScheme;
-    final entryAsync = ref.watch(activeClockEntryProvider);
+  ConsumerState<TimeClockStatusChip> createState() =>
+      _TimeClockStatusChipState();
+}
 
-    return entryAsync.when(
+class _TimeClockStatusChipState extends ConsumerState<TimeClockStatusChip> {
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    // Low-overhead: a single empty setState per minute re-evaluates the
+    // elapsed duration. Cancelled in dispose — zero background leakage.
+    _ticker = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final shiftAsync = ref.watch(activeShiftProvider);
+
+    return shiftAsync.when(
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
-      data: (entry) {
-        if (entry == null) return const SizedBox.shrink();
-        final dur = formatWorkedDuration(entry.clockInTime);
+      data: (shift) {
+        if (shift == null) return const SizedBox.shrink();
+
+        final raw = DateTime.now().difference(shift.openedAt).inMinutes;
+        final minutes = raw < 0 ? 0 : raw;
+        final label = formatSidebarDuration(minutes);
+        // < 1h → warning highlight (error); ≥ 1h → standard accent.
+        final color = minutes < 60 ? cs.error : context.navAccent;
+
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           child: Row(
@@ -497,23 +539,17 @@ class TimeClockStatusChip extends ConsumerWidget {
                 height: 8,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: Colors.green,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.green.withValues(alpha: 0.5),
-                      blurRadius: 4,
-                      spreadRadius: 1,
-                    ),
-                  ],
+                  color: color,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Clocked in · $dur',
+                  'Clocked in · $label',
                   style: TextStyle(
                     fontSize: 12,
-                    color: cs.onSurface.withValues(alpha: 0.7),
+                    color: color,
+                    fontWeight: FontWeight.w600,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),

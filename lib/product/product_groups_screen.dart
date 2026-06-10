@@ -189,6 +189,8 @@ class _ProductGroupsScreenState extends ConsumerState<ProductGroupsScreen> {
       appBar: AppBar(
         backgroundColor: theme.colorScheme.surface,
         elevation: 0,
+        // Suppress the auto back-arrow — ManagementLayout controls navigation.
+        automaticallyImplyLeading: false,
         leading: widget.onMenuPressed != null
             ? IconButton(
                 icon: const Icon(Icons.menu),

@@ -159,6 +159,11 @@ class AppPropertiesTable extends Table {
   TextColumn get value => text().nullable()();
   DateTimeColumn get lastModified => dateTime()();
 
+  /// 'synced' once the server has the current value; 'pending' after an offline
+  /// edit so the sync engine knows to push it on reconnect.
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant('synced'))();
+
   @override
   Set<Column> get primaryKey => {id};
 }
@@ -440,9 +445,12 @@ class PosOrderItemTaxesTable extends Table {
   Set<Column> get primaryKey => {localId};
 }
 
-class CashMovementsTable extends Table {
+/// Local mirror of the server's `StartingCash` table (cash in / out).
+/// Named to match the SQL Server entity; the physical SQLite table follows
+/// the local snake_case convention (`starting_cash`).
+class StartingCashTable extends Table {
   @override
-  String get tableName => 'cash_movements';
+  String get tableName => 'starting_cash';
 
   TextColumn get localId => text()();
   IntColumn get serverId => integer().nullable()();
@@ -452,6 +460,11 @@ class CashMovementsTable extends Table {
   TextColumn get type => text()(); // 'in' | 'out'
   TextColumn get note => text().nullable()();
   DateTimeColumn get createdAt => dateTime()();
+
+  /// Server Z-report number (mirrors `StartingCash.ZReportNumber`). NULL while
+  /// the entry is active/unfinalized; once a Z-report is generated the server
+  /// stamps this and the next pull hides the row from the active list.
+  IntColumn get zReportNumber => integer().nullable()();
 
   TextColumn get syncStatus =>
       text().withDefault(const Constant('pending'))();
@@ -735,6 +748,13 @@ class ShiftsTable extends Table {
   DateTimeColumn get closedAt => dateTime().nullable()();
   DateTimeColumn get lastModified => dateTime()();
 
+  /// Distinguishes the station's master cash-drawer shift (true) from bare
+  /// per-employee attendance sessions (false). Lets many servers clock in for
+  /// hours simultaneously on one station without colliding with the single
+  /// drawer shift. Local-only differentiation flag.
+  BoolColumn get isDrawerShift =>
+      boolean().withDefault(const Constant(false))();
+
   TextColumn get syncStatus =>
       text().withDefault(const Constant('pending'))();
   TextColumn get syncError => text().nullable()();
@@ -803,7 +823,7 @@ class PendingUserOpsTable extends Table {
     PosOrdersTable,
     PosOrderItemsTable,
     PosOrderItemTaxesTable,
-    CashMovementsTable,
+    StartingCashTable,
     ZReportsTable,
     SyncMetaTable,
     StocksTable,
@@ -822,7 +842,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 24;
+  int get schemaVersion => 28;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -1138,6 +1158,66 @@ class AppDatabase extends _$AppDatabase {
             await customStatement(
                 'CREATE INDEX IF NOT EXISTS idx_pos_order_item_taxes_order_id'
                 ' ON pos_order_item_taxes (order_id)');
+          }
+
+          // v25: Rename the local cash table `cash_movements` → `starting_cash`
+          // so it mirrors the server's StartingCash table. Data is preserved by
+          // a plain table rename. Guarded so the migration is safe whether or
+          // not the old table exists (it was previously created only via
+          // createAll on fresh installs).
+          if (from < 25) {
+            final existing = await customSelect(
+              "SELECT name FROM sqlite_master WHERE type = 'table' "
+              "AND name IN ('cash_movements', 'starting_cash')",
+            ).get();
+            final names =
+                existing.map((r) => r.read<String>('name')).toSet();
+            if (names.contains('cash_movements') &&
+                !names.contains('starting_cash')) {
+              await customStatement(
+                  'ALTER TABLE cash_movements RENAME TO starting_cash');
+            } else if (!names.contains('starting_cash')) {
+              await customStatement('''
+                CREATE TABLE IF NOT EXISTS starting_cash (
+                  local_id TEXT NOT NULL PRIMARY KEY,
+                  server_id INTEGER,
+                  company_id INTEGER NOT NULL,
+                  user_id INTEGER NOT NULL,
+                  amount REAL NOT NULL,
+                  type TEXT NOT NULL,
+                  note TEXT,
+                  created_at INTEGER NOT NULL,
+                  sync_status TEXT NOT NULL DEFAULT \'pending\',
+                  sync_error TEXT
+                )
+              ''');
+            }
+          }
+
+          // v26: Link cash entries to their Z-report. `z_report_number` is NULL
+          // while the entry is active; once finalized the active Cash In/Out
+          // list filters it out. Runs AFTER v25 so `starting_cash` exists.
+          if (from < 26) {
+            await customStatement(
+                'ALTER TABLE starting_cash ADD COLUMN z_report_number INTEGER');
+          }
+
+          // v27: Differentiate per-employee attendance sessions (0) from the
+          // station's master cash-drawer shift (1) so concurrent clock-ins on
+          // one station never collide with the drawer shift.
+          if (from < 27) {
+            await customStatement(
+                'ALTER TABLE shifts ADD COLUMN is_drawer_shift '
+                'INTEGER NOT NULL DEFAULT 0');
+          }
+
+          // v28: Track per-setting sync state so an offline edit of an existing
+          // app property is pushed to the server on reconnect. Existing rows
+          // default to 'synced' (they came from the server).
+          if (from < 28) {
+            await customStatement(
+                "ALTER TABLE app_properties ADD COLUMN sync_status "
+                "TEXT NOT NULL DEFAULT 'synced'");
           }
 
           // v24: Employee Time Clock — offline-first attendance tracking.
@@ -1587,12 +1667,12 @@ extension OfflineQueueHelpers on AppDatabase {
   // ---------------- CASH MOVEMENTS ----------------
 
   Future<void> insertOfflineCashMovement(
-      CashMovementsTableCompanion movement) async {
+      StartingCashTableCompanion movement) async {
     final localId = movement.localId.present && movement.localId.value.isNotEmpty
         ? movement.localId.value
         : const Uuid().v4();
 
-    await into(cashMovementsTable).insert(
+    await into(startingCashTable).insert(
       movement.copyWith(
         localId: Value(localId),
         serverId: const Value(null),
@@ -1602,16 +1682,16 @@ extension OfflineQueueHelpers on AppDatabase {
     );
   }
 
-  Future<List<CashMovementsTableData>> getPendingCashMovements() {
-    return (select(cashMovementsTable)
+  Future<List<StartingCashTableData>> getPendingCashMovements() {
+    return (select(startingCashTable)
           ..where((t) => t.syncStatus.equals('pending')))
         .get();
   }
 
   Future<void> markCashMovementSynced(String localId, int serverId) {
-    return (update(cashMovementsTable)
+    return (update(startingCashTable)
           ..where((t) => t.localId.equals(localId)))
-        .write(CashMovementsTableCompanion(
+        .write(StartingCashTableCompanion(
       serverId: Value(serverId),
       syncStatus: const Value('synced'),
       syncError: const Value(null),
@@ -1619,12 +1699,93 @@ extension OfflineQueueHelpers on AppDatabase {
   }
 
   Future<void> markCashMovementFailed(String localId, String errorMessage) {
-    return (update(cashMovementsTable)
+    return (update(startingCashTable)
           ..where((t) => t.localId.equals(localId)))
-        .write(CashMovementsTableCompanion(
+        .write(StartingCashTableCompanion(
       syncStatus: const Value('failed'),
       syncError: Value(errorMessage),
     ));
+  }
+
+  /// Map of every locally-known server `id` → whether it's *really* finalized
+  /// (has a real, server-assigned Z-report number). The optimistic placeholder
+  /// (-1) counts as NOT finalized so the pull-sync overwrites it with the
+  /// authoritative server number. The pull also uses this to skip re-inserting
+  /// rows it already has.
+  Future<Map<int, bool>> getStartingCashFinalizationByServerId() async {
+    final query = selectOnly(startingCashTable)
+      ..addColumns([startingCashTable.serverId, startingCashTable.zReportNumber])
+      ..where(startingCashTable.serverId.isNotNull());
+    final rows = await query.get();
+    return {
+      for (final r in rows)
+        r.read(startingCashTable.serverId)!: () {
+          final z = r.read(startingCashTable.zReportNumber);
+          return z != null && z != optimisticZReportPlaceholder;
+        }(),
+    };
+  }
+
+  /// Inserts server-originated cash rows pulled from /StartingCash. Each row
+  /// is already `synced` (it lives on the server). New UUID local ids never
+  /// collide, so insertOrIgnore is just a belt-and-braces guard.
+  Future<void> insertSyncedStartingCash(
+      List<StartingCashTableCompanion> rows) async {
+    if (rows.isEmpty) return;
+    await batch((b) => b.insertAll(startingCashTable, rows,
+        mode: InsertMode.insertOrIgnore));
+  }
+
+  /// Stamps Z-report numbers onto already-local rows (keyed by server id) once
+  /// the server has finalized them — this is what makes finalized entries drop
+  /// off the active list on the next sync.
+  Future<void> applyStartingCashZReportNumbers(
+      Map<int, int> zReportByServerId) async {
+    if (zReportByServerId.isEmpty) return;
+    await batch((b) {
+      zReportByServerId.forEach((serverId, zNumber) {
+        b.update(
+          startingCashTable,
+          StartingCashTableCompanion(zReportNumber: Value(zNumber)),
+          where: (t) => t.serverId.equals(serverId),
+        );
+      });
+    });
+  }
+
+  /// Placeholder used to mark a cash row as locally finalized *before* the
+  /// server has assigned a real sequential Z-report number. Treated as
+  /// "not yet finalized" by the pull-sync so the server value overwrites it.
+  static const int optimisticZReportPlaceholder = -1;
+
+  /// Optimistic local finalization: stamps the placeholder Z-report number on
+  /// every still-active cash row for [companyId] in one atomic transaction, so
+  /// they drop out of `watchTodayStartingCash` instantly — no network wait.
+  /// The next pull reconciles each row with the server's real Z-report number.
+  Future<void> optimisticallyFinalizeActiveStartingCash(int companyId) async {
+    await transaction(() async {
+      await (update(startingCashTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..where((t) => t.zReportNumber.isNull()))
+          .write(const StartingCashTableCompanion(
+        zReportNumber: Value(optimisticZReportPlaceholder),
+      ));
+    });
+  }
+
+  /// Watches today's *active* cash movements for [companyId], newest first —
+  /// the offline-first source for the Cash In/Out entries list. Rows already
+  /// linked to a Z-report (`zReportNumber` not null) are filtered out at the
+  /// engine level so finalized entries vanish without any in-memory scanning.
+  Stream<List<StartingCashTableData>> watchTodayStartingCash(int companyId) {
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    return (select(startingCashTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.zReportNumber.isNull())
+          ..where((t) => t.createdAt.isBiggerOrEqualValue(startOfDay))
+          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
+        .watch();
   }
 
   // ---------------- Z-REPORTS ----------------

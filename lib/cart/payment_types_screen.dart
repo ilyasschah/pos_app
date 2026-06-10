@@ -13,7 +13,11 @@ import 'package:pos_app/utils/snackbar_helper.dart';
 // ─────────────────────────────────────────────────────────────
 
 class PaymentTypesScreen extends ConsumerWidget {
-  const PaymentTypesScreen({super.key});
+  /// Passed by ManagementLayout when the sidebar is hidden so the AppBar can
+  /// show a menu icon rather than the default back arrow.
+  final VoidCallback? onMenuPressed;
+
+  const PaymentTypesScreen({super.key, this.onMenuPressed});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -29,6 +33,15 @@ class PaymentTypesScreen extends ConsumerWidget {
 
       appBar: AppBar(
         title: const Text("Payment Types"),
+        // Suppress the auto back-arrow — ManagementLayout controls navigation.
+        automaticallyImplyLeading: false,
+        leading: onMenuPressed != null
+            ? IconButton(
+                icon: const Icon(Icons.menu),
+                tooltip: 'Show navigation',
+                onPressed: onMenuPressed,
+              )
+            : null,
 
         actions: [
           // COLUMN PICKER

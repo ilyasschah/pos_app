@@ -3,37 +3,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/database/app_database.dart';
 import 'package:pos_app/database/database_provider.dart';
-import 'package:pos_app/reports/report_models.dart';
+import 'package:pos_app/navigation/main_layout.dart';
+import 'package:pos_app/navigation/nav_widgets.dart';
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 
+/// Offline-first stream of today's cash movements straight from the local
+/// `starting_cash` table. New saves appear instantly and the list works fully
+/// offline; the sync engine pulls other tills' rows into the same table.
 final _cashEntriesProvider =
-    FutureProvider.autoDispose<List<StartingCashRow>>((ref) async {
+    StreamProvider.autoDispose<List<StartingCashTableData>>((ref) {
   final companyId = ref.watch(selectedCompanyProvider)?.id;
-  if (companyId == null) return [];
+  if (companyId == null) return Stream.value(const []);
 
-  final today = DateTime.now();
-  final start = DateTime(today.year, today.month, today.day);
-
-  final dio = createDio();
-  final response = await dio.get(
-    '/StartingCash/GetByDateRange',
-    queryParameters: {
-      'companyId': companyId,
-      'startDate': start.toIso8601String(),
-      'endDate':   start.toIso8601String(),
-    },
-  );
-
-  final list = (response.data as List)
-      .map((j) => StartingCashRow.fromJson(j as Map<String, dynamic>))
-      .toList();
-  return list.reversed.toList();
+  final db = ref.watch(appDatabaseProvider);
+  return db.watchTodayStartingCash(companyId);
 });
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -82,13 +70,13 @@ class _CashMovementScreenState extends ConsumerState<CashMovementScreen> {
     });
 
     try {
-      // OFFLINE WRITE (Phase 7): persist locally as `pending`. The sync
-      // engine flushes to /StartingCash/Add when network is available.
-      // The today's-entries list below still reads from the server, so the
-      // newly-added row won't appear until after sync — acceptable for V1.
+      // OFFLINE WRITE: persist locally as `pending`. The sync engine flushes
+      // to /StartingCash/Add when network is available. The entries list is a
+      // live stream off the local table, so the new row appears instantly —
+      // no network round-trip and no manual invalidation needed.
       final db = ref.read(appDatabaseProvider);
       await db.insertOfflineCashMovement(
-        CashMovementsTableCompanion.insert(
+        StartingCashTableCompanion.insert(
           localId: '', // helper fills a UUID when blank
           companyId: company.id,
           userId: user.id,
@@ -103,7 +91,20 @@ class _CashMovementScreenState extends ConsumerState<CashMovementScreen> {
       _amountCtrl.text = '0';
       _descCtrl.clear();
       setState(() => _saving = false);
-      ref.invalidate(_cashEntriesProvider);
+
+      // Return to the main shell once the row is persisted. When launched from
+      // MainLayout's startup flow this simply pops back; if the screen was ever
+      // shown as a root route, redirect into MainLayout so the user is never
+      // stranded on this canvas.
+      if (!context.mounted) return;
+      if (Navigator.canPop(context)) {
+        Navigator.pop(context);
+      } else {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MainLayout()),
+        );
+      }
     } catch (e) {
       setState(() {
         _error  = e.toString();
@@ -122,11 +123,12 @@ class _CashMovementScreenState extends ConsumerState<CashMovementScreen> {
   Widget build(BuildContext context) {
     final theme   = Theme.of(context);
     final cs      = theme.colorScheme;
-    final isDark  = theme.brightness == Brightness.dark;
     final entries = ref.watch(_cashEntriesProvider);
 
     final isCashIn = _type == 0;
-    const activeBlue = Color(0xFF2196F3);
+    // Adaptive accent: POS primary for "add", semantic error for "remove".
+    final accent   = isCashIn ? context.navAccent : cs.error;
+    final onAccent = isCashIn ? cs.onPrimary : cs.onError;
 
     return Scaffold(
       appBar: AppBar(
@@ -154,7 +156,8 @@ class _CashMovementScreenState extends ConsumerState<CashMovementScreen> {
                             label: 'Add cash',
                             icon: Icons.arrow_downward_rounded,
                             selected: isCashIn,
-                            activeColor: activeBlue,
+                            activeColor: context.navAccent,
+                            activeForeground: cs.onPrimary,
                             onTap: () => setState(() => _type = 0),
                           ),
                           const SizedBox(width: 4),
@@ -163,6 +166,7 @@ class _CashMovementScreenState extends ConsumerState<CashMovementScreen> {
                             icon: Icons.arrow_upward_rounded,
                             selected: !isCashIn,
                             activeColor: cs.error,
+                            activeForeground: cs.onError,
                             onTap: () => setState(() => _type = 1),
                           ),
                         ],
@@ -173,7 +177,7 @@ class _CashMovementScreenState extends ConsumerState<CashMovementScreen> {
                       Text(
                         'Amount',
                         style: TextStyle(
-                          color: isCashIn ? activeBlue : cs.error,
+                          color: accent,
                           fontWeight: FontWeight.w600,
                           fontSize: 13,
                         ),
@@ -195,17 +199,10 @@ class _CashMovementScreenState extends ConsumerState<CashMovementScreen> {
                           contentPadding: const EdgeInsets.symmetric(
                               horizontal: 14, vertical: 12),
                           enabledBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                              color: isDark
-                                  ? Colors.white24
-                                  : Colors.black26,
-                            ),
+                            borderSide: BorderSide(color: cs.outline),
                           ),
                           focusedBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                              color: isCashIn ? activeBlue : cs.error,
-                              width: 2,
-                            ),
+                            borderSide: BorderSide(color: accent, width: 2),
                           ),
                         ),
                       ),
@@ -226,20 +223,15 @@ class _CashMovementScreenState extends ConsumerState<CashMovementScreen> {
                         decoration: InputDecoration(
                           hintText: 'Enter the reason for adding or removing cash...',
                           hintStyle: TextStyle(
-                            color: cs.onSurface.withValues(alpha: 0.35),
+                            color: cs.onSurfaceVariant,
                             fontSize: 13,
                           ),
                           contentPadding: const EdgeInsets.all(12),
                           enabledBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                              color: isDark ? Colors.white24 : Colors.black26,
-                            ),
+                            borderSide: BorderSide(color: cs.outline),
                           ),
                           focusedBorder: OutlineInputBorder(
-                            borderSide: BorderSide(
-                              color: isCashIn ? activeBlue : cs.error,
-                              width: 2,
-                            ),
+                            borderSide: BorderSide(color: accent, width: 2),
                           ),
                         ),
                       ),
@@ -267,6 +259,27 @@ class _CashMovementScreenState extends ConsumerState<CashMovementScreen> {
                           style: TextStyle(color: cs.error, fontSize: 12),
                         ),
                         data: (rows) {
+                          // Resolve user ids → names from the local users
+                          // cache so pulled rows from other tills show a name.
+                          final users =
+                              ref.watch(allUsersProvider).asData?.value ??
+                                  const [];
+                          String nameFor(int uid) {
+                            for (final u in users) {
+                              if (u.id == uid) {
+                                final full = [u.firstName, u.lastName]
+                                    .whereType<String>()
+                                    .where((s) => s.isNotEmpty)
+                                    .join(' ')
+                                    .trim();
+                                return full.isEmpty
+                                    ? (u.username ?? 'User #$uid')
+                                    : full;
+                              }
+                            }
+                            return 'User #$uid';
+                          }
+
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -282,13 +295,14 @@ class _CashMovementScreenState extends ConsumerState<CashMovementScreen> {
                                 Text(
                                   'No cash movements today.',
                                   style: TextStyle(
-                                    color: cs.onSurface.withValues(alpha: 0.5),
+                                    color: cs.onSurfaceVariant,
                                     fontSize: 13,
                                   ),
                                 )
                               else
                                 ...rows.map((r) => _EntryTile(
                                       row: r,
+                                      userName: nameFor(r.userId),
                                       dtFmt: _dtFmt,
                                       numFmt: _numFmt,
                                     )),
@@ -307,11 +321,9 @@ class _CashMovementScreenState extends ConsumerState<CashMovementScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                 decoration: BoxDecoration(
-                  color: theme.scaffoldBackgroundColor,
+                  color: context.navScaffoldBg,
                   border: Border(
-                    top: BorderSide(
-                      color: cs.outlineVariant.withValues(alpha: 0.4),
-                    ),
+                    top: BorderSide(color: context.navDivider),
                   ),
                 ),
                 child: Row(
@@ -331,15 +343,16 @@ class _CashMovementScreenState extends ConsumerState<CashMovementScreen> {
                       child: FilledButton(
                         onPressed: _saving ? null : _save,
                         style: FilledButton.styleFrom(
-                          backgroundColor: isCashIn ? activeBlue : cs.error,
+                          backgroundColor: accent,
+                          foregroundColor: onAccent,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
                         child: _saving
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 20,
                                 height: 20,
                                 child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: Colors.white),
+                                    strokeWidth: 2, color: onAccent),
                               )
                             : Text(
                                 isCashIn ? 'Save Cash In' : 'Save Cash Out',
@@ -368,6 +381,7 @@ class _TypeButton extends StatelessWidget {
   final IconData icon;
   final bool selected;
   final Color activeColor;
+  final Color activeForeground;
   final VoidCallback onTap;
 
   const _TypeButton({
@@ -375,20 +389,16 @@ class _TypeButton extends StatelessWidget {
     required this.icon,
     required this.selected,
     required this.activeColor,
+    required this.activeForeground,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme  = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
 
-    final bg = selected
-        ? activeColor
-        : (isDark ? const Color(0xFF2A2A2A) : const Color(0xFFE0E0E0));
-    final fg = selected
-        ? Colors.white
-        : theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    final bg = selected ? activeColor : cs.surfaceContainerHighest;
+    final fg = selected ? activeForeground : cs.onSurfaceVariant;
 
     return Expanded(
       child: InkWell(
@@ -425,24 +435,26 @@ class _TypeButton extends StatelessWidget {
 // ── Single entry row ──────────────────────────────────────────────────────────
 
 class _EntryTile extends StatelessWidget {
-  final StartingCashRow row;
+  final StartingCashTableData row;
+  final String userName;
   final DateFormat dtFmt;
   final NumberFormat numFmt;
 
   const _EntryTile({
     required this.row,
+    required this.userName,
     required this.dtFmt,
     required this.numFmt,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isCashOut = row.isCashOut;
-    final color     = isCashOut ? Colors.red : Colors.green;
+    final cs        = Theme.of(context).colorScheme;
+    final isCashOut = row.type == 'out';
+    final color     = isCashOut ? cs.error : context.navAccent;
     final sign      = isCashOut ? '-' : '+';
-    final userName  = row.userName ?? 'Unknown';
-    final desc      = row.description?.isNotEmpty == true
-        ? row.description!
+    final desc      = row.note?.isNotEmpty == true
+        ? row.note!
         : (isCashOut ? 'Cash out' : 'Cash in');
 
     return Padding(
@@ -469,9 +481,9 @@ class _EntryTile extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '$userName @ ${dtFmt.format(row.dateCreated)}',
+                  '$userName @ ${dtFmt.format(row.createdAt.toLocal())}',
                   style: TextStyle(
-                    color: color.withValues(alpha: 0.75),
+                    color: cs.onSurfaceVariant,
                     fontSize: 12,
                   ),
                 ),

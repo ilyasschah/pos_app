@@ -100,7 +100,11 @@ final documentVisibleColumnsProvider = StateProvider<Map<String, bool>>((ref) =>
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 class DocumentsScreen extends ConsumerStatefulWidget {
-  const DocumentsScreen({super.key});
+  /// Passed by ManagementLayout when the sidebar is hidden so the AppBar can
+  /// show a menu icon rather than the default back arrow.
+  final VoidCallback? onMenuPressed;
+
+  const DocumentsScreen({super.key, this.onMenuPressed});
 
   @override
   ConsumerState<DocumentsScreen> createState() => _DocumentsScreenState();
@@ -577,6 +581,15 @@ class _DocumentsScreenState extends ConsumerState<DocumentsScreen> {
       appBar: AppBar(
         title: const Text("Document Explorer"),
         elevation: 0,
+        // Suppress the auto back-arrow — ManagementLayout controls navigation.
+        automaticallyImplyLeading: false,
+        leading: widget.onMenuPressed != null
+            ? IconButton(
+                icon: const Icon(Icons.menu),
+                tooltip: 'Show navigation',
+                onPressed: widget.onMenuPressed,
+              )
+            : null,
         actions: [
           IconButton(
             icon:     const Icon(Icons.view_column_rounded),

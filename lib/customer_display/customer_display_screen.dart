@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:lottie/lottie.dart';
 import 'package:pos_app/customer_display/customer_display_web_server.dart';
 
 // Internal item model — parsed from the WebSocket JSON broadcast.
@@ -60,7 +59,7 @@ class _CustomerDisplayScreenState extends State<CustomerDisplayScreen> {
   int _retryMs = 1000;
 
   // Epoch bumped each time we enter 'success' from a non-success state,
-  // so _SuccessView gets a new key and its Lottie animation replays.
+  // giving _SuccessView a fresh key so it rebuilds for every checkout.
   int _successEpoch = 0;
 
   Map<String, dynamic> _d = const {'type': 'idle'};
@@ -232,39 +231,16 @@ class _ReconnectBadge extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. IDLE
 // ─────────────────────────────────────────────────────────────────────────────
-class _IdleView extends StatefulWidget {
+class _IdleView extends StatelessWidget {
   final Map<String, dynamic> d;
   const _IdleView({required this.d, super.key});
 
   @override
-  State<_IdleView> createState() => _IdleViewState();
-}
-
-class _IdleViewState extends State<_IdleView>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulse;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulse = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2400),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _pulse.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final co = (widget.d['company'] ?? {}) as Map;
+    final co = (d['company'] ?? {}) as Map;
     final logo = co['logo'] as String?;
     final name = (co['name'] ?? '') as String;
-    final welcome = (widget.d['welcomeText'] ?? 'WELCOME!') as String;
+    final welcome = (d['welcomeText'] ?? 'WELCOME!') as String;
 
     return SizedBox.expand(
       child: ColoredBox(
@@ -274,10 +250,7 @@ class _IdleViewState extends State<_IdleView>
             mainAxisSize: MainAxisSize.min,
             children: [
               if (logo != null && logo.isNotEmpty) ...[
-                FadeTransition(
-                  opacity: Tween<double>(begin: .5, end: 1).animate(_pulse),
-                  child: _Logo(base64: logo, size: 180),
-                ),
+                _Logo(base64: logo, size: 180),
                 const SizedBox(height: 32),
               ],
               Text(
@@ -611,38 +584,14 @@ class _TotRow extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. CHECKOUT SUCCESS
 //
-// StatefulWidget so the Lottie AnimationController is owned here and always
-// plays from the beginning.  The parent bumps _successEpoch on each new
-// success event which gives this widget a new ValueKey, destroying and
-// recreating it so the animation replays for every checkout.
+// Static success screen (no animation) — a flat green check above the message.
 // ─────────────────────────────────────────────────────────────────────────────
-class _SuccessView extends StatefulWidget {
+class _SuccessView extends StatelessWidget {
   final Map<String, dynamic> d;
   const _SuccessView({required this.d, super.key});
 
   @override
-  State<_SuccessView> createState() => _SuccessViewState();
-}
-
-class _SuccessViewState extends State<_SuccessView>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _lottieCtrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _lottieCtrl = AnimationController(vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _lottieCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final d = widget.d;
     final cur = (d['currency'] ?? '') as String;
     final total = ((d['total'] ?? 0) as num).toDouble();
     final cash = ((d['cash'] ?? 0) as num).toDouble();
@@ -655,19 +604,7 @@ class _SuccessViewState extends State<_SuccessView>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Lottie.asset(
-                'assets/animations/success_animation.json',
-                controller: _lottieCtrl,
-                width: 280,
-                height: 280,
-                fit: BoxFit.contain,
-                onLoaded: (composition) {
-                  _lottieCtrl
-                    ..duration = composition.duration
-                    ..forward();
-                },
-                errorBuilder: (_, __, ___) => const _FallbackCheck(),
-              ),
+              const _FallbackCheck(),
               const SizedBox(height: 8),
               const Text(
                 'Thank You!',
@@ -742,48 +679,19 @@ class _PayCol extends StatelessWidget {
   }
 }
 
-class _FallbackCheck extends StatefulWidget {
+class _FallbackCheck extends StatelessWidget {
   const _FallbackCheck();
 
   @override
-  State<_FallbackCheck> createState() => _FallbackCheckState();
-}
-
-class _FallbackCheckState extends State<_FallbackCheck>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c;
-  late final Animation<double> _scale;
-
-  @override
-  void initState() {
-    super.initState();
-    _c = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-    _scale = CurvedAnimation(parent: _c, curve: Curves.elasticOut);
-    _c.forward();
-  }
-
-  @override
-  void dispose() {
-    _c.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return ScaleTransition(
-      scale: _scale,
-      child: Container(
-        width: 110,
-        height: 110,
-        decoration: const BoxDecoration(
-          color: Color(0xFF16A34A),
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(Icons.check_rounded, color: Colors.white, size: 64),
+    return Container(
+      width: 110,
+      height: 110,
+      decoration: const BoxDecoration(
+        color: Color(0xFF16A34A),
+        shape: BoxShape.circle,
       ),
+      child: const Icon(Icons.check_rounded, color: Colors.white, size: 64),
     );
   }
 }

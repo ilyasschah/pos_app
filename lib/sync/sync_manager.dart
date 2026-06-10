@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:uuid/uuid.dart';
 
 import 'package:pos_app/auth/auth_storage.dart';
 import 'package:pos_app/database/app_database.dart';
@@ -61,8 +62,85 @@ class SyncManager {
     await pushPendingLoyaltyCardOps(companyId);
     await pushPendingShifts(companyId);
     await pushPendingTimeClockEntries(companyId);
+    await pushPendingAppProperties(companyId);
     await pullMasterData(companyId);
     await pullDocuments(companyId);
+  }
+
+  // ==========================================================================
+  // PUSH — app-property edits made offline. Two cases:
+  //  • temp negative-id rows  → brand-new settings (e.g. App.DefaultScreen)
+  //    that never reached the server → POST /ApplicationProperties/Add.
+  //  • positive-id 'pending' rows → existing settings edited offline →
+  //    PATCH /ApplicationProperties/Update.
+  // Without this, offline setting changes would live only in local Drift.
+  // ==========================================================================
+  Future<void> pushPendingAppProperties(int companyId) async {
+    // ── New settings created offline (temp negative ids) → /Add ────────────
+    final newRows = await (db.select(db.appPropertiesTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.id.isSmallerThanValue(0)))
+        .get();
+
+    for (final p in newRows) {
+      try {
+        final res = await dio.post<dynamic>(
+          '/ApplicationProperties/Add',
+          queryParameters: {'companyId': companyId},
+          data: {'name': p.name, 'value': p.value ?? ''},
+        );
+
+        // If /Add echoes back the created row with its server id, swap the
+        // temp row for the real one immediately (robust even if the following
+        // pull fails). Otherwise leave the temp row for pullAppProperties to
+        // reconcile (its dedup drops temp rows once the server row arrives).
+        final data = res.data;
+        final newId = data is Map<String, dynamic> ? data['id'] as int? : null;
+        if (newId != null) {
+          await db.into(db.appPropertiesTable).insertOnConflictUpdate(
+                AppPropertiesTableCompanion(
+                  id: Value(newId),
+                  companyId: Value(companyId),
+                  name: Value(p.name),
+                  value: Value(p.value),
+                  lastModified: Value(DateTime.now().toUtc()),
+                  syncStatus: const Value('synced'),
+                ),
+              );
+          await (db.delete(db.appPropertiesTable)
+                ..where((t) => t.id.equals(p.id)))
+              .go();
+        }
+      } catch (e) {
+        debugPrint('pushPendingAppProperties (add): ${p.name} failed — $e');
+        // Leave the temp row; next sync retries.
+      }
+    }
+
+    // ── Existing settings edited offline (positive id, 'pending') → /Update ─
+    final editedRows = await (db.select(db.appPropertiesTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.id.isBiggerThanValue(0))
+          ..where((t) => t.syncStatus.equals('pending')))
+        .get();
+
+    for (final p in editedRows) {
+      try {
+        await dio.patch<dynamic>(
+          '/ApplicationProperties/Update',
+          queryParameters: {'companyId': companyId},
+          data: {'id': p.id, 'newValue': p.value ?? ''},
+        );
+        await (db.update(db.appPropertiesTable)
+              ..where((t) => t.id.equals(p.id)))
+            .write(const AppPropertiesTableCompanion(
+          syncStatus: Value('synced'),
+        ));
+      } catch (e) {
+        debugPrint('pushPendingAppProperties (update): ${p.name} failed — $e');
+        // Leave it 'pending'; next sync retries.
+      }
+    }
   }
 
   Future<void> pullMasterData(int companyId) async {
@@ -81,6 +159,7 @@ class SyncManager {
     await pullCompany(companyId);
     await pullStocks(companyId);
     await pullLoyaltyCards(companyId);
+    await pullStartingCash(companyId);
   }
 
   Future<void> pushPendingOrders(int companyId) async {
@@ -1562,6 +1641,76 @@ class SyncManager {
   }
 
   // ==========================================================================
+  // PULL — today's cash movements from /StartingCash/GetByDateRange
+  // ==========================================================================
+
+  /// Pulls today's StartingCash rows for [companyId] and inserts any that the
+  /// local DB doesn't already know about (by server `id`), so the Cash In/Out
+  /// list shows movements from every till even offline. Runs AFTER
+  /// pushPendingCashMovements so locally-created rows already carry their
+  /// serverId and are skipped here (no duplicates).
+  Future<void> pullStartingCash(int companyId) async {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day);
+
+    final List<dynamic>? rows;
+    try {
+      final res = await dio.get<List<dynamic>>(
+        '/StartingCash/GetByDateRange',
+        queryParameters: {
+          'companyId': companyId,
+          'startDate': start.toIso8601String(),
+          'endDate': start.toIso8601String(),
+        },
+      );
+      rows = res.data;
+    } catch (e) {
+      debugPrint('pullStartingCash failed: $e — local cash preserved.');
+      return;
+    }
+    if (rows == null || rows.isEmpty) return;
+
+    final known = await db.getStartingCashFinalizationByServerId();
+    final toInsert = <StartingCashTableCompanion>[];
+    final toFinalize = <int, int>{}; // serverId → zReportNumber
+    for (final raw in rows) {
+      final m = raw as Map<String, dynamic>;
+      final serverId = m['id'] as int?;
+      if (serverId == null) continue;
+      final zReportNumber = m['zReportNumber'] as int?;
+
+      if (known.containsKey(serverId)) {
+        // Already local — the only meaningful change is finalization: the
+        // server just stamped a Z-report number on a previously-open row.
+        final alreadyFinalized = known[serverId]!;
+        if (!alreadyFinalized && zReportNumber != null) {
+          toFinalize[serverId] = zReportNumber;
+        }
+        continue;
+      }
+
+      // Map server fields → local schema: StartingCashType 0/1 → 'in'/'out',
+      // Description → note, DateCreated → createdAt, ZReportNumber → zReportNumber.
+      final type = (m['startingCashType'] as int? ?? 0) == 1 ? 'out' : 'in';
+      toInsert.add(StartingCashTableCompanion.insert(
+        localId: const Uuid().v4(),
+        companyId: (m['companyId'] as int?) ?? companyId,
+        userId: m['userId'] as int,
+        amount: (m['amount'] as num).toDouble(),
+        type: type,
+        note: Value(m['description'] as String?),
+        createdAt: DateTime.parse(m['dateCreated'] as String),
+        zReportNumber: Value(zReportNumber),
+        serverId: Value(serverId),
+        syncStatus: const Value('synced'),
+      ));
+    }
+
+    await db.insertSyncedStartingCash(toInsert);
+    await db.applyStartingCashZReportNumbers(toFinalize);
+  }
+
+  // ==========================================================================
   // PULL — Documents from /Document/GetSalesHistory
   // ==========================================================================
 
@@ -1584,10 +1733,26 @@ class SyncManager {
           'companyId': companyId,
           'startDate': from.toIso8601String().substring(0, 10),
           'endDate': now.toIso8601String().substring(0, 10),
+          // Pull line items + customerId so the local DB can compute the
+          // dashboard / item-level reports fully offline.
+          'includeItems': true,
         },
       );
 
       final list = ((res.data as List?) ?? []).cast<Map<String, dynamic>>();
+
+      // Set of document localIds that already have line items locally — lets us
+      // backfill items exactly once for documents pulled before includeItems
+      // existed (or created on other devices), without rewriting items every
+      // sync or touching local-origin docs that already carry their items.
+      final withItemsRows = await (db.selectOnly(db.documentItemsTable,
+              distinct: true)
+            ..addColumns([db.documentItemsTable.documentId]))
+          .get();
+      final docsWithItems = withItemsRows
+          .map((r) => r.read(db.documentItemsTable.documentId))
+          .whereType<String>()
+          .toSet();
 
       for (final d in list) {
         final serverId = (d['id'] as num?)?.toInt() ?? 0;
@@ -1600,8 +1765,29 @@ class SyncManager {
         final number = (d['number'] as String?) ?? '';
         final orderNo = d['orderNumber'] as String?;
         final paid = (d['paidStatus'] as num?)?.toInt() ?? 1;
+        final customerId = (d['customerId'] as num?)?.toInt();
+        final rawItems =
+            ((d['items'] as List?) ?? const []).cast<Map<String, dynamic>>();
 
-        // Case 1: already in local DB by serverId — just stamp the number.
+        // Build item rows for a given document localId.
+        List<DocumentItemsTableCompanion> buildItems(String docLocalId) =>
+            rawItems
+                .map((m) => DocumentItemsTableCompanion.insert(
+                      localId: const Uuid().v4(),
+                      documentId: docLocalId,
+                      productId: (m['productId'] as num?)?.toInt() ?? 0,
+                      quantity: ((m['quantity'] as num?) ?? 0).toDouble(),
+                      unitPrice: ((m['unitPrice'] as num?) ?? 0).toDouble(),
+                      total: ((m['total'] as num?) ?? 0).toDouble(),
+                      discount:
+                          Value(((m['discount'] as num?) ?? 0).toDouble()),
+                      discountType:
+                          Value((m['discountType'] as num?)?.toInt() ?? 0),
+                    ))
+                .toList();
+
+        // Case 1: already in local DB by serverId — stamp the number, and
+        // backfill items if this row has none yet (older pull / other device).
         final existing =
             await (db.select(db.documentsTable)
                   ..where((t) => t.serverId.equals(serverId))
@@ -1620,14 +1806,22 @@ class SyncManager {
               ),
             );
           }
+          if (rawItems.isNotEmpty &&
+              !docsWithItems.contains(existing.localId)) {
+            await db.batch((b) =>
+                b.insertAll(db.documentItemsTable, buildItems(existing.localId)));
+          }
           continue;
         }
 
-        // Case 2: new document from another device — insert sentinel row.
+        // Case 2: new document from another device — insert sentinel row
+        // plus its line items + customerId so the local DB can compute the
+        // dashboard / item reports offline.
         // userId / warehouseId are not returned by GetSalesHistory; use 0.
+        final docLocalId = 'srv_$serverId';
         await db.upsertServerDocument(
           document: DocumentsTableCompanion(
-            localId: Value('srv_$serverId'),
+            localId: Value(docLocalId),
             serverId: Value(serverId),
             companyId: Value(companyId),
             userId: const Value(0),
@@ -1635,13 +1829,14 @@ class SyncManager {
             number: Value(number),
             total: Value(total),
             discount: Value(disc),
+            customerId: Value(customerId),
             orderNumber: Value(orderNo),
             paidStatus: Value(paid),
             date: Value(date),
             syncStatus: const Value('synced'),
             lastModified: Value(date),
           ),
-          items: const [],
+          items: buildItems(docLocalId),
         );
       }
 
@@ -2054,17 +2249,27 @@ class SyncManager {
         continue;
       }
 
+      final name = json['name'] as String? ?? '';
       await db
           .into(db.appPropertiesTable)
           .insertOnConflictUpdate(
             AppPropertiesTableCompanion(
               id: Value(id),
               companyId: Value(json['companyId'] as int? ?? companyId),
-              name: Value(json['name'] as String? ?? ''),
+              name: Value(name),
               value: Value(json['value'] as String?),
               lastModified: Value(serverLastModified),
+              // Authoritative server value — clears any local pending flag.
+              syncStatus: const Value('synced'),
             ),
           );
+
+      // Drop any offline-only temp row (negative id) for this key now that the
+      // server has assigned a real id — prevents a duplicate name row.
+      await (db.delete(db.appPropertiesTable)
+            ..where((t) => t.name.equals(name))
+            ..where((t) => t.id.isSmallerThanValue(0)))
+          .go();
     }
 
     await _setLastSync(_kAppProperties, startedAt);

@@ -11,7 +11,11 @@ import 'package:pos_app/currency/country_model.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 
 class MyCompanyScreen extends ConsumerStatefulWidget {
-  const MyCompanyScreen({super.key});
+  /// Passed by ManagementLayout when the sidebar is hidden so the AppBar can
+  /// show a menu icon rather than the default back arrow.
+  final VoidCallback? onMenuPressed;
+
+  const MyCompanyScreen({super.key, this.onMenuPressed});
 
   @override
   ConsumerState<MyCompanyScreen> createState() => _MyCompanyScreenState();
@@ -288,6 +292,15 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
         elevation: 0,
         backgroundColor: Colors.transparent,
         centerTitle: false,
+        // Suppress the auto back-arrow — ManagementLayout controls navigation.
+        automaticallyImplyLeading: false,
+        leading: widget.onMenuPressed != null
+            ? IconButton(
+                icon: const Icon(Icons.menu),
+                tooltip: 'Show navigation',
+                onPressed: widget.onMenuPressed,
+              )
+            : null,
       ),
       body: _isLoadingCompany
           ? Center(

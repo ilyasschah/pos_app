@@ -11,16 +11,20 @@ import 'package:pos_app/database/database_provider.dart';
 // PROVIDERS
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Stream of the currently active (status=0) shift for the selected company.
-/// Emits null when no shift is open.
+/// Stream of the **current user's** active (status=0) shift for the selected
+/// company — this is the single source of truth for "My Shift" and the live
+/// sidebar clocked-in counter. Emits null when the user has no open shift.
 final activeShiftProvider = StreamProvider<ShiftsTableData?>((ref) {
   final db = ref.watch(appDatabaseProvider);
   final companyId = ref.watch(selectedCompanyProvider)?.id;
-  if (companyId == null) return Stream.value(null);
+  final userId = ref.watch(currentUserProvider)?.id;
+  if (companyId == null || userId == null) return Stream.value(null);
 
   return (db.select(db.shiftsTable)
         ..where((t) => t.companyId.equals(companyId))
+        ..where((t) => t.userId.equals(userId))
         ..where((t) => t.status.equals(0))
+        ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
         ..limit(1))
       .watchSingleOrNull();
 });
@@ -50,12 +54,25 @@ class ShiftNotifier extends Notifier<void> {
 
   AppDatabase get _db => ref.read(appDatabaseProvider);
 
-  /// Opens a new shift with the given starting cash drawer amount.
-  /// Also records a 'cash in' movement for the starting cash.
-  Future<void> startShift(double startingCash) async {
+  /// Opens a new shift (== a clock-in session) with the given starting cash.
+  ///
+  /// [userId] defaults to the logged-in POS user, so the Shift dashboard keeps
+  /// calling `startShift(0)` unchanged. The pre-login Time Clock kiosk passes an
+  /// explicit [userId] (the PIN-identified employee) so attendance is recorded
+  /// per employee even when no POS user is signed in.
+  ///
+  /// [isDrawerShift] marks the station's master cash-drawer shift. The Shift
+  /// dashboard opens a drawer shift (true); the kiosk opens bare attendance
+  /// sessions (false), so many servers can clock in on one station at once
+  /// without colliding with the single drawer shift.
+  Future<void> startShift(
+    double startingCash, {
+    int? userId,
+    bool isDrawerShift = false,
+  }) async {
     final companyId = ref.read(selectedCompanyProvider)?.id;
-    final user = ref.read(currentUserProvider);
-    if (companyId == null || user == null) return;
+    final uid = userId ?? ref.read(currentUserProvider)?.id;
+    if (companyId == null || uid == null) return;
 
     final now = DateTime.now().toUtc();
     final localId = const Uuid().v4();
@@ -64,11 +81,12 @@ class ShiftNotifier extends Notifier<void> {
       ShiftsTableCompanion(
         localId: Value(localId),
         companyId: Value(companyId),
-        userId: Value(user.id),
+        userId: Value(uid),
         startingCash: Value(startingCash),
         status: const Value(0),
         openedAt: Value(now),
         lastModified: Value(now),
+        isDrawerShift: Value(isDrawerShift),
         syncStatus: const Value('pending'),
       ),
     );
@@ -77,10 +95,10 @@ class ShiftNotifier extends Notifier<void> {
     // cash movement history and counts toward the drawer balance.
     if (startingCash > 0) {
       await _db.insertOfflineCashMovement(
-        CashMovementsTableCompanion(
+        StartingCashTableCompanion(
           localId: Value(const Uuid().v4()),
           companyId: Value(companyId),
-          userId: Value(user.id),
+          userId: Value(uid),
           amount: Value(startingCash),
           type: const Value('in'),
           note: const Value('Shift opening float'),
@@ -91,102 +109,91 @@ class ShiftNotifier extends Notifier<void> {
     }
   }
 
-  /// Closes the current open shift and generates an offline Z-report snapshot.
-  /// [actualCountedCash] is the physical count the cashier enters.
-  Future<void> closeShift(
-    ShiftsTableData activeShift, {
-    required double actualCountedCash,
+  /// The given user's currently-open **attendance** shift for the selected
+  /// company, or null. Scoped to `isDrawerShift == false` so the kiosk clock-in/
+  /// out path can never read or close the station's master drawer shift.
+  Future<ShiftsTableData?> _openAttendanceShiftForUser(
+      int companyId, int userId) {
+    return (_db.select(_db.shiftsTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.userId.equals(userId))
+          ..where((t) => t.status.equals(0))
+          ..where((t) => t.isDrawerShift.equals(false))
+          ..orderBy([(t) => OrderingTerm.desc(t.openedAt)])
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
+  /// Whether [userId] is currently clocked in (has an open attendance shift).
+  Future<bool> hasOpenShift(int userId) async {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    if (companyId == null) return false;
+    return (await _openAttendanceShiftForUser(companyId, userId)) != null;
+  }
+
+  /// Closes [userId]'s open attendance shift (kiosk clock-out). Returns false if
+  /// they had none; true once the specific row is flipped to closed. Never
+  /// touches the drawer shift.
+  Future<bool> closeShiftForUser(int userId) async {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    if (companyId == null) return false;
+    final shift = await _openAttendanceShiftForUser(companyId, userId);
+    if (shift == null) return false;
+    await closeShift(shift);
+    return true;
+  }
+
+  /// Admin override: records a completed (status=1) shift session for [userId]
+  /// spanning [clockInUtc] → [clockOutUtc] — for employees who forgot to clock
+  /// in/out. Offline-first (`syncStatus: 'pending'`) and written inside a
+  /// transaction so the row lands atomically. Because the session is already
+  /// closed it never creates an open row, so it can't violate the
+  /// "one open shift at a time" rule.
+  Future<void> addManualTimeCard({
+    required int userId,
+    required DateTime clockInUtc,
+    required DateTime clockOutUtc,
   }) async {
     final companyId = ref.read(selectedCompanyProvider)?.id;
-    final user = ref.read(currentUserProvider);
-    if (companyId == null || user == null) return;
+    if (companyId == null) return;
 
     final now = DateTime.now().toUtc();
+    await _db.transaction(() async {
+      await _db.insertOfflineShift(
+        ShiftsTableCompanion(
+          localId: Value(const Uuid().v4()),
+          companyId: Value(companyId),
+          userId: Value(userId),
+          startingCash: const Value(0),
+          status: const Value(1), // completed
+          openedAt: Value(clockInUtc.toUtc()),
+          closedAt: Value(clockOutUtc.toUtc()),
+          lastModified: Value(now),
+          isDrawerShift: const Value(false), // attendance, not the drawer
+          syncStatus: const Value('pending'),
+        ),
+      );
+    });
+  }
 
-    // ── Aggregate cash movements since shift opened ────────────────────────
-    final allMovements = await (_db.select(_db.cashMovementsTable)
-          ..where((t) => t.companyId.equals(companyId)))
-        .get();
-    final shiftMovements = allMovements
-        .where((m) => !m.createdAt.isBefore(activeShift.openedAt))
-        .toList();
+  /// Closes the current open shift.
+  ///
+  /// A pure, instant time-stamping operation: it flips the active shift row to
+  /// status=1 and writes [closedAt]. No cash-movement / payment aggregation and
+  /// no Z-report snapshot are produced here (that pipeline lives elsewhere),
+  /// keeping shift closure cheap on low-spec hardware. [lastModified] and
+  /// [syncStatus] are retained so the offline-first sync engine still uploads
+  /// the closure.
+  Future<void> closeShift(ShiftsTableData activeShift) async {
+    final now = DateTime.now().toUtc();
 
-    double totalCashIn = 0;
-    double totalCashOut = 0;
-    for (final m in shiftMovements) {
-      if (m.type == 'in') {
-        totalCashIn += m.amount;
-      } else {
-        totalCashOut += m.amount;
-      }
-    }
-
-    // ── Aggregate cash sales from documents since shift opened ─────────────
-    // Cash payment type ID 1 is the standard cash type. We aggregate from
-    // the payments table so we only count completed sales in this shift window.
-    final allPayments = await (_db.select(_db.paymentsTable)).get();
-    final shiftPayments = allPayments
-        .where((p) => !p.date.isBefore(activeShift.openedAt))
-        .toList();
-
-    double cashSales = 0;
-    for (final p in shiftPayments) {
-      // paymentTypeId 1 = Cash (standard assumption; adapt if needed)
-      if (p.paymentTypeId == 1) {
-        cashSales += p.amount;
-      }
-    }
-
-    final totalSales = cashSales;
-
-    // ── Mark shift closed ──────────────────────────────────────────────────
     await (_db.update(_db.shiftsTable)
           ..where((t) => t.localId.equals(activeShift.localId)))
         .write(ShiftsTableCompanion(
       status: const Value(1),
       closedAt: Value(now),
-      actualEndingCash: Value(actualCountedCash),
       lastModified: Value(now),
       syncStatus: const Value('pending'),
     ));
-
-    // ── Insert Z-report snapshot ───────────────────────────────────────────
-    await _db.insertOfflineZReport(
-      ZReportsTableCompanion(
-        localId: Value(const Uuid().v4()),
-        companyId: Value(companyId),
-        userId: Value(user.id),
-        totalSales: Value(totalSales),
-        totalCashIn: Value(totalCashIn),
-        totalCashOut: Value(totalCashOut),
-        paymentBreakdownJson: const Value('{}'),
-        closedAt: Value(now),
-        syncStatus: const Value('pending'),
-      ),
-    );
-  }
-
-  /// Records a cash-in or cash-out movement during an open shift.
-  Future<void> addCashMovement({
-    required double amount,
-    required String type, // 'in' | 'out'
-    String? note,
-  }) async {
-    final companyId = ref.read(selectedCompanyProvider)?.id;
-    final user = ref.read(currentUserProvider);
-    if (companyId == null || user == null) return;
-
-    await _db.insertOfflineCashMovement(
-      CashMovementsTableCompanion(
-        localId: Value(const Uuid().v4()),
-        companyId: Value(companyId),
-        userId: Value(user.id),
-        amount: Value(amount),
-        type: Value(type),
-        note: Value(note),
-        createdAt: Value(DateTime.now().toUtc()),
-        syncStatus: const Value('pending'),
-      ),
-    );
   }
 }

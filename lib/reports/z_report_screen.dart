@@ -67,6 +67,12 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
         ),
       );
 
+      // Optimistic local finalization: immediately archive the active cash
+      // movements so they vanish from the Cash In/Out view without waiting for
+      // the server roundtrip. The next pull swaps the -1 placeholder for the
+      // server's real Z-report number.
+      await db.optimisticallyFinalizeActiveStartingCash(companyId);
+
       // Refresh both tabs in case the sync ran inline (rare on this path,
       // but harmless if it didn't).
       ref.invalidate(unreportedPaymentsProvider);

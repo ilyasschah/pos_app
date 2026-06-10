@@ -54,7 +54,11 @@ final stockMasterProvider =
 // ── Screen ────────────────────────────────────────────────────────────────────
 
 class StockScreen extends ConsumerStatefulWidget {
-  const StockScreen({super.key});
+  /// Passed by ManagementLayout when the sidebar is hidden so the AppBar can
+  /// show a menu icon rather than the default back arrow.
+  final VoidCallback? onMenuPressed;
+
+  const StockScreen({super.key, this.onMenuPressed});
 
   @override
   ConsumerState<StockScreen> createState() => _StockScreenState();
@@ -431,6 +435,15 @@ class _StockScreenState extends ConsumerState<StockScreen> {
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: const Text("Inventory Master List"),
+        // Suppress the auto back-arrow — ManagementLayout controls navigation.
+        automaticallyImplyLeading: false,
+        leading: widget.onMenuPressed != null
+            ? IconButton(
+                icon: const Icon(Icons.menu),
+                tooltip: 'Show navigation',
+                onPressed: widget.onMenuPressed,
+              )
+            : null,
         actions: [
           IconButton(
             icon: const Icon(Icons.picture_as_pdf_outlined),

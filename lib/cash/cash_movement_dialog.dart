@@ -62,7 +62,7 @@ class _CashMovementDialogState extends ConsumerState<_CashMovementDialog> {
       // this to /StartingCash/Add when the network is available.
       final db = ref.read(appDatabaseProvider);
       await db.insertOfflineCashMovement(
-        CashMovementsTableCompanion.insert(
+        StartingCashTableCompanion.insert(
           localId: '', // helper fills a UUID when blank
           companyId: company.id,
           userId: user.id,

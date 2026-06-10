@@ -8,7 +8,11 @@ import 'package:pos_app/tax/tax_provider.dart';
 
 // --- SCREEN ---
 class TaxRatesScreen extends ConsumerWidget {
-  const TaxRatesScreen({super.key});
+  /// Passed by ManagementLayout when the sidebar is hidden so the AppBar can
+  /// show a menu icon rather than the default back arrow.
+  final VoidCallback? onMenuPressed;
+
+  const TaxRatesScreen({super.key, this.onMenuPressed});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -22,6 +26,15 @@ class TaxRatesScreen extends ConsumerWidget {
         title: const Text("Tax Rates"),
         centerTitle: false,
         elevation: 0,
+        // Suppress the auto back-arrow — ManagementLayout controls navigation.
+        automaticallyImplyLeading: false,
+        leading: onMenuPressed != null
+            ? IconButton(
+                icon: const Icon(Icons.menu),
+                tooltip: 'Show navigation',
+                onPressed: onMenuPressed,
+              )
+            : null,
         actions: [
           // Refresh
           IconButton(

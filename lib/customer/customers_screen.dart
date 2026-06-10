@@ -13,7 +13,11 @@ import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 
 class CustomersScreen extends ConsumerWidget {
-  const CustomersScreen({super.key});
+  /// Passed by ManagementLayout when the sidebar is hidden so the AppBar can
+  /// show a menu icon rather than the default back arrow.
+  final VoidCallback? onMenuPressed;
+
+  const CustomersScreen({super.key, this.onMenuPressed});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -25,6 +29,15 @@ class CustomersScreen extends ConsumerWidget {
       child: Scaffold(
         appBar: AppBar(
           title: const Text("Customers & Suppliers"),
+          // Suppress the auto back-arrow — ManagementLayout controls navigation.
+          automaticallyImplyLeading: false,
+          leading: onMenuPressed != null
+              ? IconButton(
+                  icon: const Icon(Icons.menu),
+                  tooltip: 'Show navigation',
+                  onPressed: onMenuPressed,
+                )
+              : null,
           bottom: const TabBar(
             tabs: [
               Tab(icon: Icon(Icons.people), text: "Customers"),

@@ -4,13 +4,14 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/stock/stock_model.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 
-/// Returns a map of productId → stock quantity for the currently selected
-/// warehouse. Falls back to an empty map on any error so callers never crash.
-final stockQuantitiesProvider = FutureProvider<Map<int, double>>((ref) async {
+/// Returns productId → { warehouseId → quantity } for every warehouse in the
+/// company. Used both for the per-warehouse out-of-stock guard and to suggest
+/// fallback warehouses where a product is still available. Falls back to an
+/// empty map on any error so callers never crash.
+final stockByWarehouseProvider =
+    FutureProvider<Map<int, Map<int, double>>>((ref) async {
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return {};
-
-  final selectedWarehouse = ref.watch(selectedWarehouseProvider);
 
   try {
     final dio = createDio();
@@ -22,14 +23,30 @@ final stockQuantitiesProvider = FutureProvider<Map<int, double>>((ref) async {
         .map((j) => StockItem.fromJson(j))
         .toList();
 
-    final Map<int, double> map = {};
+    final Map<int, Map<int, double>> map = {};
     for (final stock in stocks) {
-      if (selectedWarehouse == null || stock.warehouseId == selectedWarehouse.id) {
-        map[stock.productId] = (map[stock.productId] ?? 0) + stock.quantity;
-      }
+      final byWh = map.putIfAbsent(stock.productId, () => {});
+      byWh[stock.warehouseId] = (byWh[stock.warehouseId] ?? 0) + stock.quantity;
     }
     return map;
   } catch (_) {
     return {};
   }
+});
+
+/// Returns a map of productId → stock quantity for the currently selected
+/// warehouse. Derived from [stockByWarehouseProvider] so both share one fetch.
+final stockQuantitiesProvider = FutureProvider<Map<int, double>>((ref) async {
+  final byWarehouse = await ref.watch(stockByWarehouseProvider.future);
+  final selectedWarehouse = ref.watch(selectedWarehouseProvider);
+
+  final Map<int, double> map = {};
+  byWarehouse.forEach((productId, byWh) {
+    byWh.forEach((warehouseId, quantity) {
+      if (selectedWarehouse == null || warehouseId == selectedWarehouse.id) {
+        map[productId] = (map[productId] ?? 0) + quantity;
+      }
+    });
+  });
+  return map;
 });

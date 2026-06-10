@@ -9,7 +9,11 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 
 class PromotionsListScreen extends ConsumerWidget {
-  const PromotionsListScreen({super.key});
+  /// Passed by ManagementLayout when the sidebar is hidden so the AppBar can
+  /// show a menu icon rather than the default back arrow.
+  final VoidCallback? onMenuPressed;
+
+  const PromotionsListScreen({super.key, this.onMenuPressed});
 
   String _formatDaysOfWeek(int bitmask) {
     if (bitmask == 0 || bitmask == 127) return "Every day";
@@ -32,7 +36,18 @@ class PromotionsListScreen extends ConsumerWidget {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Promotions')),
+      appBar: AppBar(
+        title: const Text('Promotions'),
+        // Suppress the auto back-arrow — ManagementLayout controls navigation.
+        automaticallyImplyLeading: false,
+        leading: onMenuPressed != null
+            ? IconButton(
+                icon: const Icon(Icons.menu),
+                tooltip: 'Show navigation',
+                onPressed: onMenuPressed,
+              )
+            : null,
+      ),
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: promotionsAsync.when(

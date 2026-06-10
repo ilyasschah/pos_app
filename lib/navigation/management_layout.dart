@@ -31,6 +31,7 @@ class _ManagementLayoutState extends State<ManagementLayout> {
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width >= 850;
     final showPermanentSidebar = isDesktop && _isSidebarVisible;
+    final cs = Theme.of(context).colorScheme;
 
     void onMenuPressed() {
       if (isDesktop) {
@@ -41,24 +42,25 @@ class _ManagementLayoutState extends State<ManagementLayout> {
     }
 
     final List<Widget> screens = [
-      const DashboardScreen(),
-      const DocumentsScreen(),
+      DashboardScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
+      DocumentsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
       ProductsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
       ProductGroupsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      const StockScreen(),
-      const ReportsScreen(),
-      const CustomersScreen(),
-      const PromotionsListScreen(),
+      StockScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
+      ReportsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
+      CustomersScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
+      PromotionsListScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
       UsersScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      const PaymentTypesScreen(),
-      const TaxRatesScreen(),
-      const MyCompanyScreen(),
-      const VoidReasonsScreen(),
+      PaymentTypesScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
+      TaxRatesScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
+      MyCompanyScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
+      VoidReasonsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
       LoyaltyCardsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
     ];
 
     void handleNavTap(int index) {
       setState(() => _selectedIndex = index);
+      // Desktop sidebar stays put on tab select — only manual toggles hide it.
       if (!isDesktop && Scaffold.of(context).hasDrawer) {
         Navigator.pop(context);
       }
@@ -192,28 +194,36 @@ class _ManagementLayoutState extends State<ManagementLayout> {
               ),
             ),
 
-            // Pinned exit button at the bottom of the sidebar
+            // Pinned exit button at the bottom of the sidebar.
+            // Tonal "danger" treatment: subtle error-tinted fill + border so it
+            // reads as a destructive/exit action without a heavy solid block.
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
               child: SizedBox(
                 width: double.infinity,
                 child: Material(
-                  color: Theme.of(context).colorScheme.error,
+                  color: cs.error.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(8),
                     onTap: () => Navigator.pop(context),
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 14),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: cs.error.withValues(alpha: 0.4),
+                        ),
+                      ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.exit_to_app, color: Colors.white, size: 20),
-                          SizedBox(width: 10),
+                          Icon(Icons.logout_rounded, color: cs.error, size: 20),
+                          const SizedBox(width: 10),
                           Text(
                             "Exit Management",
                             style: TextStyle(
-                              color: Colors.white,
+                              color: cs.error,
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
                             ),
@@ -238,42 +248,34 @@ class _ManagementLayoutState extends State<ManagementLayout> {
           : Drawer(backgroundColor: context.navSidebarBg, child: sidebar),
       body: Row(
         children: [
+          // Permanent sidebar shows/hides instantly via conditional inclusion.
           if (showPermanentSidebar) sidebar,
 
           Expanded(
-            child: ClipRect(
-              child: Column(
-                children: [
-                  if (!showPermanentSidebar &&
-                      _selectedIndex != 2 &&
-                      _selectedIndex != 3 &&
-                      _selectedIndex != 8 &&
-                      _selectedIndex != 13)
-                    Container(
-                      height: kToolbarHeight,
-                      color: context.navSidebarBg,
-                      child: Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.menu, color: Colors.white),
-                            onPressed: onMenuPressed,
-                          ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            "Management",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
+            child: Stack(
+              children: [
+                // Every management screen renders its own AppBar with a menu
+                // leading (no back-arrow), so the shell needs no fallback bar.
+                // No auto-hide — the sidebar only changes on manual toggles.
+                LazyIndexedStack(
+                  index: _selectedIndex,
+                  children: screens,
+                ),
+
+                // Flat edge toggle to manually bring the sidebar back (desktop).
+                if (isDesktop && !_isSidebarVisible)
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    child: Center(
+                      child: NavEdgeToggle(
+                        onTap: () =>
+                            setState(() => _isSidebarVisible = true),
                       ),
                     ),
-
-                  Expanded(child: screens[_selectedIndex]),
-                ],
-              ),
+                  ),
+              ],
             ),
           ),
         ],

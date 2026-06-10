@@ -247,6 +247,11 @@ class SettingKeys {
   static const showCashInOnStart        = 'App.ShowCashInOnStart';
   static const selectBusinessDayOnStart = 'App.SelectBusinessDayOnStart';
 
+  // Default landing screen — 'POS' | 'Tables' | 'Booking'. Drives the boot
+  // landing tab and the post-checkout return tab. Options are gated on the
+  // floor-plan / booking feature flags so we never route to a disabled screen.
+  static const defaultScreen            = 'App.DefaultScreen';
+
   // Basic Operations
   static const useFloorPlans                  = 'Order.UseFloorPlans';
   static const enableSounds                   = 'App.EnableSounds';
@@ -533,6 +538,7 @@ const Map<String, String> kSettingDefaults = {
   // Business Day
   SettingKeys.showCashInOnStart:        'true',
   SettingKeys.selectBusinessDayOnStart: 'false',
+  SettingKeys.defaultScreen:            'POS',
 
   // Button Bar
   SettingKeys.showSearchBtn:     'true',

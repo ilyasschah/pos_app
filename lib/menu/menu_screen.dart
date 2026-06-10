@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
@@ -956,23 +955,15 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
       final preventNeg =
           settings[SettingKeys.preventNegativeInventory]?.toLowerCase() == 'true';
       if (preventNeg) {
-        final stock = _stockMap[match.id];
-        if (stock != null) {
-          final cartQty = ref
-              .read(cartProvider)
-              .items
-              .where((i) => i.productId == match!.id)
-              .fold(0.0, (s, i) => s + i.quantity);
-          if (cartQty + quantity > stock) {
-            if (mounted) {
-              showAppSnackbar(
-                context, ref,
-                'Out of stock! Negative inventory is disabled.',
-                isError: true,
-              );
-            }
-            return;
-          }
+        final stock = _stockMap[match.id] ?? 0;
+        final cartQty = ref
+            .read(cartProvider)
+            .items
+            .where((i) => i.productId == match!.id)
+            .fold(0.0, (s, i) => s + i.quantity);
+        if (cartQty + quantity > stock) {
+          if (mounted) await _showOutOfStockDialog(match);
+          return;
         }
       }
     }
@@ -1029,6 +1020,93 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
     } else {
       products.sort((a, b) => a.name.compareTo(b.name));
     }
+  }
+
+  String _fmtQty(double q) =>
+      q == q.roundToDouble() ? q.toInt().toString() : q.toString();
+
+  /// Shown when a product can't be added because the selected warehouse is out
+  /// of stock. Lists the other warehouses that still hold the product and lets
+  /// the user switch the active warehouse to one of them in a single tap.
+  Future<void> _showOutOfStockDialog(Product product) async {
+    final cs = Theme.of(context).colorScheme;
+    final byWarehouse =
+        ref.read(stockByWarehouseProvider).value ?? const <int, Map<int, double>>{};
+    final warehouses = ref.read(allWarehousesProvider).value ?? const [];
+    final selectedWh = ref.read(selectedWarehouseProvider);
+    final whNames = {for (final w in warehouses) w.id: w.name};
+
+    final fallbacks =
+        (byWarehouse[product.id] ?? const <int, double>{}).entries
+            .where((e) => e.value > 0 && e.key != selectedWh?.id)
+            .toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        final tt = Theme.of(ctx).textTheme;
+        return AlertDialog(
+          icon: PhosphorIcon(PhosphorIconsRegular.warningCircle,
+              color: cs.error, size: 32),
+          title: Text('${product.name} is out of stock'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'No stock available in ${selectedWh?.name ?? 'the selected warehouse'}.',
+                style: tt.bodyMedium,
+              ),
+              const Gap(16),
+              if (fallbacks.isEmpty)
+                Text(
+                  'This product is not available in any other warehouse.',
+                  style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                )
+              else ...[
+                Text('Available in:', style: tt.labelLarge),
+                const Gap(8),
+                ...fallbacks.map(
+                  (e) => Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    elevation: 0,
+                    color: cs.surfaceContainerHighest,
+                    child: ListTile(
+                      leading: PhosphorIcon(PhosphorIconsRegular.warehouse,
+                          color: cs.primary),
+                      title: Text(whNames[e.key] ?? 'Warehouse ${e.key}'),
+                      subtitle: Text('${_fmtQty(e.value)} in stock'),
+                      trailing: FilledButton.tonal(
+                        onPressed: () {
+                          ref
+                              .read(cartProvider.notifier)
+                              .setWarehouseId(e.key);
+                          Navigator.pop(ctx);
+                          showAppSnackbar(
+                            context,
+                            ref,
+                            'Switched to ${whNames[e.key] ?? 'warehouse'} — tap the product to add it.',
+                            isError: false,
+                          );
+                        },
+                        child: const Text('Switch'),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -1304,16 +1382,7 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
                         } else {
                           return const SizedBox();
                         }
-                        return card
-                            .animate()
-                            .fadeIn(
-                                duration: 180.ms,
-                                delay: (index * 28).ms)
-                            .scale(
-                                begin: const Offset(0.94, 0.94),
-                                end: const Offset(1, 1),
-                                duration: 180.ms,
-                                delay: (index * 28).ms);
+                        return card;
                       },
                     );
                   },
@@ -1452,15 +1521,13 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
         if (!product.isService) {
           final preventNegInv = ref.read(appSettingsProvider)[SettingKeys.preventNegativeInventory]?.toLowerCase() == 'true';
           if (preventNegInv) {
-            final stock = _stockMap[product.id];
-            if (stock != null) {
-              final cartQty = ref.read(cartProvider).items
-                  .where((i) => i.productId == product.id)
-                  .fold(0.0, (sum, i) => sum + i.quantity);
-              if (cartQty + 1 > stock) {
-                if (context.mounted) showAppSnackbar(context, ref, 'Out of stock! Negative inventory is disabled.', isError: true);
-                return;
-              }
+            final stock = _stockMap[product.id] ?? 0;
+            final cartQty = ref.read(cartProvider).items
+                .where((i) => i.productId == product.id)
+                .fold(0.0, (sum, i) => sum + i.quantity);
+            if (cartQty + 1 > stock) {
+              if (context.mounted) await _showOutOfStockDialog(product);
+              return;
             }
           }
         }
@@ -1780,29 +1847,25 @@ class _CartSectionState extends ConsumerState<CartSection> {
             : 'Order Saved!',
       );
 
-      // Step 3: Navigate.
+      // Step 3: Navigate back to where the order came from. A booking order —
+      // even one opened from a table (booking → table → save) — returns to
+      // Bookings (booking takes priority); a table order returns to Tables;
+      // anything else falls back to the configured default screen. POS-only
+      // setups have nowhere to go, so just clear the cart and stay on the menu.
+      int? nextIndex;
       if (wasBookingOrder && bookingEnabled) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 2)),
-          (r) => false,
-        );
+        nextIndex = 2; // Bookings
       } else if (wasTableOrder && floorPlanEnabled) {
+        nextIndex = 4; // Tables / Floor Plan
+      } else if (bookingEnabled || floorPlanEnabled) {
+        nextIndex = resolveDefaultScreenIndex(savedSettings);
+      }
+
+      final idx = nextIndex;
+      if (idx != null) {
         Navigator.pushAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 4)),
-          (r) => false,
-        );
-      } else if (bookingEnabled) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 2)),
-          (r) => false,
-        );
-      } else if (floorPlanEnabled) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 4)),
+          MaterialPageRoute(builder: (_) => MainLayout(initialIndex: idx)),
           (r) => false,
         );
       } else {

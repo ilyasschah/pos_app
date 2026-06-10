@@ -1,6 +1,5 @@
 import 'package:drift/drift.dart' show Value;
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
@@ -306,10 +305,7 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
                 tableName: tableName,
                 warehouseId: warehouseId,
                 sym: sym,
-              )
-                  .animate()
-                  .fadeIn(duration: 220.ms, delay: (i * 45).ms)
-                  .slideY(begin: 0.08, end: 0, duration: 220.ms, delay: (i * 45).ms);
+              );
             },
           );
         },
@@ -379,9 +375,7 @@ class _SkeletonOrderCard extends StatelessWidget {
           ],
         ),
       ),
-    )
-        .animate(onPlay: (c) => c.repeat(reverse: true))
-        .shimmer(duration: 1000.ms, color: cs.onSurface.withValues(alpha: 0.05));
+    );
   }
 }
 
@@ -438,11 +432,10 @@ class _OpenOrderCardState extends ConsumerState<_OpenOrderCard> {
 
       if (!mounted) return;
       if (ok) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)),
-          (route) => false,
-        );
+        // OpenOrdersScreen is a tab inside MainLayout — switch tabs reactively
+        // instead of rebuilding MainLayout (which would re-fire its startup
+        // cash-in hook). Just point the shared nav index at the POS Menu.
+        ref.read(mainNavigationIndexProvider.notifier).state = 0;
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

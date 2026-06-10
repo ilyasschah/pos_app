@@ -1,6 +1,5 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -144,7 +143,7 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
                       size: 36,
                     ),
                   ),
-                ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack),
+                ),
 
                 const Gap(24),
 
@@ -156,7 +155,7 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
                     fontWeight: FontWeight.bold,
                     color: cs.onSurface,
                   ),
-                ).animate().fadeIn(delay: 80.ms, duration: 300.ms),
+                ),
 
                 const Gap(8),
 
@@ -164,7 +163,7 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
                   "Sign in with your account to link this terminal",
                   textAlign: TextAlign.center,
                   style: TextStyle(color: cs.onSurfaceVariant, fontSize: 14),
-                ).animate().fadeIn(delay: 130.ms, duration: 300.ms),
+                ),
 
                 const Gap(40),
 
@@ -183,7 +182,7 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
                     ),
                     prefixIcon: Icon(PhosphorIcons.envelope(), color: cs.onSurfaceVariant),
                   ),
-                ).animate().fadeIn(delay: 180.ms).slideY(begin: 0.15, duration: 300.ms),
+                ),
 
                 const Gap(16),
 
@@ -210,7 +209,7 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
                           setState(() => _obscurePassword = !_obscurePassword),
                     ),
                   ),
-                ).animate().fadeIn(delay: 230.ms).slideY(begin: 0.15, duration: 300.ms),
+                ),
 
                 const Gap(32),
 
@@ -239,10 +238,10 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
                             letterSpacing: 0.8,
                           ),
                         ),
-                ).animate().fadeIn(delay: 280.ms, duration: 300.ms),
+                ),
               ],
             ),
-          ).animate().fadeIn(duration: 350.ms).slideY(begin: 0.06, duration: 350.ms),
+          ),
         ),
       ),
     );

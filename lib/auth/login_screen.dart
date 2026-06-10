@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -131,7 +130,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ],
         ),
       ),
-    ).animate(delay: (index * 60).ms).fadeIn(duration: 280.ms).slideY(begin: 0.12);
+    );
   }
 
   @override
@@ -213,7 +212,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   fontWeight: FontWeight.bold,
                   color: cs.onSurface,
                 ),
-              ).animate().fadeIn(duration: 300.ms),
+              ),
               const Gap(40),
               Expanded(
                 child: asyncUsers.when(
@@ -376,24 +375,12 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
 
     if (!mounted) return;
 
-    final settings = ref.read(appSettingsProvider);
-    final bookingEnabled =
-        settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
-    final floorPlanEnabled =
-        settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
-
-    int startingIndex = 0;
-    if (bookingEnabled) {
-      startingIndex = 2;
-    } else if (floorPlanEnabled) {
-      startingIndex = 4;
-    }
-
+    // Land on the user's configured default screen. MainLayout (initialIndex
+    // defaults to 0) resolves it from settings via resolveDefaultScreenIndex,
+    // validated against the feature flags.
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(
-        builder: (context) => MainLayout(initialIndex: startingIndex),
-      ),
+      MaterialPageRoute(builder: (context) => const MainLayout()),
       (route) => false,
     );
   }
@@ -533,6 +520,6 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
           const Gap(16),
         ],
       ),
-    ).animate().slideY(begin: 0.08, duration: 300.ms, curve: Curves.easeOut);
+    );
   }
 }

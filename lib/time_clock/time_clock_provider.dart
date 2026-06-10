@@ -160,6 +160,11 @@ typedef HoursQueryParams = ({
 
 /// Aggregates total worked minutes per employee within the given date range.
 /// If [userId] is null, all employees are returned (with > 0 minutes).
+///
+/// Pure offline-first reader: queries the local indexed `shiftsTable` (the
+/// unified clock-in/out source) directly — fully insulated from the network.
+/// Each shift contributes `(closedAt ?? now) - openedAt`, clamped into the
+/// UTC [rangeStart] .. [rangeEnd] window.
 final hoursReportProvider =
     FutureProvider.autoDispose.family<List<HoursReportRow>, HoursQueryParams>(
   (ref, params) async {
@@ -173,20 +178,20 @@ final hoursReportProvider =
     }
     final users = await usersQuery.get();
 
-    final entries = await (db.select(db.timeClockEntriesTable)
+    final shifts = await (db.select(db.shiftsTable)
           ..where((t) => t.companyId.equals(params.companyId)))
         .get();
 
     // Build per-user minute totals, clamped to the selected date range.
     final Map<int, int> minutesByUser = {};
-    for (final e in entries) {
-      if (params.userId != null && e.userId != params.userId) continue;
-      final clockIn = e.clockInTime.toUtc();
-      if (clockIn.isAfter(params.rangeEnd) ||
-          clockIn.isBefore(params.rangeStart)) continue;
-      final clockOut = (e.clockOutTime ?? DateTime.now()).toUtc();
-      final mins = clockOut.difference(clockIn).inMinutes.clamp(0, 24 * 60);
-      minutesByUser[e.userId] = (minutesByUser[e.userId] ?? 0) + mins;
+    for (final s in shifts) {
+      if (params.userId != null && s.userId != params.userId) continue;
+      final openedAt = s.openedAt.toUtc();
+      if (openedAt.isAfter(params.rangeEnd) ||
+          openedAt.isBefore(params.rangeStart)) continue;
+      final closedAt = (s.closedAt ?? DateTime.now()).toUtc();
+      final mins = closedAt.difference(openedAt).inMinutes.clamp(0, 24 * 60);
+      minutesByUser[s.userId] = (minutesByUser[s.userId] ?? 0) + mins;
     }
 
     final results = <HoursReportRow>[];
@@ -208,31 +213,101 @@ final hoursReportProvider =
   },
 );
 
+/// One clock-in/out session row in the detailed Hours Report grid.
+class ShiftSessionRow {
+  final String employeeName;
+  final DateTime clockIn; // local time
+  final DateTime? clockOut; // local time; null while the shift is still open
+  const ShiftSessionRow({
+    required this.employeeName,
+    required this.clockIn,
+    required this.clockOut,
+  });
+
+  bool get isOpen => clockOut == null;
+
+  /// Minutes worked; for an open session, measured up to "now".
+  int get totalMinutes {
+    final end = clockOut ?? DateTime.now();
+    final m = end.difference(clockIn).inMinutes;
+    return m < 0 ? 0 : m;
+  }
+}
+
+String _userDisplayName(UsersTableData u) {
+  final name = [u.firstName, u.lastName]
+      .whereType<String>()
+      .where((s) => s.isNotEmpty)
+      .join(' ')
+      .trim();
+  return name.isEmpty ? (u.username ?? 'User #${u.id}') : name;
+}
+
+/// Detailed, **reactive** per-session reader: one row per shift (clock-in
+/// window) within the UTC range, newest first. Pure offline-first — streams
+/// the local `shiftsTable` so manually-added time cards appear instantly.
+/// Open shifts keep `clockOut` null so the UI can render "Open".
+final shiftSessionsProvider =
+    StreamProvider.autoDispose.family<List<ShiftSessionRow>, HoursQueryParams>(
+  (ref, params) {
+    if (params.companyId == 0) return Stream.value(const []);
+    final db = ref.watch(appDatabaseProvider);
+
+    final query = db.select(db.shiftsTable)
+      ..where((t) => t.companyId.equals(params.companyId))
+      ..orderBy([(t) => OrderingTerm.desc(t.openedAt)]);
+
+    return query.watch().asyncMap((shifts) async {
+      final users = await (db.select(db.usersTable)
+            ..where((t) => t.companyId.equals(params.companyId)))
+          .get();
+      final namesById = {for (final u in users) u.id: _userDisplayName(u)};
+
+      final results = <ShiftSessionRow>[];
+      for (final s in shifts) {
+        if (params.userId != null && s.userId != params.userId) continue;
+        final openedAtUtc = s.openedAt.toUtc();
+        if (openedAtUtc.isAfter(params.rangeEnd) ||
+            openedAtUtc.isBefore(params.rangeStart)) continue;
+        results.add(ShiftSessionRow(
+          employeeName: namesById[s.userId] ?? 'User #${s.userId}',
+          clockIn: s.openedAt.toLocal(),
+          clockOut: s.closedAt?.toLocal(),
+        ));
+      }
+      return results;
+    });
+  },
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SIDEBAR BADGE SUPPORT
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Streams the current user's total minutes worked today (UTC day boundary).
-/// Emits 0 when no entries exist or the user is logged out.
+/// Streams the current user's total minutes worked today (UTC day boundary),
+/// aggregated from the unified `shiftsTable`. Emits 0 when no shifts exist or
+/// the user is logged out.
 final todayTotalMinutesProvider = StreamProvider<int>((ref) {
   final db = ref.watch(appDatabaseProvider);
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
   final userId = ref.watch(currentUserProvider)?.id;
-  if (userId == null) return Stream.value(0);
+  if (userId == null || companyId == null) return Stream.value(0);
 
   final today = DateTime.now();
   final todayStartUtc =
       DateTime(today.year, today.month, today.day).toUtc();
 
-  return (db.select(db.timeClockEntriesTable)
+  return (db.select(db.shiftsTable)
+        ..where((t) => t.companyId.equals(companyId))
         ..where((t) => t.userId.equals(userId)))
       .watch()
-      .map((entries) {
+      .map((shifts) {
     int total = 0;
-    for (final e in entries) {
-      if (e.clockInTime.toUtc().isBefore(todayStartUtc)) continue;
-      final out = (e.clockOutTime ?? DateTime.now()).toUtc();
-      total +=
-          out.difference(e.clockInTime.toUtc()).inMinutes.clamp(0, 24 * 60);
+    for (final s in shifts) {
+      final openedAt = s.openedAt.toUtc();
+      if (openedAt.isBefore(todayStartUtc)) continue;
+      final closedAt = (s.closedAt ?? DateTime.now()).toUtc();
+      total += closedAt.difference(openedAt).inMinutes.clamp(0, 24 * 60);
     }
     return total;
   });

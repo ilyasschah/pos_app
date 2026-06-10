@@ -1,13 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
-import 'package:drift/drift.dart' show OrderingTerm;
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/database/app_database.dart';
-import 'package:pos_app/database/database_provider.dart';
+import 'package:pos_app/navigation/nav_widgets.dart';
 import 'package:pos_app/shift/shift_provider.dart';
 import 'package:pos_app/time_clock/time_clock_provider.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
@@ -68,20 +69,17 @@ class _NoShiftView extends ConsumerStatefulWidget {
 }
 
 class _NoShiftViewState extends ConsumerState<_NoShiftView> {
-  final _ctrl = TextEditingController();
   bool _saving = false;
 
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
   Future<void> _startShift() async {
-    final amount = double.tryParse(_ctrl.text) ?? 0;
     setState(() => _saving = true);
     try {
-      await ref.read(shiftNotifierProvider.notifier).startShift(amount);
+      // Float tracking is deprecated; pass a static 0 so the underlying
+      // shift row stays schema-valid without a cash-drawer step. This is the
+      // station's master drawer shift (distinct from kiosk attendance rows).
+      await ref
+          .read(shiftNotifierProvider.notifier)
+          .startShift(0, isDrawerShift: true);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -106,7 +104,7 @@ class _NoShiftViewState extends ConsumerState<_NoShiftView> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Icon(Icons.lock_clock,
-                    size: 56, color: cs.primary.withValues(alpha: 0.7)),
+                    size: 56, color: context.navAccent.withValues(alpha: 0.7)),
                 const SizedBox(height: 16),
                 Text(
                   'No Active Shift',
@@ -124,21 +122,14 @@ class _NoShiftViewState extends ConsumerState<_NoShiftView> {
                       ?.copyWith(color: cs.onSurface.withValues(alpha: 0.6)),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 32),
-                Text('Opening float amount',
-                    style: theme.textTheme.labelLarge),
                 const SizedBox(height: 8),
-                TextField(
-                  controller: _ctrl,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    border: OutlineInputBorder(),
-                    hintText: '0.00',
-                    prefixIcon: Icon(Icons.attach_money),
-                  ),
+                Text(
+                  'Begin a tracking session to clock your hours.',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: cs.onSurface.withValues(alpha: 0.5)),
+                  textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 32),
                 FilledButton.icon(
                   onPressed: _saving ? null : _startShift,
                   icon: _saving
@@ -147,8 +138,8 @@ class _NoShiftViewState extends ConsumerState<_NoShiftView> {
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.lock_open),
-                  label: const Text('Open Drawer / Start Shift'),
+                      : const Icon(Icons.play_arrow),
+                  label: const Text('Start Shift'),
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
@@ -176,97 +167,33 @@ class _ActiveShiftView extends ConsumerStatefulWidget {
 
 class _ActiveShiftViewState extends ConsumerState<_ActiveShiftView> {
   bool _closing = false;
+  Timer? _ticker;
 
-  Future<void> _addMovement(String type) async {
-    final amtCtrl = TextEditingController();
-    final noteCtrl = TextEditingController();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(ctx).cardColor,
-        title: Text(type == 'in' ? 'Cash In' : 'Cash Out'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: amtCtrl,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Amount',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.attach_money),
-              ),
-              autofocus: true,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: noteCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Note (optional)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
+  @override
+  void initState() {
+    super.initState();
+    // Low-overhead live elapsed-time tracker: a single lightweight setState
+    // once per minute is enough to advance the "Xh Ym" display, and costs
+    // virtually nothing on low-spec tablets.
+    _ticker = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
 
-    if (confirmed != true || !mounted) return;
-    final amount = double.tryParse(amtCtrl.text) ?? 0;
-    if (amount <= 0) return;
-    await ref.read(shiftNotifierProvider.notifier).addCashMovement(
-          amount: amount,
-          type: type,
-          note: noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
-        );
+  @override
+  void dispose() {
+    // Guarantee zero background processing once this view is gone.
+    _ticker?.cancel();
+    super.dispose();
   }
 
   Future<void> _endShift() async {
-    final amtCtrl = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Theme.of(ctx).cardColor,
         title: const Text('End Shift'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Count the cash in the drawer and enter the total below. '
-              'A Z-Report will be generated automatically.',
-              style: Theme.of(ctx).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(ctx)
-                        .colorScheme
-                        .onSurface
-                        .withValues(alpha: 0.7),
-                  ),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: amtCtrl,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Actual drawer count',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.attach_money),
-              ),
-              autofocus: true,
-            ),
-          ],
-        ),
+        content: const Text('Are you sure you want to end your shift?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -274,11 +201,11 @@ class _ActiveShiftViewState extends ConsumerState<_ActiveShiftView> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Close Shift & Generate Z-Report'),
             style: FilledButton.styleFrom(
               backgroundColor: Theme.of(ctx).colorScheme.error,
               foregroundColor: Theme.of(ctx).colorScheme.onError,
             ),
+            child: const Text('Confirm'),
           ),
         ],
       ),
@@ -287,10 +214,7 @@ class _ActiveShiftViewState extends ConsumerState<_ActiveShiftView> {
     if (confirmed != true || !mounted) return;
     setState(() => _closing = true);
     try {
-      await ref
-          .read(shiftNotifierProvider.notifier)
-          .closeShift(widget.shift,
-              actualCountedCash: double.tryParse(amtCtrl.text) ?? 0);
+      await ref.read(shiftNotifierProvider.notifier).closeShift(widget.shift);
     } finally {
       if (mounted) setState(() => _closing = false);
     }
@@ -302,7 +226,6 @@ class _ActiveShiftViewState extends ConsumerState<_ActiveShiftView> {
     final cs = theme.colorScheme;
     final shift = widget.shift;
     final fmt = DateFormat('dd/MM/yyyy HH:mm');
-    final currFmt = NumberFormat('#,##0.00');
 
     final duration = DateTime.now().difference(shift.openedAt);
     final hours = duration.inHours;
@@ -366,53 +289,10 @@ class _ActiveShiftViewState extends ConsumerState<_ActiveShiftView> {
                     value: fmt.format(shift.openedAt.toLocal()),
                     color: cs.onPrimaryContainer,
                   ),
-                  _InfoRow(
-                    label: 'Opening float',
-                    value: currFmt.format(shift.startingCash),
-                    color: cs.onPrimaryContainer,
-                  ),
                 ],
               ),
             ),
           ),
-
-          const SizedBox(height: 16),
-
-          // ── Action buttons ─────────────────────────────────────────────
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _closing ? null : () => _addMovement('in'),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Cash In'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    foregroundColor: Colors.green,
-                    side: const BorderSide(color: Colors.green),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _closing ? null : () => _addMovement('out'),
-                  icon: const Icon(Icons.remove),
-                  label: const Text('Cash Out'),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    foregroundColor: cs.error,
-                    side: BorderSide(color: cs.error),
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-
-          // ── Recent movements ───────────────────────────────────────────
-          _ShiftMovementsCard(shiftOpenedAt: shift.openedAt),
 
           const SizedBox(height: 24),
 
@@ -420,7 +300,7 @@ class _ActiveShiftViewState extends ConsumerState<_ActiveShiftView> {
           FilledButton.icon(
             onPressed: _closing ? null : _endShift,
             icon: const Icon(Icons.lock),
-            label: const Text('End Shift & Generate Z-Report'),
+            label: const Text('End Shift'),
             style: FilledButton.styleFrom(
               backgroundColor: cs.error,
               foregroundColor: cs.onError,
@@ -428,82 +308,6 @@ class _ActiveShiftViewState extends ConsumerState<_ActiveShiftView> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RECENT MOVEMENTS CARD
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _ShiftMovementsCard extends ConsumerWidget {
-  final DateTime shiftOpenedAt;
-  const _ShiftMovementsCard({required this.shiftOpenedAt});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    return Card(
-      color: theme.cardColor,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Cash Movements This Shift',
-                style: theme.textTheme.titleSmall
-                    ?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            ref.watch(_shiftMovementsProvider(shiftOpenedAt)).when(
-              loading: () =>
-                  const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Text('$e'),
-              data: (movements) {
-                if (movements.isEmpty) {
-                  return Text(
-                    'No movements yet.',
-                    style: TextStyle(
-                        color: cs.onSurface.withValues(alpha: 0.5)),
-                  );
-                }
-                final fmt = DateFormat('HH:mm');
-                final currFmt = NumberFormat('#,##0.00');
-                return Column(
-                  children: movements.map((m) {
-                    final isIn = m.type == 'in';
-                    return ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        isIn
-                            ? Icons.arrow_downward
-                            : Icons.arrow_upward,
-                        color: isIn ? Colors.green : cs.error,
-                        size: 20,
-                      ),
-                      title: Text(
-                        '${isIn ? '+' : '-'}${currFmt.format(m.amount)}',
-                        style: TextStyle(
-                          color: isIn ? Colors.green : cs.error,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      subtitle: m.note != null ? Text(m.note!) : null,
-                      trailing: Text(
-                        fmt.format(m.createdAt.toLocal()),
-                        style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.onSurface.withValues(alpha: 0.5)),
-                      ),
-                    );
-                  }).toList(),
-                );
-              },
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -551,6 +355,40 @@ class _HoursTabState extends ConsumerState<_HoursTab> {
     }
   }
 
+  void _doExport(
+      BuildContext context, List<ShiftSessionRow> rows, String storeName) {
+    if (rows.isEmpty) {
+      showAppSnackbarRaw(context, 'Nothing to export in this range');
+      return;
+    }
+    final fmt = DateFormat('yyyy-MM-dd HH:mm');
+    final sb = StringBuffer('Clock in,Clock out,Employee,Store,Total Hours\n');
+    for (final r in rows) {
+      final emp = r.employeeName.contains(',')
+          ? '"${r.employeeName}"'
+          : r.employeeName;
+      final store = storeName.contains(',') ? '"$storeName"' : storeName;
+      final inStr = fmt.format(r.clockIn);
+      final outStr = r.isOpen ? 'Open' : fmt.format(r.clockOut!);
+      final hrs = r.isOpen ? 'Open' : _fmtHours(r.totalMinutes);
+      sb.writeln('$inStr,$outStr,$emp,$store,$hrs');
+    }
+    Clipboard.setData(ClipboardData(text: sb.toString()));
+    showAppSnackbarRaw(context, 'Report copied to clipboard as CSV');
+  }
+
+  Future<void> _addTimeCard() async {
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => const _AddTimeCardDialog(),
+    );
+    // The list is a live stream off shiftsTable, so the new row appears
+    // instantly — no manual refresh needed.
+    if (saved == true && mounted) {
+      showAppSnackbarRaw(context, 'Time card added');
+    }
+  }
+
   HoursQueryParams get _params {
     final companyId = ref.read(selectedCompanyProvider)?.id ?? 0;
     final start = _range.start;
@@ -570,7 +408,7 @@ class _HoursTabState extends ConsumerState<_HoursTab> {
     final cs = theme.colorScheme;
     final company = ref.watch(selectedCompanyProvider);
     final storeName = company?.name ?? '';
-    final hoursAsync = ref.watch(hoursReportProvider(_params));
+    final sessionsAsync = ref.watch(shiftSessionsProvider(_params));
     final allUsersAsync = ref.watch(allUsersProvider);
 
     final dateFmt = DateFormat('MMM d, yyyy');
@@ -578,13 +416,11 @@ class _HoursTabState extends ConsumerState<_HoursTab> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // ── Filter bar ─────────────────────────────────────────────────
+        // ── Unified filter + action bar (single horizontal line) ───────
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               // Date range picker chip
               InkWell(
@@ -592,8 +428,7 @@ class _HoursTabState extends ConsumerState<_HoursTab> {
                 onTap: _pickRange,
                 child: Container(
                   height: 44,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
                   decoration: BoxDecoration(
                     border:
                         Border.all(color: cs.outline.withValues(alpha: 0.4)),
@@ -615,15 +450,17 @@ class _HoursTabState extends ConsumerState<_HoursTab> {
                 ),
               ),
 
-              // Employee dropdown
-              allUsersAsync.when(
-                loading: () => const SizedBox(
-                    height: 44, width: 160, child: LinearProgressIndicator()),
-                error: (_, __) => const SizedBox.shrink(),
-                data: (users) => ConstrainedBox(
-                  constraints: const BoxConstraints(minWidth: 180),
-                  child: Container(
+              const SizedBox(width: 12),
+
+              // Employee dropdown — flexes to fill the gap before the actions
+              Flexible(
+                child: allUsersAsync.when(
+                  loading: () => const SizedBox(
+                      height: 44, child: LinearProgressIndicator()),
+                  error: (_, __) => const SizedBox.shrink(),
+                  data: (users) => Container(
                     height: 44,
+                    constraints: const BoxConstraints(maxWidth: 280),
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     decoration: BoxDecoration(
                       border: Border.all(
@@ -670,19 +507,37 @@ class _HoursTabState extends ConsumerState<_HoursTab> {
                   ),
                 ),
               ),
+
+              const Spacer(),
+
+              // ADD TIME CARD — framed admin action, mirrors EXPORT's frame.
+              _FramedAction(
+                icon: Icons.add_circle_outline,
+                label: 'ADD TIME CARD',
+                onPressed: _addTimeCard,
+              ),
+
+              const SizedBox(width: 12),
+
+              // EXPORT — framed, touch-sized action pinned to the right
+              _FramedAction(
+                icon: Icons.file_download_outlined,
+                label: 'EXPORT',
+                onPressed: () => _doExport(context,
+                    sessionsAsync.asData?.value ?? const [], storeName),
+              ),
             ],
           ),
         ),
 
         // ── Report card ────────────────────────────────────────────────
         Expanded(
-          child: hoursAsync.when(
+          child: sessionsAsync.when(
             loading: () =>
                 const Center(child: CircularProgressIndicator()),
             error: (e, _) => Center(child: Text('Error: $e')),
-            data: (rows) => _HoursReportCard(
+            data: (rows) => _SessionsReportCard(
               rows: rows,
-              storeName: storeName,
               page: _page,
               rowsPerPage: _rowsPerPage,
               onPageChanged: (p) => setState(() => _page = p),
@@ -700,17 +555,61 @@ class _HoursTabState extends ConsumerState<_HoursTab> {
 // HOURS REPORT CARD (table + export + pagination)
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _HoursReportCard extends StatelessWidget {
-  final List<HoursReportRow> rows;
-  final String storeName;
+/// Formats raw minutes as decimal hours (e.g. 90 → "1.50").
+/// Shared by the report table and the CSV export.
+String _fmtHours(int minutes) =>
+    NumberFormat.decimalPatternDigits(decimalDigits: 2).format(minutes / 60.0);
+
+/// Framed flat action button — the shared frame style for EXPORT and
+/// ADD TIME CARD (thin navAccent outline, rounded, touch-sized, flat hover).
+class _FramedAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+  const _FramedAction({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 18, color: context.navAccent),
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.9,
+          color: context.navAccent,
+        ),
+      ),
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        side: BorderSide(color: context.navAccent, width: 1.0),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        foregroundColor: context.navAccent,
+      ).copyWith(
+        overlayColor: WidgetStatePropertyAll(context.navHover),
+      ),
+    );
+  }
+}
+
+class _SessionsReportCard extends StatelessWidget {
+  final List<ShiftSessionRow> rows;
   final int page;
   final int rowsPerPage;
   final ValueChanged<int> onPageChanged;
   final ValueChanged<int> onRowsPerPageChanged;
 
-  const _HoursReportCard({
+  const _SessionsReportCard({
     required this.rows,
-    required this.storeName,
     required this.page,
     required this.rowsPerPage,
     required this.onPageChanged,
@@ -722,24 +621,6 @@ class _HoursReportCard extends StatelessWidget {
 
   int get _safePage => page.clamp(0, _totalPages - 1);
 
-  String _fmtHours(int minutes) =>
-      NumberFormat.decimalPatternDigits(decimalDigits: 2)
-          .format(minutes / 60.0);
-
-  void _doExport(BuildContext context) {
-    final sb = StringBuffer('Employee,Store,Total Hours\n');
-    for (final r in rows) {
-      final emp = r.employeeName.contains(',')
-          ? '"${r.employeeName}"'
-          : r.employeeName;
-      final store =
-          storeName.contains(',') ? '"$storeName"' : storeName;
-      sb.writeln('$emp,$store,${_fmtHours(r.totalMinutes)}');
-    }
-    Clipboard.setData(ClipboardData(text: sb.toString()));
-    showAppSnackbarRaw(context, 'Report copied to clipboard as CSV');
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -747,11 +628,14 @@ class _HoursReportCard extends StatelessWidget {
     final labelStyle = theme.textTheme.bodySmall
         ?.copyWith(color: cs.onSurfaceVariant, fontWeight: FontWeight.w500);
     final dividerColor = cs.outline.withValues(alpha: 0.22);
+    final fmt = DateFormat('MMM d, yyyy h:mm a');
 
     final pageRows =
         rows.skip(_safePage * rowsPerPage).take(rowsPerPage).toList();
-    final totalMinutes =
-        rows.fold(0, (sum, r) => sum + r.totalMinutes);
+    // Total = completed sessions only; open (in-progress) rows are excluded.
+    final totalMinutes = rows
+        .where((r) => !r.isOpen)
+        .fold(0, (sum, r) => sum + r.totalMinutes);
 
     return Card(
       color: theme.cardColor,
@@ -759,51 +643,21 @@ class _HoursReportCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // EXPORT button row
-          Padding(
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
-            child: Row(
-              children: [
-                TextButton(
-                  onPressed: () => _doExport(context),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: Text(
-                    'EXPORT',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.9,
-                      color: cs.primary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          Divider(height: 1, color: dividerColor),
-
           // Column headers
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
             child: Row(
               children: [
+                Expanded(flex: 5, child: Text('Clock in', style: labelStyle)),
+                Expanded(flex: 5, child: Text('Clock out', style: labelStyle)),
+                Expanded(flex: 4, child: Text('Employee', style: labelStyle)),
                 Expanded(
-                  flex: 4,
-                  child: Text('Employee', style: labelStyle),
-                ),
-                Expanded(
-                  flex: 3,
-                  child: Text('Store', style: labelStyle),
-                ),
-                Text(
-                  'Total hours',
-                  style: labelStyle?.copyWith(fontWeight: FontWeight.w600),
+                  flex: 2,
+                  child: Text(
+                    'Total hours',
+                    textAlign: TextAlign.right,
+                    style: labelStyle?.copyWith(fontWeight: FontWeight.w600),
+                  ),
                 ),
               ],
             ),
@@ -811,7 +665,7 @@ class _HoursReportCard extends StatelessWidget {
 
           Divider(height: 1, color: dividerColor),
 
-          // Data rows
+          // Data rows — one per clock-in/out session
           Expanded(
             child: rows.isEmpty
                 ? Center(
@@ -843,27 +697,52 @@ class _HoursReportCard extends StatelessWidget {
                         child: Row(
                           children: [
                             Expanded(
+                              flex: 5,
+                              child: Text(
+                                fmt.format(row.clockIn),
+                                style: theme.textTheme.bodyMedium,
+                              ),
+                            ),
+                            Expanded(
+                              flex: 5,
+                              child: row.isOpen
+                                  ? Text(
+                                      'Open',
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                        color: cs.error,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    )
+                                  : Text(
+                                      fmt.format(row.clockOut!),
+                                      style: theme.textTheme.bodyMedium,
+                                    ),
+                            ),
+                            Expanded(
                               flex: 4,
                               child: Text(
                                 row.employeeName,
+                                overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodyMedium
                                     ?.copyWith(fontWeight: FontWeight.w500),
                               ),
                             ),
                             Expanded(
-                              flex: 3,
+                              flex: 2,
                               child: Text(
-                                storeName,
+                                row.isOpen
+                                    ? 'Open'
+                                    : _fmtHours(row.totalMinutes),
+                                textAlign: TextAlign.right,
                                 style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: cs.onSurface
-                                      .withValues(alpha: 0.55),
+                                  color: row.isOpen
+                                      ? cs.error
+                                      : cs.onSurface.withValues(alpha: 0.85),
+                                  fontWeight: row.isOpen
+                                      ? FontWeight.w700
+                                      : FontWeight.w400,
                                 ),
-                              ),
-                            ),
-                            Text(
-                              _fmtHours(row.totalMinutes),
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: cs.onSurface.withValues(alpha: 0.85),
                               ),
                             ),
                           ],
@@ -873,7 +752,7 @@ class _HoursReportCard extends StatelessWidget {
                   ),
           ),
 
-          // Total row (only when there is data)
+          // Total row (completed sessions only)
           if (rows.isNotEmpty) ...[
             Divider(height: 1, color: dividerColor),
             Padding(
@@ -882,18 +761,21 @@ class _HoursReportCard extends StatelessWidget {
               child: Row(
                 children: [
                   Expanded(
-                    flex: 4,
+                    flex: 14,
                     child: Text(
-                      'Total',
+                      'Total (completed)',
                       style: theme.textTheme.bodyMedium
                           ?.copyWith(fontWeight: FontWeight.bold),
                     ),
                   ),
-                  const Expanded(flex: 3, child: SizedBox()),
-                  Text(
-                    _fmtHours(totalMinutes),
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.bold),
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      _fmtHours(totalMinutes),
+                      textAlign: TextAlign.right,
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ],
               ),
@@ -1013,15 +895,305 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-final _shiftMovementsProvider =
-    StreamProvider.autoDispose.family<List<CashMovementsTableData>, DateTime>(
-  (ref, shiftOpenedAt) {
-    final db = ref.watch(appDatabaseProvider);
-    return (db.select(db.cashMovementsTable)
-          ..orderBy([(t) => OrderingTerm.desc(t.createdAt)]))
-        .watch()
-        .map((all) => all
-            .where((m) => !m.createdAt.isBefore(shiftOpenedAt))
-            .toList());
-  },
-);
+// ─────────────────────────────────────────────────────────────────────────────
+// ADD TIME CARD — admin override dialog (manual clock-in/out entry)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _AddTimeCardDialog extends ConsumerStatefulWidget {
+  const _AddTimeCardDialog();
+
+  @override
+  ConsumerState<_AddTimeCardDialog> createState() => _AddTimeCardDialogState();
+}
+
+class _AddTimeCardDialogState extends ConsumerState<_AddTimeCardDialog> {
+  int? _userId;
+  late DateTime _inDate;
+  late TimeOfDay _inTime;
+  late DateTime _outDate;
+  late TimeOfDay _outTime;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _inDate = DateTime(now.year, now.month, now.day);
+    _outDate = _inDate;
+    _inTime = TimeOfDay.fromDateTime(now.subtract(const Duration(hours: 1)));
+    _outTime = TimeOfDay.fromDateTime(now);
+  }
+
+  // Independent in/out date+time so a session can span any window (even
+  // different days), per the admin override requirement.
+  DateTime get _clockIn => DateTime(_inDate.year, _inDate.month, _inDate.day,
+      _inTime.hour, _inTime.minute);
+  DateTime get _clockOut => DateTime(_outDate.year, _outDate.month,
+      _outDate.day, _outTime.hour, _outTime.minute);
+
+  Future<void> _pickDate(bool isIn) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: isIn ? _inDate : _outDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        if (isIn) {
+          _inDate = picked;
+        } else {
+          _outDate = picked;
+        }
+        _error = null;
+      });
+    }
+  }
+
+  Future<void> _pickTime(bool isIn) async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: isIn ? _inTime : _outTime,
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        if (isIn) {
+          _inTime = picked;
+        } else {
+          _outTime = picked;
+        }
+        _error = null;
+      });
+    }
+  }
+
+  Future<void> _save() async {
+    if (_userId == null) {
+      setState(() => _error = 'Select an employee.');
+      return;
+    }
+    if (!_clockOut.isAfter(_clockIn)) {
+      setState(() => _error = 'Clock-out must be after clock-in.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await ref.read(shiftNotifierProvider.notifier).addManualTimeCard(
+            userId: _userId!,
+            clockInUtc: _clockIn.toUtc(),
+            clockOutUtc: _clockOut.toUtc(),
+          );
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = '$e';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final usersAsync = ref.watch(allUsersProvider);
+    final dateFmt = DateFormat('MMM d, yyyy');
+
+    final minutes = _clockOut.isAfter(_clockIn)
+        ? _clockOut.difference(_clockIn).inMinutes
+        : 0;
+
+    return AlertDialog(
+      backgroundColor: theme.cardColor,
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: cs.outline.withValues(alpha: 0.4)),
+      ),
+      title: const Text('Add Time Card'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const _FieldLabel('Employee'),
+            usersAsync.when(
+              loading: () => const LinearProgressIndicator(),
+              error: (_, __) => Text('Could not load employees',
+                  style: TextStyle(color: cs.error)),
+              data: (users) => Container(
+                height: 48,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  border:
+                      Border.all(color: cs.outline.withValues(alpha: 0.4)),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<int?>(
+                    value: _userId,
+                    isExpanded: true,
+                    hint: Text('Select employee',
+                        style: TextStyle(color: cs.onSurfaceVariant)),
+                    dropdownColor: theme.cardColor,
+                    items: users.map((u) {
+                      final name = [u.firstName, u.lastName]
+                          .whereType<String>()
+                          .where((s) => s.isNotEmpty)
+                          .join(' ')
+                          .trim();
+                      return DropdownMenuItem<int?>(
+                        value: u.id,
+                        child: Text(
+                          name.isEmpty
+                              ? (u.username ?? 'User #${u.id}')
+                              : name,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: cs.onSurface),
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (v) => setState(() {
+                      _userId = v;
+                      _error = null;
+                    }),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            const _FieldLabel('Clock in'),
+            Row(children: [
+              Expanded(
+                child: _PickerChip(
+                  icon: Icons.calendar_today,
+                  label: dateFmt.format(_inDate),
+                  onTap: () => _pickDate(true),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _PickerChip(
+                  icon: Icons.schedule,
+                  label: _inTime.format(context),
+                  onTap: () => _pickTime(true),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 16),
+
+            const _FieldLabel('Clock out'),
+            Row(children: [
+              Expanded(
+                child: _PickerChip(
+                  icon: Icons.calendar_today,
+                  label: dateFmt.format(_outDate),
+                  onTap: () => _pickDate(false),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _PickerChip(
+                  icon: Icons.schedule,
+                  label: _outTime.format(context),
+                  onTap: () => _pickTime(false),
+                ),
+              ),
+            ]),
+            const SizedBox(height: 16),
+
+            Text(
+              'Total hours: ${_fmtHours(minutes)}',
+              style: theme.textTheme.titleSmall
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!,
+                  style: TextStyle(color: cs.error, fontSize: 13)),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context, false),
+          child: const Text('CANCEL'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('SAVE'),
+        ),
+      ],
+    );
+  }
+}
+
+class _FieldLabel extends StatelessWidget {
+  final String text;
+  const _FieldLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+      ),
+    );
+  }
+}
+
+class _PickerChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _PickerChip(
+      {required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: Container(
+        height: 46,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          border: Border.all(color: cs.outline.withValues(alpha: 0.4)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: cs.onSurfaceVariant),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: cs.onSurface)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

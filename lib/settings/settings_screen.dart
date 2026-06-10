@@ -29,6 +29,7 @@ import 'package:pos_app/auth/master_login_screen.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
+import 'package:pos_app/navigation/nav_widgets.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/currency/country_model.dart';
@@ -36,7 +37,6 @@ import 'package:dio/dio.dart';
 import 'package:pos_app/settings/printer_settings_screen.dart';
 import 'package:pos_app/kitchen/kitchen_push_service.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -51,6 +51,10 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   int _selectedIndex = 0;
+  bool _isSidebarVisible = true;
+
+  // Sidebar stays put on tab select — only manual toggles hide it.
+  void _selectTab(int i) => setState(() => _selectedIndex = i);
 
   static const _tabs = [
     (icon: Icons.tune,              label: 'General'),
@@ -135,53 +139,106 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
-          TextButton.icon(
-            icon: const Icon(Icons.save_outlined),
-            label: const Text('Save & Restart'),
-            onPressed: _saveAndRestart,
-          ),
-          const SizedBox(width: 8),
         ],
       ),
       body: Row(
         children: [
-          // ── Left sidebar ────────────────────────────────────────────────
-          Material(
-            color: cs.surfaceContainerLow,
-            child: SizedBox(
-              width: 210,
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                itemCount: _tabs.length,
-                itemBuilder: (context, i) {
-                  final tab = _tabs[i];
-                  final active = i == _selectedIndex;
-                  return ListTile(
-                    dense: true,
-                    leading: Icon(
-                      tab.icon,
-                      size: 18,
-                      color: active ? cs.primary : cs.onSurfaceVariant,
-                    ),
-                    title: Text(
-                      tab.label,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: active ? cs.primary : cs.onSurface,
-                        fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+          // ── Left sidebar — instant show/hide via conditional inclusion ───
+          if (_isSidebarVisible)
+            Material(
+              color: cs.surfaceContainerLow,
+              child: Container(
+                width: 211, // 210 panel + 1px right divider
+                decoration: BoxDecoration(
+                  border: Border(
+                    right: BorderSide(width: 1, color: cs.outlineVariant),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    // Scrollable tab list — takes all space above the pinned action.
+                    Expanded(
+                      child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: _tabs.length,
+                        itemBuilder: (context, i) => NavItem(
+                          icon: _tabs[i].icon,
+                          label: _tabs[i].label,
+                          isActive: i == _selectedIndex,
+                          onTap: () => _selectTab(i),
+                        ),
                       ),
                     ),
-                    selected: active,
-                    selectedTileColor: cs.primaryContainer.withValues(alpha: 0.35),
-                    onTap: () => setState(() => _selectedIndex = i),
-                  );
-                },
+
+                    // Divider separating the nav list from the pinned action.
+                    Divider(height: 1, color: context.navDivider),
+
+                    // Pinned "Save & Restart" action at the bottom of the sidebar —
+                    // mirrors the "Exit Management" button in management_layout.dart.
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: Material(
+                          color: context.navAccent,
+                          borderRadius: BorderRadius.circular(8),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: _saveAndRestart,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.save_outlined,
+                                    color: cs.onPrimary,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    'Save & Restart',
+                                    style: TextStyle(
+                                      color: cs.onPrimary,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          VerticalDivider(width: 1, color: cs.outlineVariant),
           // ── Content ─────────────────────────────────────────────────────
-          Expanded(child: _tabViews[_selectedIndex]),
+          Expanded(
+            child: Stack(
+              children: [
+                // No auto-hide — the sidebar only changes on manual toggles.
+                LazyIndexedStack(
+                  index: _selectedIndex,
+                  children: _tabViews,
+                ),
+                if (!_isSidebarVisible)
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    child: Center(
+                      child: NavEdgeToggle(
+                        onTap: () =>
+                            setState(() => _isSidebarVisible = true),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -1702,27 +1759,15 @@ class _ThemePickerDialog extends StatelessWidget {
             ),
             Container(height: 1, color: Colors.white.withValues(alpha: 0.06)),
             const SizedBox(height: 4),
-            ...options.asMap().entries.map((e) {
-              final idx = e.key;
-              final opt = e.value;
+            ...options.map((opt) {
               final selected = opt.key == current;
-              return _OptionTile(opt: opt, selected: selected, onTap: () => onSelect(opt.key))
-                  .animate(delay: Duration(milliseconds: 35 * idx))
-                  .fadeIn(duration: 220.ms)
-                  .slideY(begin: 0.12, end: 0, duration: 220.ms, curve: Curves.easeOut);
+              return _OptionTile(
+                  opt: opt, selected: selected, onTap: () => onSelect(opt.key));
             }),
             const SizedBox(height: 4),
           ],
         ),
-      )
-          .animate()
-          .scale(
-            begin: const Offset(0.93, 0.93),
-            end: const Offset(1, 1),
-            duration: 200.ms,
-            curve: Curves.easeOut,
-          )
-          .fadeIn(duration: 180.ms),
+      ),
     );
   }
 }
@@ -1877,9 +1922,31 @@ class _GeneralTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(appSettingsProvider);
+    final floorPlanEnabled =
+        settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+    final bookingEnabled =
+        settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
+    // POS is always available; Tables / Booking appear only when enabled.
+    final defaultScreenOptions = <String>[
+      'POS',
+      if (floorPlanEnabled) 'Tables',
+      if (bookingEnabled) 'Booking',
+    ];
+
     return _TabScrollView(
       cards: [
         const _DeviceCard(),
+        _SettingsCard(
+          title: 'STARTUP',
+          children: [
+            _SettingDropdown(
+              settingKey: SettingKeys.defaultScreen,
+              label: 'Default screen',
+              options: defaultScreenOptions,
+            ),
+          ],
+        ),
         _SettingsCard(
           title: 'REGIONAL',
           children: [

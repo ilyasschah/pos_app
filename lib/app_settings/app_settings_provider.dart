@@ -101,57 +101,70 @@ class AppSettingsNotifier extends Notifier<Map<String, String>> {
     final db = ref.read(appDatabaseProvider);
     final props = ref.read(rawAppPropertiesProvider).value ?? [];
     final existing = _findProp(props, key);
+    // A row only counts as a real server property when it has a positive id.
+    // A negative id means it's a temp row we wrote offline for a brand-new key
+    // that the server hasn't acknowledged yet.
+    final hasServerRow = existing != null && existing.id > 0;
+    final rowId = hasServerRow ? existing.id : _tempIdForKey(key);
 
-    // Optimistic Drift write — for EXISTING settings, where we have a stable
-    // server id to upsert against. The Drift stream re-emits immediately so
-    // anything else watching rawAppPropertiesProvider (theme, menu options
-    // that toggle on settings) reacts without waiting for the API round-trip
-    // + pullAppProperties.
+    // Optimistic Drift write for BOTH existing and new keys, so the value
+    // persists across restart offline-first (the previous code only wrote the
+    // Drift row for already-synced keys, so brand-new keys like
+    // App.DefaultScreen vanished on restart). New keys get a deterministic
+    // temp negative id; pullAppProperties swaps it for the real server id.
     //
     // Stamp `lastModified` with `now.toUtc()` so the next pullAppProperties
-    // sees local > server and respects the user's just-made change (the
-    // existing per-key timestamp guard in SyncManager._pullAppProperties).
-    if (existing != null) {
-      await db.into(db.appPropertiesTable).insertOnConflictUpdate(
-            AppPropertiesTableCompanion(
-              id: Value(existing.id),
-              companyId: Value(company.id),
-              name: Value(key),
-              value: Value(value),
-              lastModified: Value(DateTime.now().toUtc()),
-            ),
-          );
-    }
+    // sees local > server and respects the user's just-made change.
+    await db.into(db.appPropertiesTable).insertOnConflictUpdate(
+          AppPropertiesTableCompanion(
+            id: Value(rowId),
+            companyId: Value(company.id),
+            name: Value(key),
+            value: Value(value),
+            lastModified: Value(DateTime.now().toUtc()),
+            // Pending until the server confirms; the sync engine pushes any
+            // 'pending' row on reconnect (handles offline edits too).
+            syncStatus: const Value('pending'),
+          ),
+        );
 
     try {
-      if (existing != null) {
+      if (hasServerRow) {
         await dio.patch(
           '/ApplicationProperties/Update',
           queryParameters: {'companyId': company.id},
           data: {'id': existing.id, 'newValue': value},
         );
+        // Server accepted the edit — clear the pending flag.
+        await (db.update(db.appPropertiesTable)
+              ..where((t) => t.id.equals(rowId)))
+            .write(const AppPropertiesTableCompanion(
+          syncStatus: Value('synced'),
+        ));
       } else {
         await dio.post(
           '/ApplicationProperties/Add',
           queryParameters: {'companyId': company.id},
           data: {'name': key, 'value': value},
         );
-        // New settings have no stable id yet — pull so the row lands in
-        // Drift with the server-assigned id. Best-effort: a failure here
-        // just means the UI reflects state until the next manual sync.
+        // Pull so the row lands in Drift with the server-assigned id; the pull
+        // also removes our temp row for this key. Best-effort.
         try {
           await ref.read(syncManagerProvider).pullAppProperties(company.id);
         } catch (_) {/* deferred to next sync */}
       }
-    } on DioException {
+    } on DioException catch (e) {
+      // No response → offline. Offline-first: KEEP the optimistic value and
+      // the Drift row (this is what makes the setting survive a restart). It
+      // will reconcile with the server on the next sync.
+      if (e.response == null) return;
+
+      // Got a response → the server actually REJECTED the change. Revert.
       _pendingOverrides.remove(key);
-      final prev = existing?.value ?? kSettingDefaults[key] ?? '';
+      final prev = hasServerRow ? existing.value : (kSettingDefaults[key] ?? '');
       state = {...state, key: prev};
 
-      // Revert the optimistic Drift write so the cache stays consistent
-      // with the server's actual rejection. New-setting failures have no
-      // Drift row to revert (we never wrote one).
-      if (existing != null) {
+      if (hasServerRow) {
         await db.into(db.appPropertiesTable).insertOnConflictUpdate(
               AppPropertiesTableCompanion(
                 id: Value(existing.id),
@@ -159,14 +172,22 @@ class AppSettingsNotifier extends Notifier<Map<String, String>> {
                 name: Value(key),
                 value: Value(existing.value),
                 lastModified: Value(DateTime.now().toUtc()),
+                syncStatus: const Value('synced'),
               ),
             );
+      } else {
+        // Drop the temp row we optimistically wrote for this brand-new key.
+        await (db.delete(db.appPropertiesTable)
+              ..where((t) => t.id.equals(rowId)))
+            .go();
       }
-      // Swallow — state and Drift are already reverted above. Callers in
-      // the settings UI don't handle exceptions, so rethrowing would surface
-      // as an unhandled crash. The sync manager will retry when online.
     }
   }
+
+  /// Deterministic negative id for an offline-only (not-yet-synced) property
+  /// row, derived from its key so re-setting the same key updates one row and
+  /// never collides with positive server ids.
+  int _tempIdForKey(String key) => -(key.hashCode & 0x7fffffff) - 1;
 
   Future<void> setBool(String key, bool value) =>
       set(key, value ? 'true' : 'false');

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
@@ -24,9 +25,41 @@ import 'package:pos_app/reports/sales_history_screen.dart';
 import 'package:pos_app/credit/credit_payment_dialog.dart';
 import 'package:pos_app/shift/shift_management_screen.dart';
 import 'package:pos_app/sync/connectivity_watcher.dart';
+import 'package:pos_app/sync/auto_sync_watcher.dart';
 import 'package:pos_app/sync/sync_button.dart';
 import 'package:pos_app/security/security_guard.dart';
 import 'package:pos_app/security/security_keys.dart';
+
+/// Shared reactive state for the active MainLayout tab index. Living outside
+/// the widget means tab switches are pure state changes — callers (order
+/// reopen, checkout completion) just set this instead of pushing a brand-new
+/// MainLayout, so `initState` (and its one-time startup cash-in hook) never
+/// re-fires on navigation.
+///
+/// Lazily seeded from the configured default screen on first read, so the very
+/// first frame already lands on the right tab (no flash) without MainLayout
+/// having to write the provider during its build/initState phase.
+final mainNavigationIndexProvider = StateProvider<int>(
+  (ref) => resolveDefaultScreenIndex(ref.read(appSettingsProvider)),
+);
+
+/// Resolves the configured default landing screen to a MainLayout tab index,
+/// validated against the feature flags so we never route to a disabled (and
+/// therefore empty `SizedBox.shrink`) screen — the cause of the post-checkout
+/// black screen. Indices must match the `screens` array below:
+/// 0 = POS Menu, 2 = Bookings, 4 = FloorPlan / Tables.
+int resolveDefaultScreenIndex(Map<String, String> settings) {
+  final pref =
+      (settings[SettingKeys.defaultScreen] ?? 'POS').toLowerCase();
+  final bookingEnabled =
+      settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
+  final floorPlanEnabled =
+      settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
+
+  if (pref == 'booking' && bookingEnabled) return 2;
+  if (pref == 'tables' && floorPlanEnabled) return 4;
+  return 0; // POS Menu — always valid.
+}
 
 class MainLayout extends ConsumerStatefulWidget {
   final int initialIndex;
@@ -38,17 +71,27 @@ class MainLayout extends ConsumerStatefulWidget {
 }
 
 class _MainLayoutState extends ConsumerState<MainLayout> {
-  late int _selectedIndex;
   bool _isSidebarVisible = true;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
     super.initState();
-    _selectedIndex = widget.initialIndex;
+
+    // Decide the landing tab once, on boot: an explicit caller-provided index
+    // wins, otherwise honour the user's configured default screen (validated
+    // against the feature flags). The provider is seeded lazily from settings
+    // on first read, so this write only matters for re-login or an explicit
+    // initialIndex — and it's deferred to after the first frame because
+    // modifying a provider during initState/build is disallowed by Riverpod.
+    final settings = ref.read(appSettingsProvider);
+    final landingIndex = widget.initialIndex != 0
+        ? widget.initialIndex
+        : resolveDefaultScreenIndex(settings);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final settings = ref.read(appSettingsProvider);
+      ref.read(mainNavigationIndexProvider.notifier).state = landingIndex;
       if (settings[SettingKeys.showCashInOnStart]?.toLowerCase() == 'true') {
         Navigator.push(
           context,
@@ -69,6 +112,15 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     // out and MainLayout is popped from the navigator.
     ref.watch(connectivityWatcherProvider);
 
+    // Global auto-sync: any local write triggers a debounced push+pull. Kept
+    // alive here for the whole post-login session (like the connectivity
+    // watcher). Cleaned up via ref.onDispose when MainLayout is popped.
+    ref.watch(autoSyncWatcherProvider);
+
+    // Active tab comes from the shared provider — tab switches are pure state
+    // changes, never a MainLayout rebuild from a navigator push.
+    final selectedIndex = ref.watch(mainNavigationIndexProvider);
+
     // ✨ Only show the permanent sidebar if we are on Desktop AND it hasn't been hidden
     final showPermanentSidebar = isDesktop && _isSidebarVisible;
 
@@ -79,6 +131,19 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
         settings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() == 'true';
     final company = ref.watch(selectedCompanyProvider);
     final companyName = company?.name ?? "Default Branch";
+
+    // Render guard: tabs 2/3 (Bookings) and 4 (Floor Plan) collapse to an empty
+    // `SizedBox.shrink` when their feature is off. If the active index points at
+    // a disabled tab — e.g. a stale provider value or a direct initialIndex push
+    // — the body would paint nothing (the "black screen"). Clamp to POS (0),
+    // which is always renderable.
+    bool isRenderable(int i) {
+      if (i == 2 || i == 3) return bookingEnabled;
+      if (i == 4) return floorPlanEnabled;
+      return true;
+    }
+
+    final renderIndex = isRenderable(selectedIndex) ? selectedIndex : 0;
 
     final List<Widget> screens = [
       MenuScreen(
@@ -96,7 +161,8 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     ];
 
     void handleNavTap(int index) {
-      setState(() => _selectedIndex = index);
+      ref.read(mainNavigationIndexProvider.notifier).state = index;
+      // Desktop sidebar stays put on tab select — only manual toggles hide it.
       if (!isDesktop && Scaffold.of(context).hasDrawer) {
         Navigator.pop(context);
       }
@@ -144,13 +210,13 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     NavItem(
                       icon: Icons.point_of_sale,
                       label: "POS",
-                      isActive: _selectedIndex == 0,
+                      isActive: selectedIndex == 0,
                       onTap: () => handleNavTap(0),
                     ),
                     NavItem(
                       icon: Icons.receipt_long,
                       label: "View sales history",
-                      isActive: _selectedIndex == 99,
+                      isActive: selectedIndex == 99,
                       onTap: () => ref.read(securityGuardProvider).guard(
                         context,
                         SecurityKeys.salesHistory,
@@ -169,7 +235,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     NavItem(
                       icon: Icons.layers,
                       label: "View open sales",
-                      isActive: _selectedIndex == 1,
+                      isActive: selectedIndex == 1,
                       onTap: () => ref.read(securityGuardProvider).guard(
                         context,
                         SecurityKeys.openOrders,
@@ -180,14 +246,14 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                       NavItem(
                         icon: Icons.calendar_month,
                         label: "Bookings",
-                        isActive: _selectedIndex == 2,
+                        isActive: selectedIndex == 2,
                         onTap: () => handleNavTap(2),
                       ),
                     if (bookingEnabled)
                       NavItem(
                         icon: Icons.history,
                         label: "Booking History",
-                        isActive: _selectedIndex == 3,
+                        isActive: selectedIndex == 3,
                         onTap: () => handleNavTap(3),
                       ),
                     if (floorPlanEnabled)
@@ -195,7 +261,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         icon: Icons.grid_view,
                         label:
                             settings[SettingKeys.tablesButtonLabel] ?? "Tables",
-                        isActive: _selectedIndex == 4,
+                        isActive: selectedIndex == 4,
                         onTap: () => handleNavTap(4),
                       ),
 
@@ -251,7 +317,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     NavItem(
                       icon: Icons.directions_run,
                       label: "End of day",
-                      isActive: _selectedIndex == 5,
+                      isActive: selectedIndex == 5,
                       onTap: () => ref.read(securityGuardProvider).guard(
                         context,
                         SecurityKeys.endOfDay,
@@ -260,15 +326,15 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     ),
 
                     const NavSectionLabel("User"),
-                    // Show clocked-in status + today's total hours when Time Clock is enabled
-                    if (settings[SettingKeys.selectBusinessDayOnStart]?.toLowerCase() == 'true') ...[
-                      const TimeClockStatusChip(),
-                      const TotalHoursBadge(),
-                    ],
+                    // Live clocked-in status + today's total hours. Both widgets
+                    // watch activeShiftProvider and self-hide when the employee
+                    // has no open shift, so no startup-setting gate is needed.
+                    const TimeClockStatusChip(),
+                    const TotalHoursBadge(),
                     NavItem(
                       icon: Icons.person_outline,
                       label: "User info",
-                      isActive: _selectedIndex == 6,
+                      isActive: selectedIndex == 6,
                       onTap: () => handleNavTap(6),
                     ),
                     NavItem(
@@ -372,29 +438,34 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
           : Drawer(backgroundColor: context.navSidebarBg, child: sidebar),
       body: Row(
         children: [
+          // Permanent sidebar shows/hides instantly via conditional inclusion
+          // (desktop only) — no width animation.
           if (showPermanentSidebar) sidebar,
           Expanded(
-            child: ClipRect(
-              child: _selectedIndex != 0 && _selectedIndex != 1 && !showPermanentSidebar && isDesktop
-                  ? Stack(
-                      children: [
-                        screens[_selectedIndex],
-                        Positioned(
-                          top: 8,
-                          left: 8,
-                          child: Material(
-                            color: Colors.transparent,
-                            child: IconButton(
-                              icon: const Icon(Icons.menu),
-                              tooltip: 'Show navigation',
-                              onPressed: () =>
-                                  setState(() => _isSidebarVisible = true),
-                            ),
-                          ),
-                        ),
-                      ],
-                    )
-                  : screens[_selectedIndex],
+            child: Stack(
+              children: [
+                // Cached, instant tab switching (LazyIndexedStack keeps state).
+                // The sidebar never auto-hides — scroll/tap gestures in the body
+                // leave it untouched; only manual toggles change its visibility.
+                LazyIndexedStack(
+                  index: renderIndex,
+                  children: screens,
+                ),
+
+                // Flat edge toggle to manually bring the sidebar back (desktop).
+                if (isDesktop && !_isSidebarVisible)
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    child: Center(
+                      child: NavEdgeToggle(
+                        onTap: () =>
+                            setState(() => _isSidebarVisible = true),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],

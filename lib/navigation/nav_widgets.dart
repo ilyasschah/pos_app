@@ -216,8 +216,8 @@ class _NavItemState extends State<NavItem> {
         onTap: widget.onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
+          // Low-spec: flat Container (no per-frame animation, no transform).
+          child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 9),
             decoration: BoxDecoration(
               color: bg,
@@ -225,16 +225,17 @@ class _NavItemState extends State<NavItem> {
             ),
             child: Row(
               children: [
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 120),
-                  width:  active ? 3 : 0,
-                  height: 16,
-                  margin: EdgeInsets.only(right: active ? 8 : 0),
-                  decoration: BoxDecoration(
-                    color: accent,
-                    borderRadius: BorderRadius.circular(2),
+                // Static active-accent bar (instant state swap, no animation).
+                if (active)
+                  Container(
+                    width: 3,
+                    height: 16,
+                    margin: const EdgeInsets.only(right: 8),
+                    decoration: BoxDecoration(
+                      color: accent,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
-                ),
                 Icon(widget.icon, size: 18, color: iconColor),
                 const SizedBox(width: 10),
                 Expanded(
@@ -292,8 +293,7 @@ class _NavIconButtonState extends State<NavIconButton> {
         onExit:  (_) => setState(() => _hovered = false),
         child: GestureDetector(
           onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
+          child: Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: _hovered ? context.navHover : Colors.transparent,
@@ -303,6 +303,105 @@ class _NavIconButtonState extends State<NavIconButton> {
               widget.icon,
               size: 20,
               color: widget.iconColor ?? context.navMuted,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED SHELL PRIMITIVES
+// Reused by the POS (main), Management and Settings sidebars. Tuned for
+// low-spec hardware: instant state swaps, no animation controllers, no clips.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Lazy IndexedStack ─────────────────────────────────────────────────────────
+// Keeps every *visited* child alive so switching tabs is instant and preserves
+// each view's state + scroll position (no rebuild / re-fetch). A child is only
+// built the first time its index is shown; unvisited indices stay as a cheap
+// SizedBox.shrink, so opening the shell doesn't eagerly spin up every screen
+// (and its providers) at once.
+class LazyIndexedStack extends StatefulWidget {
+  final int index;
+  final List<Widget> children;
+  const LazyIndexedStack({
+    super.key,
+    required this.index,
+    required this.children,
+  });
+
+  @override
+  State<LazyIndexedStack> createState() => _LazyIndexedStackState();
+}
+
+class _LazyIndexedStackState extends State<LazyIndexedStack> {
+  final Set<int> _activated = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _activated.add(widget.index);
+  }
+
+  @override
+  void didUpdateWidget(covariant LazyIndexedStack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _activated.add(widget.index);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IndexedStack(
+      index: widget.index,
+      sizing: StackFit.expand,
+      children: [
+        for (int i = 0; i < widget.children.length; i++)
+          if (_activated.contains(i))
+            widget.children[i]
+          else
+            const SizedBox.shrink(),
+      ],
+    );
+  }
+}
+
+// Low-spec note: the sidebar now shows/hides instantly via conditional
+// inclusion in each shell's Row (`if (visible) sidebar`), so the old
+// width-animating CollapsibleSidebar wrapper (AnimatedContainer + ClipRect +
+// OverflowBox) and the fade/slide NavBodyTransition were removed entirely —
+// LazyIndexedStack already gives instant, stateful tab switching on its own.
+
+// ── Floating edge toggle ──────────────────────────────────────────────────────
+// A thin, accent-coloured tab docked to the left edge of the body that brings
+// the sidebar back. Low-spec: flat colour, no shadow, no hover/size animation.
+class NavEdgeToggle extends StatelessWidget {
+  final VoidCallback onTap;
+  const NavEdgeToggle({super.key, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: onTap,
+          child: Container(
+            width: 22,
+            height: 72,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: context.navAccent,
+              borderRadius: const BorderRadius.horizontal(
+                right: Radius.circular(12),
+              ),
+            ),
+            child: Icon(
+              Icons.chevron_right,
+              size: 20,
+              color: Theme.of(context).colorScheme.onPrimary,
             ),
           ),
         ),

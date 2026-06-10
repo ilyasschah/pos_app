@@ -17,6 +17,7 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/product/product_group_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/product/product_model.dart';
+import 'package:pos_app/product/product_columns_provider.dart';
 import 'package:pos_app/product/product_export_model.dart';
 import 'package:pos_app/product/product_group_model.dart';
 import 'package:pos_app/product/product_provider.dart';
@@ -414,6 +415,50 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
     }
   }
 
+  void _showColumnPicker(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => Consumer(builder: (context, ref, _) {
+        final visible = ref.watch(productVisibleColumnsProvider);
+        final notifier = ref.read(productVisibleColumnsProvider.notifier);
+        return AlertDialog(
+          title: const Text("Show / Hide Columns"),
+          content: SizedBox(
+            width: 320,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: kProductColumns.map((col) {
+                  final isOn = visible[col.key] ?? col.defaultVisible;
+                  return CheckboxListTile(
+                    dense: true,
+                    title: Text(col.label),
+                    // Mandatory columns (Name, Edit) stay locked on.
+                    subtitle: col.mandatory ? const Text("Always shown") : null,
+                    value: isOn,
+                    onChanged: col.mandatory
+                        ? null
+                        : (val) => notifier.setVisible(col.key, val ?? false),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => notifier.resetToDefaults(),
+              child: const Text("Reset"),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Close"),
+            ),
+          ],
+        );
+      }),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -441,6 +486,12 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                   color: hasSelection ? Colors.red : theme.disabledColor),
             ),
             onPressed: hasSelection ? _bulkDelete : null,
+          ),
+          const SizedBox(width: 4),
+          TextButton.icon(
+            icon: const Icon(Icons.view_column_rounded),
+            label: const Text("Columns"),
+            onPressed: () => _showColumnPicker(context),
           ),
           const SizedBox(width: 4),
           TextButton.icon(
@@ -705,143 +756,205 @@ class _ProductListContent extends ConsumerWidget {
           final effectiveSelected =
               selectedIds.intersection(products.map((p) => p.id).toSet());
 
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(
-                    color: theme.dividerColor.withValues(alpha: 0.1)),
-              ),
-              color: theme.cardColor,
-              clipBehavior: Clip.antiAlias,
-              child: DataTable(
-                headingRowColor: WidgetStateProperty.all(
-                    theme.colorScheme.surfaceContainerHighest),
-                dataRowMaxHeight: 65,
-                onSelectAll: (val) => onSelectionChanged(
-                    val == true ? products.map((p) => p.id).toSet() : {}),
-                columns: const [
-                  DataColumn(label: Text("Image")),
-                  DataColumn(label: Text("Code")),
-                  DataColumn(label: Text("Name")),
-                  DataColumn(label: Text("Category")),
-                  DataColumn(label: Text("Price")),
-                  DataColumn(label: Text("Cost")),
-                  DataColumn(label: Text("Edit")),
-                ],
-                rows: products.map((p) {
-                  final groupName = groups
-                          .where((g) => g.id == p.productGroupId)
-                          .firstOrNull
-                          ?.name ??
-                      '-';
+          // Only the columns the user has chosen to keep, in catalogue order.
+          final visibleCols = ref.watch(productVisibleColumnsProvider);
+          final activeCols = kProductColumns
+              .where((c) => visibleCols[c.key] ?? c.defaultVisible)
+              .toList();
 
-                  return DataRow(
-                    selected: effectiveSelected.contains(p.id),
-                    onSelectChanged: (val) {
-                      final next = Set<int>.from(selectedIds);
-                      if (val == true) {
-                        next.add(p.id);
-                      } else {
-                        next.remove(p.id);
-                      }
-                      onSelectionChanged(next);
-                    },
-                    color: WidgetStateProperty.resolveWith((states) {
-                      if (states.contains(WidgetState.selected)) {
-                        return theme.colorScheme.primary.withValues(alpha: 0.08);
-                      }
-                      return p.isEnabled
-                          ? Colors.transparent
-                          : theme.disabledColor.withValues(alpha: 0.05);
-                    }),
-                    cells: [
-                      DataCell(Builder(builder: (_) {
-                        // Prefer FileImage over MemoryImage — Flutter caches
-                        // FileImage by path so the same thumbnail decodes
-                        // once across the whole admin grid.
-                        final ImageProvider? provider = p.imageFile != null
-                            ? FileImage(p.imageFile!)
-                            : (p.imageBytes != null
-                                ? MemoryImage(p.imageBytes!)
-                                : null);
-                        return Container(
-                          width: 45,
-                          height: 45,
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(6),
-                            image: provider != null
-                                ? DecorationImage(
-                                    image: provider, fit: BoxFit.cover)
-                                : null,
-                          ),
-                          child: provider == null
-                              ? Icon(Icons.inventory_2, color: theme.hintColor)
-                              : null,
-                        );
-                      })),
-                      DataCell(Text(p.code ?? '-')),
-                      DataCell(Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(p.name,
-                              style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  decoration: p.isEnabled
-                                      ? null
-                                      : TextDecoration.lineThrough)),
-                          if (p.isPendingSync) ...[
-                            const SizedBox(width: 6),
-                            Tooltip(
-                              message: p.isPendingCreate
-                                  ? 'Pending sync (new)'
-                                  : 'Pending sync (update)',
-                              child: Icon(Icons.cloud_upload_outlined,
-                                  size: 14,
-                                  color: theme.colorScheme.tertiary),
-                            ),
-                          ],
-                        ],
-                      )),
-                      DataCell(Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                            color: theme.colorScheme.primaryContainer
-                                .withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(6)),
-                        child: Text(groupName,
-                            style: TextStyle(
-                                color: theme.colorScheme.primary,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold)),
-                      )),
-                      DataCell(Text("${p.price.toStringAsFixed(2)} $sym",
-                          style: const TextStyle(
-                              color: Colors.green,
-                              fontWeight: FontWeight.bold))),
-                      DataCell(Text("${p.cost.toStringAsFixed(2)} $sym",
-                          style:
-                              const TextStyle(color: Colors.redAccent))),
-                      DataCell(IconButton(
-                        icon: Icon(Icons.edit,
-                            color: theme.colorScheme.primary, size: 20),
-                        onPressed: () => showDialog(
-                                context: context,
-                                builder: (_) =>
-                                    _ProductEditorDialog(existingProduct: p))
-                            .then((_) =>
-                                ref.invalidate(productsByGroupProvider)),
-                      )),
+          String groupNameFor(Product p) =>
+              groups.where((g) => g.id == p.productGroupId).firstOrNull?.name ??
+              '-';
+
+          Widget boolCell(bool v) => Icon(
+                v ? Icons.check_circle : Icons.remove_circle_outline,
+                size: 18,
+                color: v ? Colors.green : theme.disabledColor,
+              );
+
+          DataCell cellFor(ProductColumnDef col, Product p) {
+            switch (col.key) {
+              case 'image':
+                // Prefer FileImage over MemoryImage — Flutter caches FileImage
+                // by path so the same thumbnail decodes once across the grid.
+                final ImageProvider? provider = p.imageFile != null
+                    ? FileImage(p.imageFile!)
+                    : (p.imageBytes != null ? MemoryImage(p.imageBytes!) : null);
+                return DataCell(Container(
+                  width: 45,
+                  height: 45,
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(6),
+                    image: provider != null
+                        ? DecorationImage(image: provider, fit: BoxFit.cover)
+                        : null,
+                  ),
+                  child: provider == null
+                      ? Icon(Icons.inventory_2, color: theme.hintColor)
+                      : null,
+                ));
+              case 'code':
+                return DataCell(Text(p.code ?? '-'));
+              case 'name':
+                return DataCell(ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 260),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          p.name,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              decoration: p.isEnabled
+                                  ? null
+                                  : TextDecoration.lineThrough),
+                        ),
+                      ),
+                      if (p.isPendingSync) ...[
+                        const SizedBox(width: 6),
+                        Tooltip(
+                          message: p.isPendingCreate
+                              ? 'Pending sync (new)'
+                              : 'Pending sync (update)',
+                          child: Icon(Icons.cloud_upload_outlined,
+                              size: 14, color: theme.colorScheme.tertiary),
+                        ),
+                      ],
                     ],
-                  );
-                }).toList(),
+                  ),
+                ));
+              case 'category':
+                return DataCell(Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer
+                          .withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(6)),
+                  child: Text(groupNameFor(p),
+                      style: TextStyle(
+                          color: theme.colorScheme.primary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold)),
+                ));
+              case 'price':
+                return DataCell(Text("${p.price.toStringAsFixed(2)} $sym",
+                    style: const TextStyle(
+                        color: Colors.green, fontWeight: FontWeight.bold)));
+              case 'cost':
+                return DataCell(Text("${p.cost.toStringAsFixed(2)} $sym",
+                    style: const TextStyle(color: Colors.redAccent)));
+              case 'plu':
+                return DataCell(Text(p.plu?.toString() ?? '-'));
+              case 'unit':
+                return DataCell(Text(p.measurementUnit ?? '-'));
+              case 'markup':
+                return DataCell(Text(
+                    p.markup != null ? '${p.markup!.toStringAsFixed(1)}%' : '-'));
+              case 'lastPurchase':
+                return DataCell(Text(p.lastPurchasePrice != null
+                    ? '${p.lastPurchasePrice!.toStringAsFixed(2)} $sym'
+                    : '-'));
+              case 'ageRestriction':
+                return DataCell(Text(p.ageRestriction?.toString() ?? '-'));
+              case 'rank':
+                return DataCell(Text(p.rank?.toString() ?? '-'));
+              case 'taxInclusive':
+                return DataCell(boolCell(p.isTaxInclusivePrice));
+              case 'service':
+                return DataCell(boolCell(p.isService));
+              case 'priceChange':
+                return DataCell(boolCell(p.isPriceChangeAllowed));
+              case 'enabled':
+                return DataCell(boolCell(p.isEnabled));
+              case 'description':
+                return DataCell(ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 260),
+                  child: Text(p.description ?? '-',
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                ));
+              case 'created':
+                return DataCell(Text(p.dateCreated ?? '-'));
+              case 'updated':
+                return DataCell(Text(p.dateUpdated ?? '-'));
+              case 'actions':
+                return DataCell(IconButton(
+                  icon: Icon(Icons.edit,
+                      color: theme.colorScheme.primary, size: 20),
+                  onPressed: () => showDialog(
+                          context: context,
+                          builder: (_) =>
+                              _ProductEditorDialog(existingProduct: p))
+                      .then((_) => ref.invalidate(productsByGroupProvider)),
+                ));
+              default:
+                return const DataCell(Text('-'));
+            }
+          }
+
+          // Horizontal scroll lets the grid grow past the viewport as more
+          // columns are enabled, while ConstrainedBox keeps it filling the
+          // width when only a few are shown.
+          return LayoutBuilder(builder: (context, constraints) {
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Card(
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(
+                          color: theme.dividerColor.withValues(alpha: 0.1)),
+                    ),
+                    color: theme.cardColor,
+                    clipBehavior: Clip.antiAlias,
+                    child: DataTable(
+                      headingRowColor: WidgetStateProperty.all(
+                          theme.colorScheme.surfaceContainerHighest),
+                      dataRowMaxHeight: 65,
+                      onSelectAll: (val) => onSelectionChanged(
+                          val == true ? products.map((p) => p.id).toSet() : {}),
+                      columns: activeCols
+                          .map((c) => DataColumn(
+                              label: Text(c.label), numeric: c.numeric))
+                          .toList(),
+                      rows: products.map((p) {
+                        return DataRow(
+                          selected: effectiveSelected.contains(p.id),
+                          onSelectChanged: (val) {
+                            final next = Set<int>.from(selectedIds);
+                            if (val == true) {
+                              next.add(p.id);
+                            } else {
+                              next.remove(p.id);
+                            }
+                            onSelectionChanged(next);
+                          },
+                          color: WidgetStateProperty.resolveWith((states) {
+                            if (states.contains(WidgetState.selected)) {
+                              return theme.colorScheme.primary
+                                  .withValues(alpha: 0.08);
+                            }
+                            return p.isEnabled
+                                ? Colors.transparent
+                                : theme.disabledColor.withValues(alpha: 0.05);
+                          }),
+                          cells:
+                              activeCols.map((c) => cellFor(c, p)).toList(),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ),
               ),
-            ),
-          );
+            );
+          });
         });
   }
 }

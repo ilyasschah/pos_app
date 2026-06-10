@@ -232,8 +232,6 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
     }
 
     // Capture everything before checkout clears the cart
-    final wasBooking = ref.read(cartProvider).bookingId != null;
-    final wasTable = ref.read(cartProvider).floorPlanTableId != null;
     final orderNum = ref.read(cartProvider).orderNumber;
     final payTypes = ref.read(allPaymentTypesProvider).asData?.value ?? [];
     final selectedPayType = payTypes
@@ -623,32 +621,17 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
         return;
       }
 
-      final bookingEnabled =
-          appSettings[SettingKeys.featureBookingEnabled]?.toLowerCase() ==
-          'true';
-      final floorPlanEnabled =
-          appSettings[SettingKeys.featureFloorPlanEnabled]?.toLowerCase() ==
-          'true';
-      final int nextIndex;
-      if (wasBooking && bookingEnabled)
-        nextIndex = 2;
-      else if (wasTable && floorPlanEnabled)
-        nextIndex = 3;
-      else if (bookingEnabled)
-        nextIndex = 2;
-      else if (floorPlanEnabled)
-        nextIndex = 3;
-      else
-        nextIndex = 0;
+      // Return to the user's configured default screen, validated against the
+      // feature flags so we never land on a disabled (empty) tab — the source
+      // of the post-checkout black screen.
+      final nextIndex = resolveDefaultScreenIndex(appSettings);
 
+      // The checkout dialog was already closed above (Navigator.pop(ctx)).
+      // Just swap the underlying MainLayout tab reactively — no extra pop (a
+      // second pop would remove MainLayout itself → black screen) and no
+      // MainLayout rebuild, so the startup cash-in hook never re-fires.
       if (mounted) {
-        Navigator.pushAndRemoveUntil(
-          ctx,
-          MaterialPageRoute(
-            builder: (_) => MainLayout(initialIndex: nextIndex),
-          ),
-          (r) => false,
-        );
+        ref.read(mainNavigationIndexProvider.notifier).state = nextIndex;
       }
     } catch (e) {
       if (mounted) {
@@ -765,7 +748,8 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
                     customer: customer,
                     allCustomersAsync: allCustomersAsync,
                     onPick: _pickCustomer,
-                    onCancel: () => Navigator.pop(context),
+                    onCancel: () =>
+                        Navigator.of(context, rootNavigator: true).pop(),
                   ),
                   const Divider(height: 1),
 

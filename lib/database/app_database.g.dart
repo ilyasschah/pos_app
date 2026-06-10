@@ -4363,6 +4363,18 @@ class $AppPropertiesTableTable extends AppPropertiesTable
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _syncStatusMeta = const VerificationMeta(
+    'syncStatus',
+  );
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+    'sync_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('synced'),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -4370,6 +4382,7 @@ class $AppPropertiesTableTable extends AppPropertiesTable
     name,
     value,
     lastModified,
+    syncStatus,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -4419,6 +4432,12 @@ class $AppPropertiesTableTable extends AppPropertiesTable
     } else if (isInserting) {
       context.missing(_lastModifiedMeta);
     }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+        _syncStatusMeta,
+        syncStatus.isAcceptableOrUnknown(data['sync_status']!, _syncStatusMeta),
+      );
+    }
     return context;
   }
 
@@ -4448,6 +4467,10 @@ class $AppPropertiesTableTable extends AppPropertiesTable
         DriftSqlType.dateTime,
         data['${effectivePrefix}last_modified'],
       )!,
+      syncStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_status'],
+      )!,
     );
   }
 
@@ -4464,12 +4487,17 @@ class AppPropertiesTableData extends DataClass
   final String name;
   final String? value;
   final DateTime lastModified;
+
+  /// 'synced' once the server has the current value; 'pending' after an offline
+  /// edit so the sync engine knows to push it on reconnect.
+  final String syncStatus;
   const AppPropertiesTableData({
     required this.id,
     required this.companyId,
     required this.name,
     this.value,
     required this.lastModified,
+    required this.syncStatus,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -4481,6 +4509,7 @@ class AppPropertiesTableData extends DataClass
       map['value'] = Variable<String>(value);
     }
     map['last_modified'] = Variable<DateTime>(lastModified);
+    map['sync_status'] = Variable<String>(syncStatus);
     return map;
   }
 
@@ -4493,6 +4522,7 @@ class AppPropertiesTableData extends DataClass
           ? const Value.absent()
           : Value(value),
       lastModified: Value(lastModified),
+      syncStatus: Value(syncStatus),
     );
   }
 
@@ -4507,6 +4537,7 @@ class AppPropertiesTableData extends DataClass
       name: serializer.fromJson<String>(json['name']),
       value: serializer.fromJson<String?>(json['value']),
       lastModified: serializer.fromJson<DateTime>(json['lastModified']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
     );
   }
   @override
@@ -4518,6 +4549,7 @@ class AppPropertiesTableData extends DataClass
       'name': serializer.toJson<String>(name),
       'value': serializer.toJson<String?>(value),
       'lastModified': serializer.toJson<DateTime>(lastModified),
+      'syncStatus': serializer.toJson<String>(syncStatus),
     };
   }
 
@@ -4527,12 +4559,14 @@ class AppPropertiesTableData extends DataClass
     String? name,
     Value<String?> value = const Value.absent(),
     DateTime? lastModified,
+    String? syncStatus,
   }) => AppPropertiesTableData(
     id: id ?? this.id,
     companyId: companyId ?? this.companyId,
     name: name ?? this.name,
     value: value.present ? value.value : this.value,
     lastModified: lastModified ?? this.lastModified,
+    syncStatus: syncStatus ?? this.syncStatus,
   );
   AppPropertiesTableData copyWithCompanion(AppPropertiesTableCompanion data) {
     return AppPropertiesTableData(
@@ -4543,6 +4577,9 @@ class AppPropertiesTableData extends DataClass
       lastModified: data.lastModified.present
           ? data.lastModified.value
           : this.lastModified,
+      syncStatus: data.syncStatus.present
+          ? data.syncStatus.value
+          : this.syncStatus,
     );
   }
 
@@ -4553,13 +4590,15 @@ class AppPropertiesTableData extends DataClass
           ..write('companyId: $companyId, ')
           ..write('name: $name, ')
           ..write('value: $value, ')
-          ..write('lastModified: $lastModified')
+          ..write('lastModified: $lastModified, ')
+          ..write('syncStatus: $syncStatus')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, companyId, name, value, lastModified);
+  int get hashCode =>
+      Object.hash(id, companyId, name, value, lastModified, syncStatus);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -4568,7 +4607,8 @@ class AppPropertiesTableData extends DataClass
           other.companyId == this.companyId &&
           other.name == this.name &&
           other.value == this.value &&
-          other.lastModified == this.lastModified);
+          other.lastModified == this.lastModified &&
+          other.syncStatus == this.syncStatus);
 }
 
 class AppPropertiesTableCompanion
@@ -4578,12 +4618,14 @@ class AppPropertiesTableCompanion
   final Value<String> name;
   final Value<String?> value;
   final Value<DateTime> lastModified;
+  final Value<String> syncStatus;
   const AppPropertiesTableCompanion({
     this.id = const Value.absent(),
     this.companyId = const Value.absent(),
     this.name = const Value.absent(),
     this.value = const Value.absent(),
     this.lastModified = const Value.absent(),
+    this.syncStatus = const Value.absent(),
   });
   AppPropertiesTableCompanion.insert({
     this.id = const Value.absent(),
@@ -4591,6 +4633,7 @@ class AppPropertiesTableCompanion
     required String name,
     this.value = const Value.absent(),
     required DateTime lastModified,
+    this.syncStatus = const Value.absent(),
   }) : companyId = Value(companyId),
        name = Value(name),
        lastModified = Value(lastModified);
@@ -4600,6 +4643,7 @@ class AppPropertiesTableCompanion
     Expression<String>? name,
     Expression<String>? value,
     Expression<DateTime>? lastModified,
+    Expression<String>? syncStatus,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -4607,6 +4651,7 @@ class AppPropertiesTableCompanion
       if (name != null) 'name': name,
       if (value != null) 'value': value,
       if (lastModified != null) 'last_modified': lastModified,
+      if (syncStatus != null) 'sync_status': syncStatus,
     });
   }
 
@@ -4616,6 +4661,7 @@ class AppPropertiesTableCompanion
     Value<String>? name,
     Value<String?>? value,
     Value<DateTime>? lastModified,
+    Value<String>? syncStatus,
   }) {
     return AppPropertiesTableCompanion(
       id: id ?? this.id,
@@ -4623,6 +4669,7 @@ class AppPropertiesTableCompanion
       name: name ?? this.name,
       value: value ?? this.value,
       lastModified: lastModified ?? this.lastModified,
+      syncStatus: syncStatus ?? this.syncStatus,
     );
   }
 
@@ -4644,6 +4691,9 @@ class AppPropertiesTableCompanion
     if (lastModified.present) {
       map['last_modified'] = Variable<DateTime>(lastModified.value);
     }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
     return map;
   }
 
@@ -4654,7 +4704,8 @@ class AppPropertiesTableCompanion
           ..write('companyId: $companyId, ')
           ..write('name: $name, ')
           ..write('value: $value, ')
-          ..write('lastModified: $lastModified')
+          ..write('lastModified: $lastModified, ')
+          ..write('syncStatus: $syncStatus')
           ..write(')'))
         .toString();
   }
@@ -11954,12 +12005,12 @@ class PosOrderItemTaxesTableCompanion
   }
 }
 
-class $CashMovementsTableTable extends CashMovementsTable
-    with TableInfo<$CashMovementsTableTable, CashMovementsTableData> {
+class $StartingCashTableTable extends StartingCashTable
+    with TableInfo<$StartingCashTableTable, StartingCashTableData> {
   @override
   final GeneratedDatabase attachedDatabase;
   final String? _alias;
-  $CashMovementsTableTable(this.attachedDatabase, [this._alias]);
+  $StartingCashTableTable(this.attachedDatabase, [this._alias]);
   static const VerificationMeta _localIdMeta = const VerificationMeta(
     'localId',
   );
@@ -12040,6 +12091,17 @@ class $CashMovementsTableTable extends CashMovementsTable
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _zReportNumberMeta = const VerificationMeta(
+    'zReportNumber',
+  );
+  @override
+  late final GeneratedColumn<int> zReportNumber = GeneratedColumn<int>(
+    'z_report_number',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _syncStatusMeta = const VerificationMeta(
     'syncStatus',
   );
@@ -12073,6 +12135,7 @@ class $CashMovementsTableTable extends CashMovementsTable
     type,
     note,
     createdAt,
+    zReportNumber,
     syncStatus,
     syncError,
   ];
@@ -12080,10 +12143,10 @@ class $CashMovementsTableTable extends CashMovementsTable
   String get aliasedName => _alias ?? actualTableName;
   @override
   String get actualTableName => $name;
-  static const String $name = 'cash_movements';
+  static const String $name = 'starting_cash';
   @override
   VerificationContext validateIntegrity(
-    Insertable<CashMovementsTableData> instance, {
+    Insertable<StartingCashTableData> instance, {
     bool isInserting = false,
   }) {
     final context = VerificationContext();
@@ -12148,6 +12211,15 @@ class $CashMovementsTableTable extends CashMovementsTable
     } else if (isInserting) {
       context.missing(_createdAtMeta);
     }
+    if (data.containsKey('z_report_number')) {
+      context.handle(
+        _zReportNumberMeta,
+        zReportNumber.isAcceptableOrUnknown(
+          data['z_report_number']!,
+          _zReportNumberMeta,
+        ),
+      );
+    }
     if (data.containsKey('sync_status')) {
       context.handle(
         _syncStatusMeta,
@@ -12166,9 +12238,9 @@ class $CashMovementsTableTable extends CashMovementsTable
   @override
   Set<GeneratedColumn> get $primaryKey => {localId};
   @override
-  CashMovementsTableData map(Map<String, dynamic> data, {String? tablePrefix}) {
+  StartingCashTableData map(Map<String, dynamic> data, {String? tablePrefix}) {
     final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
-    return CashMovementsTableData(
+    return StartingCashTableData(
       localId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}local_id'],
@@ -12201,6 +12273,10 @@ class $CashMovementsTableTable extends CashMovementsTable
         DriftSqlType.dateTime,
         data['${effectivePrefix}created_at'],
       )!,
+      zReportNumber: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}z_report_number'],
+      ),
       syncStatus: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}sync_status'],
@@ -12213,13 +12289,13 @@ class $CashMovementsTableTable extends CashMovementsTable
   }
 
   @override
-  $CashMovementsTableTable createAlias(String alias) {
-    return $CashMovementsTableTable(attachedDatabase, alias);
+  $StartingCashTableTable createAlias(String alias) {
+    return $StartingCashTableTable(attachedDatabase, alias);
   }
 }
 
-class CashMovementsTableData extends DataClass
-    implements Insertable<CashMovementsTableData> {
+class StartingCashTableData extends DataClass
+    implements Insertable<StartingCashTableData> {
   final String localId;
   final int? serverId;
   final int companyId;
@@ -12228,9 +12304,14 @@ class CashMovementsTableData extends DataClass
   final String type;
   final String? note;
   final DateTime createdAt;
+
+  /// Server Z-report number (mirrors `StartingCash.ZReportNumber`). NULL while
+  /// the entry is active/unfinalized; once a Z-report is generated the server
+  /// stamps this and the next pull hides the row from the active list.
+  final int? zReportNumber;
   final String syncStatus;
   final String? syncError;
-  const CashMovementsTableData({
+  const StartingCashTableData({
     required this.localId,
     this.serverId,
     required this.companyId,
@@ -12239,6 +12320,7 @@ class CashMovementsTableData extends DataClass
     required this.type,
     this.note,
     required this.createdAt,
+    this.zReportNumber,
     required this.syncStatus,
     this.syncError,
   });
@@ -12257,6 +12339,9 @@ class CashMovementsTableData extends DataClass
       map['note'] = Variable<String>(note);
     }
     map['created_at'] = Variable<DateTime>(createdAt);
+    if (!nullToAbsent || zReportNumber != null) {
+      map['z_report_number'] = Variable<int>(zReportNumber);
+    }
     map['sync_status'] = Variable<String>(syncStatus);
     if (!nullToAbsent || syncError != null) {
       map['sync_error'] = Variable<String>(syncError);
@@ -12264,8 +12349,8 @@ class CashMovementsTableData extends DataClass
     return map;
   }
 
-  CashMovementsTableCompanion toCompanion(bool nullToAbsent) {
-    return CashMovementsTableCompanion(
+  StartingCashTableCompanion toCompanion(bool nullToAbsent) {
+    return StartingCashTableCompanion(
       localId: Value(localId),
       serverId: serverId == null && nullToAbsent
           ? const Value.absent()
@@ -12276,6 +12361,9 @@ class CashMovementsTableData extends DataClass
       type: Value(type),
       note: note == null && nullToAbsent ? const Value.absent() : Value(note),
       createdAt: Value(createdAt),
+      zReportNumber: zReportNumber == null && nullToAbsent
+          ? const Value.absent()
+          : Value(zReportNumber),
       syncStatus: Value(syncStatus),
       syncError: syncError == null && nullToAbsent
           ? const Value.absent()
@@ -12283,12 +12371,12 @@ class CashMovementsTableData extends DataClass
     );
   }
 
-  factory CashMovementsTableData.fromJson(
+  factory StartingCashTableData.fromJson(
     Map<String, dynamic> json, {
     ValueSerializer? serializer,
   }) {
     serializer ??= driftRuntimeOptions.defaultSerializer;
-    return CashMovementsTableData(
+    return StartingCashTableData(
       localId: serializer.fromJson<String>(json['localId']),
       serverId: serializer.fromJson<int?>(json['serverId']),
       companyId: serializer.fromJson<int>(json['companyId']),
@@ -12297,6 +12385,7 @@ class CashMovementsTableData extends DataClass
       type: serializer.fromJson<String>(json['type']),
       note: serializer.fromJson<String?>(json['note']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      zReportNumber: serializer.fromJson<int?>(json['zReportNumber']),
       syncStatus: serializer.fromJson<String>(json['syncStatus']),
       syncError: serializer.fromJson<String?>(json['syncError']),
     );
@@ -12313,12 +12402,13 @@ class CashMovementsTableData extends DataClass
       'type': serializer.toJson<String>(type),
       'note': serializer.toJson<String?>(note),
       'createdAt': serializer.toJson<DateTime>(createdAt),
+      'zReportNumber': serializer.toJson<int?>(zReportNumber),
       'syncStatus': serializer.toJson<String>(syncStatus),
       'syncError': serializer.toJson<String?>(syncError),
     };
   }
 
-  CashMovementsTableData copyWith({
+  StartingCashTableData copyWith({
     String? localId,
     Value<int?> serverId = const Value.absent(),
     int? companyId,
@@ -12327,9 +12417,10 @@ class CashMovementsTableData extends DataClass
     String? type,
     Value<String?> note = const Value.absent(),
     DateTime? createdAt,
+    Value<int?> zReportNumber = const Value.absent(),
     String? syncStatus,
     Value<String?> syncError = const Value.absent(),
-  }) => CashMovementsTableData(
+  }) => StartingCashTableData(
     localId: localId ?? this.localId,
     serverId: serverId.present ? serverId.value : this.serverId,
     companyId: companyId ?? this.companyId,
@@ -12338,11 +12429,14 @@ class CashMovementsTableData extends DataClass
     type: type ?? this.type,
     note: note.present ? note.value : this.note,
     createdAt: createdAt ?? this.createdAt,
+    zReportNumber: zReportNumber.present
+        ? zReportNumber.value
+        : this.zReportNumber,
     syncStatus: syncStatus ?? this.syncStatus,
     syncError: syncError.present ? syncError.value : this.syncError,
   );
-  CashMovementsTableData copyWithCompanion(CashMovementsTableCompanion data) {
-    return CashMovementsTableData(
+  StartingCashTableData copyWithCompanion(StartingCashTableCompanion data) {
+    return StartingCashTableData(
       localId: data.localId.present ? data.localId.value : this.localId,
       serverId: data.serverId.present ? data.serverId.value : this.serverId,
       companyId: data.companyId.present ? data.companyId.value : this.companyId,
@@ -12351,6 +12445,9 @@ class CashMovementsTableData extends DataClass
       type: data.type.present ? data.type.value : this.type,
       note: data.note.present ? data.note.value : this.note,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      zReportNumber: data.zReportNumber.present
+          ? data.zReportNumber.value
+          : this.zReportNumber,
       syncStatus: data.syncStatus.present
           ? data.syncStatus.value
           : this.syncStatus,
@@ -12360,7 +12457,7 @@ class CashMovementsTableData extends DataClass
 
   @override
   String toString() {
-    return (StringBuffer('CashMovementsTableData(')
+    return (StringBuffer('StartingCashTableData(')
           ..write('localId: $localId, ')
           ..write('serverId: $serverId, ')
           ..write('companyId: $companyId, ')
@@ -12369,6 +12466,7 @@ class CashMovementsTableData extends DataClass
           ..write('type: $type, ')
           ..write('note: $note, ')
           ..write('createdAt: $createdAt, ')
+          ..write('zReportNumber: $zReportNumber, ')
           ..write('syncStatus: $syncStatus, ')
           ..write('syncError: $syncError')
           ..write(')'))
@@ -12385,13 +12483,14 @@ class CashMovementsTableData extends DataClass
     type,
     note,
     createdAt,
+    zReportNumber,
     syncStatus,
     syncError,
   );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      (other is CashMovementsTableData &&
+      (other is StartingCashTableData &&
           other.localId == this.localId &&
           other.serverId == this.serverId &&
           other.companyId == this.companyId &&
@@ -12400,12 +12499,13 @@ class CashMovementsTableData extends DataClass
           other.type == this.type &&
           other.note == this.note &&
           other.createdAt == this.createdAt &&
+          other.zReportNumber == this.zReportNumber &&
           other.syncStatus == this.syncStatus &&
           other.syncError == this.syncError);
 }
 
-class CashMovementsTableCompanion
-    extends UpdateCompanion<CashMovementsTableData> {
+class StartingCashTableCompanion
+    extends UpdateCompanion<StartingCashTableData> {
   final Value<String> localId;
   final Value<int?> serverId;
   final Value<int> companyId;
@@ -12414,10 +12514,11 @@ class CashMovementsTableCompanion
   final Value<String> type;
   final Value<String?> note;
   final Value<DateTime> createdAt;
+  final Value<int?> zReportNumber;
   final Value<String> syncStatus;
   final Value<String?> syncError;
   final Value<int> rowid;
-  const CashMovementsTableCompanion({
+  const StartingCashTableCompanion({
     this.localId = const Value.absent(),
     this.serverId = const Value.absent(),
     this.companyId = const Value.absent(),
@@ -12426,11 +12527,12 @@ class CashMovementsTableCompanion
     this.type = const Value.absent(),
     this.note = const Value.absent(),
     this.createdAt = const Value.absent(),
+    this.zReportNumber = const Value.absent(),
     this.syncStatus = const Value.absent(),
     this.syncError = const Value.absent(),
     this.rowid = const Value.absent(),
   });
-  CashMovementsTableCompanion.insert({
+  StartingCashTableCompanion.insert({
     required String localId,
     this.serverId = const Value.absent(),
     required int companyId,
@@ -12439,6 +12541,7 @@ class CashMovementsTableCompanion
     required String type,
     this.note = const Value.absent(),
     required DateTime createdAt,
+    this.zReportNumber = const Value.absent(),
     this.syncStatus = const Value.absent(),
     this.syncError = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -12448,7 +12551,7 @@ class CashMovementsTableCompanion
        amount = Value(amount),
        type = Value(type),
        createdAt = Value(createdAt);
-  static Insertable<CashMovementsTableData> custom({
+  static Insertable<StartingCashTableData> custom({
     Expression<String>? localId,
     Expression<int>? serverId,
     Expression<int>? companyId,
@@ -12457,6 +12560,7 @@ class CashMovementsTableCompanion
     Expression<String>? type,
     Expression<String>? note,
     Expression<DateTime>? createdAt,
+    Expression<int>? zReportNumber,
     Expression<String>? syncStatus,
     Expression<String>? syncError,
     Expression<int>? rowid,
@@ -12470,13 +12574,14 @@ class CashMovementsTableCompanion
       if (type != null) 'type': type,
       if (note != null) 'note': note,
       if (createdAt != null) 'created_at': createdAt,
+      if (zReportNumber != null) 'z_report_number': zReportNumber,
       if (syncStatus != null) 'sync_status': syncStatus,
       if (syncError != null) 'sync_error': syncError,
       if (rowid != null) 'rowid': rowid,
     });
   }
 
-  CashMovementsTableCompanion copyWith({
+  StartingCashTableCompanion copyWith({
     Value<String>? localId,
     Value<int?>? serverId,
     Value<int>? companyId,
@@ -12485,11 +12590,12 @@ class CashMovementsTableCompanion
     Value<String>? type,
     Value<String?>? note,
     Value<DateTime>? createdAt,
+    Value<int?>? zReportNumber,
     Value<String>? syncStatus,
     Value<String?>? syncError,
     Value<int>? rowid,
   }) {
-    return CashMovementsTableCompanion(
+    return StartingCashTableCompanion(
       localId: localId ?? this.localId,
       serverId: serverId ?? this.serverId,
       companyId: companyId ?? this.companyId,
@@ -12498,6 +12604,7 @@ class CashMovementsTableCompanion
       type: type ?? this.type,
       note: note ?? this.note,
       createdAt: createdAt ?? this.createdAt,
+      zReportNumber: zReportNumber ?? this.zReportNumber,
       syncStatus: syncStatus ?? this.syncStatus,
       syncError: syncError ?? this.syncError,
       rowid: rowid ?? this.rowid,
@@ -12531,6 +12638,9 @@ class CashMovementsTableCompanion
     if (createdAt.present) {
       map['created_at'] = Variable<DateTime>(createdAt.value);
     }
+    if (zReportNumber.present) {
+      map['z_report_number'] = Variable<int>(zReportNumber.value);
+    }
     if (syncStatus.present) {
       map['sync_status'] = Variable<String>(syncStatus.value);
     }
@@ -12545,7 +12655,7 @@ class CashMovementsTableCompanion
 
   @override
   String toString() {
-    return (StringBuffer('CashMovementsTableCompanion(')
+    return (StringBuffer('StartingCashTableCompanion(')
           ..write('localId: $localId, ')
           ..write('serverId: $serverId, ')
           ..write('companyId: $companyId, ')
@@ -12554,6 +12664,7 @@ class CashMovementsTableCompanion
           ..write('type: $type, ')
           ..write('note: $note, ')
           ..write('createdAt: $createdAt, ')
+          ..write('zReportNumber: $zReportNumber, ')
           ..write('syncStatus: $syncStatus, ')
           ..write('syncError: $syncError, ')
           ..write('rowid: $rowid')
@@ -18639,6 +18750,21 @@ class $ShiftsTableTable extends ShiftsTable
     type: DriftSqlType.dateTime,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _isDrawerShiftMeta = const VerificationMeta(
+    'isDrawerShift',
+  );
+  @override
+  late final GeneratedColumn<bool> isDrawerShift = GeneratedColumn<bool>(
+    'is_drawer_shift',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_drawer_shift" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _syncStatusMeta = const VerificationMeta(
     'syncStatus',
   );
@@ -18674,6 +18800,7 @@ class $ShiftsTableTable extends ShiftsTable
     openedAt,
     closedAt,
     lastModified,
+    isDrawerShift,
     syncStatus,
     syncError,
   ];
@@ -18768,6 +18895,15 @@ class $ShiftsTableTable extends ShiftsTable
     } else if (isInserting) {
       context.missing(_lastModifiedMeta);
     }
+    if (data.containsKey('is_drawer_shift')) {
+      context.handle(
+        _isDrawerShiftMeta,
+        isDrawerShift.isAcceptableOrUnknown(
+          data['is_drawer_shift']!,
+          _isDrawerShiftMeta,
+        ),
+      );
+    }
     if (data.containsKey('sync_status')) {
       context.handle(
         _syncStatusMeta,
@@ -18829,6 +18965,10 @@ class $ShiftsTableTable extends ShiftsTable
         DriftSqlType.dateTime,
         data['${effectivePrefix}last_modified'],
       )!,
+      isDrawerShift: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_drawer_shift'],
+      )!,
       syncStatus: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}sync_status'],
@@ -18857,6 +18997,12 @@ class ShiftsTableData extends DataClass implements Insertable<ShiftsTableData> {
   final DateTime openedAt;
   final DateTime? closedAt;
   final DateTime lastModified;
+
+  /// Distinguishes the station's master cash-drawer shift (true) from bare
+  /// per-employee attendance sessions (false). Lets many servers clock in for
+  /// hours simultaneously on one station without colliding with the single
+  /// drawer shift. Local-only differentiation flag.
+  final bool isDrawerShift;
   final String syncStatus;
   final String? syncError;
   const ShiftsTableData({
@@ -18870,6 +19016,7 @@ class ShiftsTableData extends DataClass implements Insertable<ShiftsTableData> {
     required this.openedAt,
     this.closedAt,
     required this.lastModified,
+    required this.isDrawerShift,
     required this.syncStatus,
     this.syncError,
   });
@@ -18892,6 +19039,7 @@ class ShiftsTableData extends DataClass implements Insertable<ShiftsTableData> {
       map['closed_at'] = Variable<DateTime>(closedAt);
     }
     map['last_modified'] = Variable<DateTime>(lastModified);
+    map['is_drawer_shift'] = Variable<bool>(isDrawerShift);
     map['sync_status'] = Variable<String>(syncStatus);
     if (!nullToAbsent || syncError != null) {
       map['sync_error'] = Variable<String>(syncError);
@@ -18917,6 +19065,7 @@ class ShiftsTableData extends DataClass implements Insertable<ShiftsTableData> {
           ? const Value.absent()
           : Value(closedAt),
       lastModified: Value(lastModified),
+      isDrawerShift: Value(isDrawerShift),
       syncStatus: Value(syncStatus),
       syncError: syncError == null && nullToAbsent
           ? const Value.absent()
@@ -18940,6 +19089,7 @@ class ShiftsTableData extends DataClass implements Insertable<ShiftsTableData> {
       openedAt: serializer.fromJson<DateTime>(json['openedAt']),
       closedAt: serializer.fromJson<DateTime?>(json['closedAt']),
       lastModified: serializer.fromJson<DateTime>(json['lastModified']),
+      isDrawerShift: serializer.fromJson<bool>(json['isDrawerShift']),
       syncStatus: serializer.fromJson<String>(json['syncStatus']),
       syncError: serializer.fromJson<String?>(json['syncError']),
     );
@@ -18958,6 +19108,7 @@ class ShiftsTableData extends DataClass implements Insertable<ShiftsTableData> {
       'openedAt': serializer.toJson<DateTime>(openedAt),
       'closedAt': serializer.toJson<DateTime?>(closedAt),
       'lastModified': serializer.toJson<DateTime>(lastModified),
+      'isDrawerShift': serializer.toJson<bool>(isDrawerShift),
       'syncStatus': serializer.toJson<String>(syncStatus),
       'syncError': serializer.toJson<String?>(syncError),
     };
@@ -18974,6 +19125,7 @@ class ShiftsTableData extends DataClass implements Insertable<ShiftsTableData> {
     DateTime? openedAt,
     Value<DateTime?> closedAt = const Value.absent(),
     DateTime? lastModified,
+    bool? isDrawerShift,
     String? syncStatus,
     Value<String?> syncError = const Value.absent(),
   }) => ShiftsTableData(
@@ -18989,6 +19141,7 @@ class ShiftsTableData extends DataClass implements Insertable<ShiftsTableData> {
     openedAt: openedAt ?? this.openedAt,
     closedAt: closedAt.present ? closedAt.value : this.closedAt,
     lastModified: lastModified ?? this.lastModified,
+    isDrawerShift: isDrawerShift ?? this.isDrawerShift,
     syncStatus: syncStatus ?? this.syncStatus,
     syncError: syncError.present ? syncError.value : this.syncError,
   );
@@ -19010,6 +19163,9 @@ class ShiftsTableData extends DataClass implements Insertable<ShiftsTableData> {
       lastModified: data.lastModified.present
           ? data.lastModified.value
           : this.lastModified,
+      isDrawerShift: data.isDrawerShift.present
+          ? data.isDrawerShift.value
+          : this.isDrawerShift,
       syncStatus: data.syncStatus.present
           ? data.syncStatus.value
           : this.syncStatus,
@@ -19030,6 +19186,7 @@ class ShiftsTableData extends DataClass implements Insertable<ShiftsTableData> {
           ..write('openedAt: $openedAt, ')
           ..write('closedAt: $closedAt, ')
           ..write('lastModified: $lastModified, ')
+          ..write('isDrawerShift: $isDrawerShift, ')
           ..write('syncStatus: $syncStatus, ')
           ..write('syncError: $syncError')
           ..write(')'))
@@ -19048,6 +19205,7 @@ class ShiftsTableData extends DataClass implements Insertable<ShiftsTableData> {
     openedAt,
     closedAt,
     lastModified,
+    isDrawerShift,
     syncStatus,
     syncError,
   );
@@ -19065,6 +19223,7 @@ class ShiftsTableData extends DataClass implements Insertable<ShiftsTableData> {
           other.openedAt == this.openedAt &&
           other.closedAt == this.closedAt &&
           other.lastModified == this.lastModified &&
+          other.isDrawerShift == this.isDrawerShift &&
           other.syncStatus == this.syncStatus &&
           other.syncError == this.syncError);
 }
@@ -19080,6 +19239,7 @@ class ShiftsTableCompanion extends UpdateCompanion<ShiftsTableData> {
   final Value<DateTime> openedAt;
   final Value<DateTime?> closedAt;
   final Value<DateTime> lastModified;
+  final Value<bool> isDrawerShift;
   final Value<String> syncStatus;
   final Value<String?> syncError;
   final Value<int> rowid;
@@ -19094,6 +19254,7 @@ class ShiftsTableCompanion extends UpdateCompanion<ShiftsTableData> {
     this.openedAt = const Value.absent(),
     this.closedAt = const Value.absent(),
     this.lastModified = const Value.absent(),
+    this.isDrawerShift = const Value.absent(),
     this.syncStatus = const Value.absent(),
     this.syncError = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -19109,6 +19270,7 @@ class ShiftsTableCompanion extends UpdateCompanion<ShiftsTableData> {
     required DateTime openedAt,
     this.closedAt = const Value.absent(),
     required DateTime lastModified,
+    this.isDrawerShift = const Value.absent(),
     this.syncStatus = const Value.absent(),
     this.syncError = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -19128,6 +19290,7 @@ class ShiftsTableCompanion extends UpdateCompanion<ShiftsTableData> {
     Expression<DateTime>? openedAt,
     Expression<DateTime>? closedAt,
     Expression<DateTime>? lastModified,
+    Expression<bool>? isDrawerShift,
     Expression<String>? syncStatus,
     Expression<String>? syncError,
     Expression<int>? rowid,
@@ -19143,6 +19306,7 @@ class ShiftsTableCompanion extends UpdateCompanion<ShiftsTableData> {
       if (openedAt != null) 'opened_at': openedAt,
       if (closedAt != null) 'closed_at': closedAt,
       if (lastModified != null) 'last_modified': lastModified,
+      if (isDrawerShift != null) 'is_drawer_shift': isDrawerShift,
       if (syncStatus != null) 'sync_status': syncStatus,
       if (syncError != null) 'sync_error': syncError,
       if (rowid != null) 'rowid': rowid,
@@ -19160,6 +19324,7 @@ class ShiftsTableCompanion extends UpdateCompanion<ShiftsTableData> {
     Value<DateTime>? openedAt,
     Value<DateTime?>? closedAt,
     Value<DateTime>? lastModified,
+    Value<bool>? isDrawerShift,
     Value<String>? syncStatus,
     Value<String?>? syncError,
     Value<int>? rowid,
@@ -19175,6 +19340,7 @@ class ShiftsTableCompanion extends UpdateCompanion<ShiftsTableData> {
       openedAt: openedAt ?? this.openedAt,
       closedAt: closedAt ?? this.closedAt,
       lastModified: lastModified ?? this.lastModified,
+      isDrawerShift: isDrawerShift ?? this.isDrawerShift,
       syncStatus: syncStatus ?? this.syncStatus,
       syncError: syncError ?? this.syncError,
       rowid: rowid ?? this.rowid,
@@ -19214,6 +19380,9 @@ class ShiftsTableCompanion extends UpdateCompanion<ShiftsTableData> {
     if (lastModified.present) {
       map['last_modified'] = Variable<DateTime>(lastModified.value);
     }
+    if (isDrawerShift.present) {
+      map['is_drawer_shift'] = Variable<bool>(isDrawerShift.value);
+    }
     if (syncStatus.present) {
       map['sync_status'] = Variable<String>(syncStatus.value);
     }
@@ -19239,6 +19408,7 @@ class ShiftsTableCompanion extends UpdateCompanion<ShiftsTableData> {
           ..write('openedAt: $openedAt, ')
           ..write('closedAt: $closedAt, ')
           ..write('lastModified: $lastModified, ')
+          ..write('isDrawerShift: $isDrawerShift, ')
           ..write('syncStatus: $syncStatus, ')
           ..write('syncError: $syncError, ')
           ..write('rowid: $rowid')
@@ -19282,8 +19452,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $PosOrderItemsTableTable(this);
   late final $PosOrderItemTaxesTableTable posOrderItemTaxesTable =
       $PosOrderItemTaxesTableTable(this);
-  late final $CashMovementsTableTable cashMovementsTable =
-      $CashMovementsTableTable(this);
+  late final $StartingCashTableTable startingCashTable =
+      $StartingCashTableTable(this);
   late final $ZReportsTableTable zReportsTable = $ZReportsTableTable(this);
   late final $SyncMetaTableTable syncMetaTable = $SyncMetaTableTable(this);
   late final $StocksTableTable stocksTable = $StocksTableTable(this);
@@ -19372,7 +19542,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     posOrdersTable,
     posOrderItemsTable,
     posOrderItemTaxesTable,
-    cashMovementsTable,
+    startingCashTable,
     zReportsTable,
     syncMetaTable,
     stocksTable,
@@ -21585,6 +21755,7 @@ typedef $$AppPropertiesTableTableCreateCompanionBuilder =
       required String name,
       Value<String?> value,
       required DateTime lastModified,
+      Value<String> syncStatus,
     });
 typedef $$AppPropertiesTableTableUpdateCompanionBuilder =
     AppPropertiesTableCompanion Function({
@@ -21593,6 +21764,7 @@ typedef $$AppPropertiesTableTableUpdateCompanionBuilder =
       Value<String> name,
       Value<String?> value,
       Value<DateTime> lastModified,
+      Value<String> syncStatus,
     });
 
 class $$AppPropertiesTableTableFilterComposer
@@ -21626,6 +21798,11 @@ class $$AppPropertiesTableTableFilterComposer
 
   ColumnFilters<DateTime> get lastModified => $composableBuilder(
     column: $table.lastModified,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -21663,6 +21840,11 @@ class $$AppPropertiesTableTableOrderingComposer
     column: $table.lastModified,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$AppPropertiesTableTableAnnotationComposer
@@ -21688,6 +21870,11 @@ class $$AppPropertiesTableTableAnnotationComposer
 
   GeneratedColumn<DateTime> get lastModified => $composableBuilder(
     column: $table.lastModified,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
     builder: (column) => column,
   );
 }
@@ -21737,12 +21924,14 @@ class $$AppPropertiesTableTableTableManager
                 Value<String> name = const Value.absent(),
                 Value<String?> value = const Value.absent(),
                 Value<DateTime> lastModified = const Value.absent(),
+                Value<String> syncStatus = const Value.absent(),
               }) => AppPropertiesTableCompanion(
                 id: id,
                 companyId: companyId,
                 name: name,
                 value: value,
                 lastModified: lastModified,
+                syncStatus: syncStatus,
               ),
           createCompanionCallback:
               ({
@@ -21751,12 +21940,14 @@ class $$AppPropertiesTableTableTableManager
                 required String name,
                 Value<String?> value = const Value.absent(),
                 required DateTime lastModified,
+                Value<String> syncStatus = const Value.absent(),
               }) => AppPropertiesTableCompanion.insert(
                 id: id,
                 companyId: companyId,
                 name: name,
                 value: value,
                 lastModified: lastModified,
+                syncStatus: syncStatus,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
@@ -25817,8 +26008,8 @@ typedef $$PosOrderItemTaxesTableTableProcessedTableManager =
       PosOrderItemTaxesTableData,
       PrefetchHooks Function({bool orderId})
     >;
-typedef $$CashMovementsTableTableCreateCompanionBuilder =
-    CashMovementsTableCompanion Function({
+typedef $$StartingCashTableTableCreateCompanionBuilder =
+    StartingCashTableCompanion Function({
       required String localId,
       Value<int?> serverId,
       required int companyId,
@@ -25827,12 +26018,13 @@ typedef $$CashMovementsTableTableCreateCompanionBuilder =
       required String type,
       Value<String?> note,
       required DateTime createdAt,
+      Value<int?> zReportNumber,
       Value<String> syncStatus,
       Value<String?> syncError,
       Value<int> rowid,
     });
-typedef $$CashMovementsTableTableUpdateCompanionBuilder =
-    CashMovementsTableCompanion Function({
+typedef $$StartingCashTableTableUpdateCompanionBuilder =
+    StartingCashTableCompanion Function({
       Value<String> localId,
       Value<int?> serverId,
       Value<int> companyId,
@@ -25841,14 +26033,15 @@ typedef $$CashMovementsTableTableUpdateCompanionBuilder =
       Value<String> type,
       Value<String?> note,
       Value<DateTime> createdAt,
+      Value<int?> zReportNumber,
       Value<String> syncStatus,
       Value<String?> syncError,
       Value<int> rowid,
     });
 
-class $$CashMovementsTableTableFilterComposer
-    extends Composer<_$AppDatabase, $CashMovementsTableTable> {
-  $$CashMovementsTableTableFilterComposer({
+class $$StartingCashTableTableFilterComposer
+    extends Composer<_$AppDatabase, $StartingCashTableTable> {
+  $$StartingCashTableTableFilterComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -25895,6 +26088,11 @@ class $$CashMovementsTableTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<int> get zReportNumber => $composableBuilder(
+    column: $table.zReportNumber,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get syncStatus => $composableBuilder(
     column: $table.syncStatus,
     builder: (column) => ColumnFilters(column),
@@ -25906,9 +26104,9 @@ class $$CashMovementsTableTableFilterComposer
   );
 }
 
-class $$CashMovementsTableTableOrderingComposer
-    extends Composer<_$AppDatabase, $CashMovementsTableTable> {
-  $$CashMovementsTableTableOrderingComposer({
+class $$StartingCashTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $StartingCashTableTable> {
+  $$StartingCashTableTableOrderingComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -25955,6 +26153,11 @@ class $$CashMovementsTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get zReportNumber => $composableBuilder(
+    column: $table.zReportNumber,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get syncStatus => $composableBuilder(
     column: $table.syncStatus,
     builder: (column) => ColumnOrderings(column),
@@ -25966,9 +26169,9 @@ class $$CashMovementsTableTableOrderingComposer
   );
 }
 
-class $$CashMovementsTableTableAnnotationComposer
-    extends Composer<_$AppDatabase, $CashMovementsTableTable> {
-  $$CashMovementsTableTableAnnotationComposer({
+class $$StartingCashTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $StartingCashTableTable> {
+  $$StartingCashTableTableAnnotationComposer({
     required super.$db,
     required super.$table,
     super.joinBuilder,
@@ -25999,6 +26202,11 @@ class $$CashMovementsTableTableAnnotationComposer
   GeneratedColumn<DateTime> get createdAt =>
       $composableBuilder(column: $table.createdAt, builder: (column) => column);
 
+  GeneratedColumn<int> get zReportNumber => $composableBuilder(
+    column: $table.zReportNumber,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get syncStatus => $composableBuilder(
     column: $table.syncStatus,
     builder: (column) => column,
@@ -26008,41 +26216,41 @@ class $$CashMovementsTableTableAnnotationComposer
       $composableBuilder(column: $table.syncError, builder: (column) => column);
 }
 
-class $$CashMovementsTableTableTableManager
+class $$StartingCashTableTableTableManager
     extends
         RootTableManager<
           _$AppDatabase,
-          $CashMovementsTableTable,
-          CashMovementsTableData,
-          $$CashMovementsTableTableFilterComposer,
-          $$CashMovementsTableTableOrderingComposer,
-          $$CashMovementsTableTableAnnotationComposer,
-          $$CashMovementsTableTableCreateCompanionBuilder,
-          $$CashMovementsTableTableUpdateCompanionBuilder,
+          $StartingCashTableTable,
+          StartingCashTableData,
+          $$StartingCashTableTableFilterComposer,
+          $$StartingCashTableTableOrderingComposer,
+          $$StartingCashTableTableAnnotationComposer,
+          $$StartingCashTableTableCreateCompanionBuilder,
+          $$StartingCashTableTableUpdateCompanionBuilder,
           (
-            CashMovementsTableData,
+            StartingCashTableData,
             BaseReferences<
               _$AppDatabase,
-              $CashMovementsTableTable,
-              CashMovementsTableData
+              $StartingCashTableTable,
+              StartingCashTableData
             >,
           ),
-          CashMovementsTableData,
+          StartingCashTableData,
           PrefetchHooks Function()
         > {
-  $$CashMovementsTableTableTableManager(
+  $$StartingCashTableTableTableManager(
     _$AppDatabase db,
-    $CashMovementsTableTable table,
+    $StartingCashTableTable table,
   ) : super(
         TableManagerState(
           db: db,
           table: table,
           createFilteringComposer: () =>
-              $$CashMovementsTableTableFilterComposer($db: db, $table: table),
+              $$StartingCashTableTableFilterComposer($db: db, $table: table),
           createOrderingComposer: () =>
-              $$CashMovementsTableTableOrderingComposer($db: db, $table: table),
+              $$StartingCashTableTableOrderingComposer($db: db, $table: table),
           createComputedFieldComposer: () =>
-              $$CashMovementsTableTableAnnotationComposer(
+              $$StartingCashTableTableAnnotationComposer(
                 $db: db,
                 $table: table,
               ),
@@ -26056,10 +26264,11 @@ class $$CashMovementsTableTableTableManager
                 Value<String> type = const Value.absent(),
                 Value<String?> note = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
+                Value<int?> zReportNumber = const Value.absent(),
                 Value<String> syncStatus = const Value.absent(),
                 Value<String?> syncError = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => CashMovementsTableCompanion(
+              }) => StartingCashTableCompanion(
                 localId: localId,
                 serverId: serverId,
                 companyId: companyId,
@@ -26068,6 +26277,7 @@ class $$CashMovementsTableTableTableManager
                 type: type,
                 note: note,
                 createdAt: createdAt,
+                zReportNumber: zReportNumber,
                 syncStatus: syncStatus,
                 syncError: syncError,
                 rowid: rowid,
@@ -26082,10 +26292,11 @@ class $$CashMovementsTableTableTableManager
                 required String type,
                 Value<String?> note = const Value.absent(),
                 required DateTime createdAt,
+                Value<int?> zReportNumber = const Value.absent(),
                 Value<String> syncStatus = const Value.absent(),
                 Value<String?> syncError = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
-              }) => CashMovementsTableCompanion.insert(
+              }) => StartingCashTableCompanion.insert(
                 localId: localId,
                 serverId: serverId,
                 companyId: companyId,
@@ -26094,6 +26305,7 @@ class $$CashMovementsTableTableTableManager
                 type: type,
                 note: note,
                 createdAt: createdAt,
+                zReportNumber: zReportNumber,
                 syncStatus: syncStatus,
                 syncError: syncError,
                 rowid: rowid,
@@ -26106,25 +26318,25 @@ class $$CashMovementsTableTableTableManager
       );
 }
 
-typedef $$CashMovementsTableTableProcessedTableManager =
+typedef $$StartingCashTableTableProcessedTableManager =
     ProcessedTableManager<
       _$AppDatabase,
-      $CashMovementsTableTable,
-      CashMovementsTableData,
-      $$CashMovementsTableTableFilterComposer,
-      $$CashMovementsTableTableOrderingComposer,
-      $$CashMovementsTableTableAnnotationComposer,
-      $$CashMovementsTableTableCreateCompanionBuilder,
-      $$CashMovementsTableTableUpdateCompanionBuilder,
+      $StartingCashTableTable,
+      StartingCashTableData,
+      $$StartingCashTableTableFilterComposer,
+      $$StartingCashTableTableOrderingComposer,
+      $$StartingCashTableTableAnnotationComposer,
+      $$StartingCashTableTableCreateCompanionBuilder,
+      $$StartingCashTableTableUpdateCompanionBuilder,
       (
-        CashMovementsTableData,
+        StartingCashTableData,
         BaseReferences<
           _$AppDatabase,
-          $CashMovementsTableTable,
-          CashMovementsTableData
+          $StartingCashTableTable,
+          StartingCashTableData
         >,
       ),
-      CashMovementsTableData,
+      StartingCashTableData,
       PrefetchHooks Function()
     >;
 typedef $$ZReportsTableTableCreateCompanionBuilder =
@@ -29685,6 +29897,7 @@ typedef $$ShiftsTableTableCreateCompanionBuilder =
       required DateTime openedAt,
       Value<DateTime?> closedAt,
       required DateTime lastModified,
+      Value<bool> isDrawerShift,
       Value<String> syncStatus,
       Value<String?> syncError,
       Value<int> rowid,
@@ -29701,6 +29914,7 @@ typedef $$ShiftsTableTableUpdateCompanionBuilder =
       Value<DateTime> openedAt,
       Value<DateTime?> closedAt,
       Value<DateTime> lastModified,
+      Value<bool> isDrawerShift,
       Value<String> syncStatus,
       Value<String?> syncError,
       Value<int> rowid,
@@ -29762,6 +29976,11 @@ class $$ShiftsTableTableFilterComposer
 
   ColumnFilters<DateTime> get lastModified => $composableBuilder(
     column: $table.lastModified,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDrawerShift => $composableBuilder(
+    column: $table.isDrawerShift,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -29835,6 +30054,11 @@ class $$ShiftsTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<bool> get isDrawerShift => $composableBuilder(
+    column: $table.isDrawerShift,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get syncStatus => $composableBuilder(
     column: $table.syncStatus,
     builder: (column) => ColumnOrderings(column),
@@ -29891,6 +30115,11 @@ class $$ShiftsTableTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<bool> get isDrawerShift => $composableBuilder(
+    column: $table.isDrawerShift,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get syncStatus => $composableBuilder(
     column: $table.syncStatus,
     builder: (column) => column,
@@ -29941,6 +30170,7 @@ class $$ShiftsTableTableTableManager
                 Value<DateTime> openedAt = const Value.absent(),
                 Value<DateTime?> closedAt = const Value.absent(),
                 Value<DateTime> lastModified = const Value.absent(),
+                Value<bool> isDrawerShift = const Value.absent(),
                 Value<String> syncStatus = const Value.absent(),
                 Value<String?> syncError = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -29955,6 +30185,7 @@ class $$ShiftsTableTableTableManager
                 openedAt: openedAt,
                 closedAt: closedAt,
                 lastModified: lastModified,
+                isDrawerShift: isDrawerShift,
                 syncStatus: syncStatus,
                 syncError: syncError,
                 rowid: rowid,
@@ -29971,6 +30202,7 @@ class $$ShiftsTableTableTableManager
                 required DateTime openedAt,
                 Value<DateTime?> closedAt = const Value.absent(),
                 required DateTime lastModified,
+                Value<bool> isDrawerShift = const Value.absent(),
                 Value<String> syncStatus = const Value.absent(),
                 Value<String?> syncError = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -29985,6 +30217,7 @@ class $$ShiftsTableTableTableManager
                 openedAt: openedAt,
                 closedAt: closedAt,
                 lastModified: lastModified,
+                isDrawerShift: isDrawerShift,
                 syncStatus: syncStatus,
                 syncError: syncError,
                 rowid: rowid,
@@ -30057,8 +30290,8 @@ class $AppDatabaseManager {
         _db,
         _db.posOrderItemTaxesTable,
       );
-  $$CashMovementsTableTableTableManager get cashMovementsTable =>
-      $$CashMovementsTableTableTableManager(_db, _db.cashMovementsTable);
+  $$StartingCashTableTableTableManager get startingCashTable =>
+      $$StartingCashTableTableTableManager(_db, _db.startingCashTable);
   $$ZReportsTableTableTableManager get zReportsTable =>
       $$ZReportsTableTableTableManager(_db, _db.zReportsTable);
   $$SyncMetaTableTableTableManager get syncMetaTable =>
