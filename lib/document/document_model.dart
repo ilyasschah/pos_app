@@ -1,5 +1,9 @@
 class Document {
   final int id;
+  /// Drift local UUID PK — set when the document came from the offline-first
+  /// list so the editor can write paid-status / payments through to local SQLite.
+  /// Null for documents built straight from an API payload (e.g. bookings).
+  final String? localId;
   final String number;
   final int userId;
   final String? userName;
@@ -29,6 +33,7 @@ class Document {
 
   Document({
     required this.id,
+    this.localId,
     required this.number,
     required this.userId,
     this.userName,
@@ -135,6 +140,10 @@ class DocumentCategory {
 
 class DocumentItem {
   final int id;
+  /// Drift local UUID + sync state — present only for items read from the
+  /// offline-first local store. Null/'synced' for API-sourced items.
+  final String? localId;
+  final String syncStatus;
   final int companyId;
   final int documentId;
   final String? documentNumber;
@@ -154,9 +163,17 @@ class DocumentItem {
   final double total;
   final double totalAfterDocumentDiscount;
   final bool discountApplyRule;
+  final int? taxId;
+  final double taxRate;
+  final DateTime? expirationDate;
 
   DocumentItem({
     required this.id,
+    this.localId,
+    this.syncStatus = 'synced',
+    this.taxId,
+    this.taxRate = 0,
+    this.expirationDate,
     required this.companyId,
     required this.documentId,
     this.documentNumber,

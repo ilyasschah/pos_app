@@ -4,10 +4,13 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/product/product_group_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
+import 'package:pos_app/stock/warehouses_screen.dart';
+import 'package:pos_app/sync/sync_notifier.dart';
+import 'package:pos_app/sync/sync_provider.dart';
 import 'package:pos_app/stock/stock_model.dart';
 import 'package:pos_app/stock/stock_control_model.dart';
 import 'package:pos_app/stock/stock_control_provider.dart';
@@ -27,28 +30,49 @@ class StockMasterItem {
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 
+/// Offline-first: products + stocks read from the local Drift cache (kept fresh
+/// by SyncManager.pullProducts / pullStocks). No network round-trip.
 final stockMasterProvider =
     FutureProvider.autoDispose<List<StockMasterItem>>((ref) async {
   final company = ref.watch(selectedCompanyProvider);
   if (company == null) return [];
 
-  final dio = createDio();
-  final results = await Future.wait([
-    dio.get('/Products/GetAll', queryParameters: {'companyId': company.id}),
-    dio.get('/Stocks/GetAllStocks', queryParameters: {'companyId': company.id}),
-  ]);
+  final db = ref.watch(appDatabaseProvider);
+  final productRows = await db.getStocksForCompany(company.id); // stocks
+  final products = await (db.select(db.productsTable)
+        ..where((t) => t.companyId.equals(company.id))
+        ..where((t) => t.syncStatus.isNotIn(['pending_delete'])))
+      .get();
+  final warehouseRows = await (db.select(db.warehousesTable)
+        ..where((t) => t.companyId.equals(company.id)))
+      .get();
+  final warehouseNames = {for (final w in warehouseRows) w.id: w.name};
 
-  final products = (results[0].data as List)
-      .map((j) => Product.fromJson(j))
-      .toList();
-  final allStocks = (results[1].data as List)
-      .map((j) => StockItem.fromJson(j))
-      .toList();
+  // Group stock rows by product, resolving warehouse + product display fields.
+  final stocksByProduct = <int, List<StockItem>>{};
+  final productById = {for (final p in products) p.id: p};
+  for (final s in productRows) {
+    final p = productById[s.productId];
+    (stocksByProduct[s.productId] ??= []).add(StockItem(
+      id: s.id,
+      quantity: s.quantity,
+      warehouseId: s.warehouseId,
+      warehouseName: warehouseNames[s.warehouseId] ?? '',
+      productId: s.productId,
+      productName: p?.name ?? '',
+      companyId: s.companyId,
+      cost: p?.cost,
+      price: p?.price,
+      productCode: p?.code,
+    ));
+  }
 
-  return products.map((p) {
-    final productStocks = allStocks.where((s) => s.productId == p.id).toList();
-    return StockMasterItem(product: p, stocks: productStocks);
-  }).toList();
+  return products
+      .map((p) => StockMasterItem(
+            product: Product.fromDrift(p),
+            stocks: stocksByProduct[p.id] ?? const [],
+          ))
+      .toList();
 });
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -70,6 +94,11 @@ class _StockScreenState extends ConsumerState<StockScreen> {
   String _searchQuery = '';
   bool _showUnassigned = false;
   bool _showLowStock = false;
+  bool _showReorder = false;
+
+  // Per-product stock-control rules (productId → rule), seeded from Drift in
+  // build() so the filters/rows/badges evaluate against the configured rules.
+  Map<int, StockControl> _rules = const {};
 
   final _searchCtrl = TextEditingController();
 
@@ -99,9 +128,18 @@ class _StockScreenState extends ConsumerState<StockScreen> {
       items = items.where((m) => m.stocks.isEmpty).toList();
     }
     if (_showLowStock) {
-      items = items
-          .where((m) => m.totalQuantity < 5 && m.stocks.isNotEmpty)
-          .toList();
+      // Rule-driven: a product is low when its configured low-stock warning
+      // threshold is reached. Products without a rule are out of scope.
+      items = items.where((m) {
+        final rule = _rules[m.product.id];
+        return rule != null && rule.isLowStockAt(m.totalQuantity);
+      }).toList();
+    }
+    if (_showReorder) {
+      items = items.where((m) {
+        final rule = _rules[m.product.id];
+        return rule != null && rule.needsReorderAt(m.totalQuantity);
+      }).toList();
     }
     return items;
   }
@@ -431,6 +469,9 @@ class _StockScreenState extends ConsumerState<StockScreen> {
     final sym = ref.watch(currencySymbolProvider);
     final theme = Theme.of(context);
 
+    // Seed the rules map from Drift (offline-first) so filters/rows react to it.
+    _rules = ref.watch(stockControlsMapProvider).value ?? const {};
+
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
@@ -445,6 +486,19 @@ class _StockScreenState extends ConsumerState<StockScreen> {
               )
             : null,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.warehouse_outlined),
+            tooltip: "Manage Warehouses",
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const WarehousesScreen()),
+              );
+              // Warehouses may have changed — refresh the list + stock views.
+              ref.invalidate(allWarehousesProvider);
+              ref.invalidate(stockMasterProvider);
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.picture_as_pdf_outlined),
             tooltip: "Print Stock Report (PDF)",
@@ -563,6 +617,16 @@ class _StockScreenState extends ConsumerState<StockScreen> {
                           Colors.red.withValues(alpha: 0.2),
                       checkmarkColor: Colors.red,
                     ),
+                    const SizedBox(width: 8),
+                    FilterChip(
+                      label: const Text("Needs Reorder"),
+                      selected: _showReorder,
+                      onSelected: (v) =>
+                          setState(() => _showReorder = v),
+                      selectedColor:
+                          Colors.orange.withValues(alpha: 0.2),
+                      checkmarkColor: Colors.orange,
+                    ),
                   ],
                 ),
               ),
@@ -654,6 +718,11 @@ class _StockScreenState extends ConsumerState<StockScreen> {
     final double totalQty = stocks.fold(0, (sum, s) => sum + s.quantity);
     final double totalValue = totalQty * product.price;
     final bool isSelected = _selectedProductId == product.id;
+
+    // Stock-control rule status (offline-first, from _rules).
+    final rule = _rules[product.id];
+    final bool isLow = rule != null && rule.isLowStockAt(totalQty);
+    final bool needsReorder = rule != null && rule.needsReorderAt(totalQty);
 
     return DataRow(
       selected: isSelected,
@@ -749,12 +818,28 @@ class _StockScreenState extends ConsumerState<StockScreen> {
                     ],
                   ),
                 )
-              : Text(
-                  totalQty.toStringAsFixed(totalQty % 1 == 0 ? 0 : 2),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: totalQty < 5 ? Colors.red : Colors.green,
-                  ),
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      totalQty.toStringAsFixed(totalQty % 1 == 0 ? 0 : 2),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: isLow
+                            ? Colors.red
+                            : needsReorder
+                                ? Colors.orange
+                                : Colors.green,
+                      ),
+                    ),
+                    if (isLow || needsReorder) ...[
+                      const SizedBox(width: 6),
+                      _StockFlag(
+                        label: isLow ? 'LOW' : 'REORDER',
+                        color: isLow ? Colors.red : Colors.orange,
+                      ),
+                    ],
+                  ],
                 ),
         ),
         DataCell(
@@ -780,7 +865,16 @@ class _StockScreenState extends ConsumerState<StockScreen> {
       context: context,
       builder: (ctx) => _AssignStockDialog(product: product),
     ).then((success) {
-      if (success == true) ref.invalidate(stockMasterProvider);
+      if (success == true) {
+        ref.invalidate(stockMasterProvider);
+        // Stock edits go through the API; refresh the local Drift `stocks`
+        // cache so the POS menu's offline-first availability check reflects the
+        // change immediately (the menu streams from Drift, not the API).
+        final companyId = ref.read(selectedCompanyProvider)?.id;
+        if (companyId != null) {
+          ref.read(syncManagerProvider).pullStocks(companyId).catchError((_) {});
+        }
+      }
     });
   }
 
@@ -803,6 +897,31 @@ class _StockScreenState extends ConsumerState<StockScreen> {
           padding: const EdgeInsets.all(6),
           child: Icon(icon, size: 20, color: color),
         ),
+      ),
+    );
+  }
+}
+
+// ── Small low-stock / reorder flag chip ───────────────────────────────────────
+
+class _StockFlag extends StatelessWidget {
+  final String label;
+  final Color color;
+  const _StockFlag({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+            color: color, fontSize: 8, fontWeight: FontWeight.bold),
       ),
     );
   }
@@ -889,8 +1008,15 @@ class _AssignStockDialogState
 
     setState(() => _isSaving = true);
     try {
-      await ApiClient().addStock(
-          company.id, widget.product.id, _selectedWarehouseId!, qty);
+      // Offline-first: write the stock row to local Drift; SyncManager pushes
+      // /Stocks/Add on the next sync.
+      await ref.read(appDatabaseProvider).addStockLocal(
+            companyId: company.id,
+            productId: widget.product.id,
+            warehouseId: _selectedWarehouseId!,
+            quantity: qty,
+          );
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
@@ -950,22 +1076,18 @@ class _StockControlDialogState
     setState(() => _isSaving = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      if (_existing != null) {
-        await ApiClient().updateStockControl(company.id,
-            id: _existing!.id,
-            reorderPoint: reorder,
-            preferredQuantity: preferred,
-            isLowStockWarningEnabled: _lowStockEnabled,
-            lowStockWarningQuantity: lowQty);
-      } else {
-        await ApiClient().createStockControl(company.id,
+      // Offline-first: upsert the rule in local Drift (keyed by product);
+      // SyncManager pushes /StockControls/Add or /Update on the next sync.
+      await ref.read(appDatabaseProvider).saveStockControlLocal(
+            companyId: company.id,
             productId: widget.product.id,
             reorderPoint: reorder,
             preferredQuantity: preferred,
             isLowStockWarningEnabled: _lowStockEnabled,
-            lowStockWarningQuantity: lowQty);
-      }
+            lowStockWarningQuantity: lowQty,
+          );
       if (!mounted) return;
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       ref.invalidate(stockControlByProductIdProvider(widget.product.id));
       Navigator.pop(context);
     } catch (e) {
@@ -983,8 +1105,9 @@ class _StockControlDialogState
     setState(() => _isSaving = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await ApiClient().deleteStockControl(company.id, _existing!.id);
+      await ref.read(appDatabaseProvider).deleteStockControlLocal(widget.product.id);
       if (!mounted) return;
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       ref.invalidate(stockControlByProductIdProvider(widget.product.id));
       Navigator.pop(context);
     } catch (e) {
@@ -1173,19 +1296,20 @@ class _ProductDetailPanelState
   Future<void> _saveEdit(StockItem stock) async {
     final newQty = double.tryParse(_editQtyCtrl.text);
     if (newQty == null) return;
-    final company = ref.read(selectedCompanyProvider);
-    if (company == null) return;
+    if (ref.read(selectedCompanyProvider) == null) return;
 
     setState(() => _isSaving = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await ApiClient().updateStock(
-        company.id,
-        stock.id,
-        stock.productId,
-        stock.warehouseId,
-        newQty,
-      );
+      // Offline-first: update the local stock row; SyncManager pushes
+      // /Stocks/Update on the next sync.
+      await ref.read(appDatabaseProvider).updateStockLocal(
+            id: stock.id,
+            productId: stock.productId,
+            warehouseId: stock.warehouseId,
+            quantity: newQty,
+          );
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       if (!mounted) return;
       setState(() {
         _editingStockId = null;
@@ -1200,8 +1324,7 @@ class _ProductDetailPanelState
   }
 
   Future<void> _deleteStock(StockItem stock) async {
-    final company = ref.read(selectedCompanyProvider);
-    if (company == null) return;
+    if (ref.read(selectedCompanyProvider) == null) return;
 
     final confirm = await showDialog<bool>(
       context: context,
@@ -1227,7 +1350,10 @@ class _ProductDetailPanelState
     setState(() => _isSaving = true);
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await ApiClient().deleteStock(company.id, stock.id);
+      // Offline-first: remove the local stock row; SyncManager pushes
+      // /Stocks/Delete on the next sync.
+      await ref.read(appDatabaseProvider).deleteStockLocal(stock.id);
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       if (!mounted) return;
       setState(() => _isSaving = false);
       widget.onRefresh();
@@ -1410,39 +1536,79 @@ class _ProductDetailPanelState
                                 strokeWidth: 2))),
                     error: (_, __) =>
                         const Text("Could not load rules"),
-                    data: (control) => control == null
-                        ? _emptyBox(
-                            context,
-                            icon: Icons.tune,
-                            color: Colors.grey,
-                            message:
-                                "No stock control rules configured",
-                          )
-                        : Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.green
-                                  .withValues(alpha: 0.06),
-                              borderRadius:
-                                  BorderRadius.circular(8),
-                              border: Border.all(
-                                color: Colors.green
-                                    .withValues(alpha: 0.25),
-                              ),
-                            ),
-                            child: Column(children: [
-                              _infoRow("Reorder Point",
-                                  "${control.reorderPoint}"),
-                              _infoRow("Preferred Qty",
-                                  "${control.preferredQuantity}"),
-                              _infoRow(
-                                "Low Stock Warning",
-                                control.isLowStockWarningEnabled
-                                    ? "On — below ${control.lowStockWarningQuantity}"
-                                    : "Disabled",
-                              ),
-                            ]),
+                    data: (control) {
+                      if (control == null) {
+                        return _emptyBox(
+                          context,
+                          icon: Icons.tune,
+                          color: Colors.grey,
+                          message: "No stock control rules configured",
+                        );
+                      }
+                      // Evaluate the rules against the current (warehouse-
+                      // filtered) quantity — this is what makes the rules "work".
+                      final stocks = widget.warehouseId == null
+                          ? widget.item.stocks
+                          : widget.item.stocks
+                              .where((s) => s.warehouseId == widget.warehouseId)
+                              .toList();
+                      final qty =
+                          stocks.fold<double>(0, (a, s) => a + s.quantity);
+                      final low = control.isLowStockAt(qty);
+                      final reorder = control.needsReorderAt(qty);
+                      final suggest = control.suggestedReorderQty(qty);
+
+                      final (statusColor, statusText) = low
+                          ? (Colors.red, "Low stock — at/below warning level")
+                          : reorder
+                              ? (Colors.orange, "At/below reorder point")
+                              : (Colors.green, "Stock healthy");
+
+                      return Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: statusColor.withValues(alpha: 0.25),
                           ),
+                        ),
+                        child: Column(children: [
+                          Row(children: [
+                            Icon(
+                              low || reorder
+                                  ? Icons.warning_amber_rounded
+                                  : Icons.check_circle_outline,
+                              size: 16,
+                              color: statusColor,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(statusText,
+                                  style: TextStyle(
+                                      color: statusColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12)),
+                            ),
+                          ]),
+                          const SizedBox(height: 8),
+                          _infoRow("Reorder Point", "${control.reorderPoint}"),
+                          _infoRow("Preferred Qty",
+                              "${control.preferredQuantity}"),
+                          _infoRow(
+                            "Low Stock Warning",
+                            control.isLowStockWarningEnabled
+                                ? "On — below ${control.lowStockWarningQuantity}"
+                                : "Disabled",
+                          ),
+                          if ((low || reorder) && suggest > 0)
+                            _infoRow(
+                              "Suggested Order",
+                              "+${suggest.toStringAsFixed(suggest % 1 == 0 ? 0 : 2)} to reach ${control.preferredQuantity}",
+                            ),
+                        ]),
+                      );
+                    },
                   ),
 
                   const SizedBox(height: 8),

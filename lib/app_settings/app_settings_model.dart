@@ -66,6 +66,10 @@ class SettingKeys {
   static const updateSalePriceOnMarkup = 'Products.UpdateSalePriceOnMarkup';
   static const enableMovingAveragePrice = 'Products.EnableMovingAveragePrice';
 
+  /// Comma-separated tax-rate IDs auto-applied to a product when it is added to
+  /// the cart without its own tax assignments. Empty = no default tax.
+  static const defaultTaxRateIds = 'Products.DefaultTaxRateIds';
+
   // Documents
   static const defaultDocumentType = 'Documents.DefaultDocumentType';
   static const invoicePrefix = 'Documents.InvoicePrefix';
@@ -252,6 +256,12 @@ class SettingKeys {
   // floor-plan / booking feature flags so we never route to a disabled screen.
   static const defaultScreen            = 'App.DefaultScreen';
 
+  // Auto-sync — background push+pull behaviour.
+  static const autoSyncEnabled          = 'App.AutoSync.Enabled';
+  // 'After every save' | 'Every 1 hour'
+  static const autoSyncMode             = 'App.AutoSync.Mode';
+  static const autoSyncShowNotification = 'App.AutoSync.ShowNotification';
+
   // Basic Operations
   static const useFloorPlans                  = 'Order.UseFloorPlans';
   static const enableSounds                   = 'App.EnableSounds';
@@ -290,9 +300,18 @@ class SettingKeys {
   static const showItemsOnPaymentForm         = 'Order.ShowItemsOnPaymentForm';
   static const numberOfPaymentTypeRows        = 'Order.NumberOfPaymentTypeRows';
   static const showAllOccupiedTablesInFloorPlan = 'Feature.FloorPlan.ShowAllOccupied';
+  // Warehouse used by default for POS stock checks / sourcing. Stored as the
+  // warehouse id (string). Empty → fall back to the first warehouse.
+  static const defaultWarehouseId = 'Order.DefaultWarehouseId';
 
   // Kitchen Display
   static const kitchenDisplayIps = 'Kitchen.DisplayIps';
+  // JSON array of printer/display groups: [{id,name,productGroupIds:[...]}].
+  // Each group maps a set of product categories to a kitchen/bar station.
+  static const kitchenPrinterGroups = 'Kitchen.PrinterGroups';
+  // JSON object { "<ip>": [groupId,...] } — which printer groups each paired
+  // display receives. An IP with no entry receives ALL items (single-station).
+  static const kitchenDisplayGroups = 'Kitchen.DisplayGroups';
 
   // Button Bar
   static const showSearchBtn     = 'ButtonBar.ShowSearch';
@@ -342,6 +361,7 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.autoUpdateCostPrice: 'true',
   SettingKeys.updateSalePriceOnMarkup: 'false',
   SettingKeys.enableMovingAveragePrice: 'false',
+  SettingKeys.defaultTaxRateIds: '',
   SettingKeys.defaultDocumentType: 'Sales',
   SettingKeys.invoicePrefix: 'INV',
   SettingKeys.autoGenerateNumber: 'true',
@@ -522,9 +542,12 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.showItemsOnPaymentForm:            'true',
   SettingKeys.numberOfPaymentTypeRows:           '0',
   SettingKeys.showAllOccupiedTablesInFloorPlan:  'true',
+  SettingKeys.defaultWarehouseId:                '',
 
   // Kitchen Display
   SettingKeys.kitchenDisplayIps:                 '',
+  SettingKeys.kitchenPrinterGroups:              '',
+  SettingKeys.kitchenDisplayGroups:              '',
 
   // Application Style
   SettingKeys.writingDirection:         'LTR',
@@ -539,6 +562,9 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.showCashInOnStart:        'true',
   SettingKeys.selectBusinessDayOnStart: 'false',
   SettingKeys.defaultScreen:            'POS',
+  SettingKeys.autoSyncEnabled:          'true',
+  SettingKeys.autoSyncMode:             'After every save',
+  SettingKeys.autoSyncShowNotification: 'false',
 
   // Button Bar
   SettingKeys.showSearchBtn:     'true',

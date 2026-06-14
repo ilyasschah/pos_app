@@ -359,13 +359,6 @@ class _UserInfoScreenState extends ConsumerState<UserInfoScreen> {
                         const SizedBox(height: 32),
                         _buildInfoRow(
                           context,
-                          Icons.badge,
-                          "User ID",
-                          currentUser.id.toString(),
-                        ),
-                        const Divider(height: 32),
-                        _buildInfoRow(
-                          context,
                           Icons.account_circle,
                           "Username",
                           currentUser.username ?? "N/A",

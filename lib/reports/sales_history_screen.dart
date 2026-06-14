@@ -14,8 +14,10 @@ import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/cart/checkout_models.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/document/document_model.dart';
 import 'package:pos_app/customer/customer_model.dart';
+import 'package:pos_app/sync/sync_notifier.dart';
 import 'package:pos_app/refund/refund_dialog.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/printer/invoice_pdf_service.dart';
@@ -26,6 +28,7 @@ import 'package:pos_app/utils/snackbar_helper.dart';
 
 class SalesHistoryDocument {
   final int id;
+  final String? localId;
   final String number;
   final String? userName;
   final String? customerName;
@@ -44,6 +47,7 @@ class SalesHistoryDocument {
 
   SalesHistoryDocument({
     required this.id,
+    this.localId,
     required this.number,
     this.userName,
     this.customerName,
@@ -211,7 +215,7 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
   // ── data state ────────────────────────────────────────────────────────────
   List<SalesHistoryDocument> _documents = [];
   List<DocumentItem> _items             = [];
-  int? _selectedDocumentId;
+  String? _selectedDocLocalId;
   bool _loading      = false;
   bool _itemsLoading = false;
   String? _error;
@@ -265,52 +269,135 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
     final company = ref.read(selectedCompanyProvider);
     if (company == null) return;
 
-    setState(() { _loading = true; _error = null; _selectedDocumentId = null; _items = []; });
+    setState(() { _loading = true; _error = null; _selectedDocLocalId = null; _items = []; });
 
     try {
-      final params = <String, dynamic>{
-        'companyId': company.id,
-        'startDate': _startDate.toIso8601String().substring(0, 10),
-        'endDate':   _endDate.toIso8601String().substring(0, 10),
-      };
-      if (!_showAllUsers) {
-        final user = ref.read(currentUserProvider);
-        if (user != null) params['userId'] = user.id;
+      // Offline-first: read sales documents straight from the local Drift store
+      // (kept fresh by SyncManager.pullDocuments). No network needed.
+      final db = ref.read(appDatabaseProvider);
+      final user = ref.read(currentUserProvider);
+
+      // Lookup maps for name resolution + payment summaries.
+      final userRows = await db.select(db.usersTable).get();
+      final customerRows = await db.select(db.customersTable).get();
+      final warehouseRows = await db.select(db.warehousesTable).get();
+      final payTypeRows = await db.select(db.paymentTypesTable).get();
+      final userMap = {for (final u in userRows) u.id: u.name};
+      final customerMap = {for (final c in customerRows) c.id: c.name};
+      final warehouseMap = {for (final w in warehouseRows) w.id: w.name};
+      final payTypeMap = {for (final p in payTypeRows) p.id: p.name};
+
+      // Inclusive end-of-day bound for the date filter.
+      final from = DateTime(_startDate.year, _startDate.month, _startDate.day);
+      final to = DateTime(
+          _endDate.year, _endDate.month, _endDate.day, 23, 59, 59);
+
+      final rows = await db.getDocuments(
+        companyId: company.id,
+        from: from,
+        to: to,
+        userId: _showAllUsers ? null : user?.id,
+        customerId: _filterCustomer?.id,
+      );
+
+      final docs = <SalesHistoryDocument>[];
+      for (final row in rows) {
+        final items = await db.getActiveDocumentItems(row.localId);
+        final taxTotal = items.fold<double>(0, (s, i) => s + i.taxAmount);
+
+        final payments = await db.getPayments(row.localId);
+        final visiblePayments =
+            payments.where((p) => p.syncStatus != 'pending_delete');
+        final paymentSummary = visiblePayments.isEmpty
+            ? null
+            : visiblePayments
+                .map((p) =>
+                    '${payTypeMap[p.paymentTypeId] ?? 'Payment'}: ${p.amount.toStringAsFixed(2)}')
+                .join(', ');
+
+        docs.add(SalesHistoryDocument(
+          id: row.serverId ?? 0,
+          localId: row.localId,
+          number: row.number?.isNotEmpty == true
+              ? row.number!
+              : (row.syncStatus == 'pending' ||
+                      row.syncStatus == 'pending_create'
+                  ? '(Pending sync)'
+                  : '—'),
+          userName: userMap[row.userId],
+          customerName:
+              row.customerId != null ? customerMap[row.customerId] : null,
+          warehouseName: warehouseMap[row.warehouseId],
+          orderNumber: row.orderNumber,
+          referenceDocumentNumber: row.referenceDocumentNumber,
+          date: row.date.toIso8601String(),
+          stockDate: (row.stockDate ?? row.date).toIso8601String(),
+          dateCreated: (row.stockDate ?? row.date).toIso8601String(),
+          total: row.total,
+          totalBeforeTax: row.total - taxTotal,
+          taxTotal: taxTotal,
+          discount: row.discount,
+          paidStatus: row.paidStatus,
+          paymentSummary: paymentSummary,
+        ));
       }
-      if (_filterCustomer != null) params['customerId'] = _filterCustomer!.id;
-      final response = await createDio().get(
-          '/Document/GetSalesHistory', queryParameters: params);
-      var docs = (response.data as List)
-          .map((j) => SalesHistoryDocument.fromJson(j))
-          .toList();
+
+      var filtered = docs;
       final search = _docNumCtrl.text.trim().toLowerCase();
       if (search.isNotEmpty) {
-        docs = docs
+        filtered = filtered
             .where((d) => d.number.toLowerCase().contains(search))
             .toList();
       }
-      setState(() { _documents = docs; });
-    } on DioException catch (e) {
-      setState(() { _error = e.response?.data?.toString() ?? e.message; });
+      setState(() { _documents = filtered; });
+    } catch (e) {
+      setState(() { _error = e.toString(); });
     } finally {
       setState(() { _loading = false; });
     }
   }
 
-  Future<void> _fetchItems(int documentId) async {
-    final company = ref.read(selectedCompanyProvider);
-    if (company == null) return;
+  Future<void> _fetchItems(SalesHistoryDocument doc) async {
+    final localId = doc.localId;
+    if (localId == null) { setState(() { _items = []; }); return; }
 
     setState(() { _itemsLoading = true; _items = []; });
     try {
-      final response = await createDio().get(
-        '/DocumentItems/GetByDocumentId',
-        queryParameters: {'documentId': documentId, 'companyId': company.id},
-      );
+      // Offline-first: line items from the local Drift store, with product
+      // names resolved from the local product cache.
+      final db = ref.read(appDatabaseProvider);
+      final rows = await db.getActiveDocumentItems(localId);
+      final productRows = await db.select(db.productsTable).get();
+      final pById = {for (final p in productRows) p.id: p};
       setState(() {
-        _items = (response.data as List).map((j) => DocumentItem.fromJson(j)).toList();
+        _items = rows.map((r) {
+          final p = pById[r.productId];
+          return DocumentItem(
+            id: r.serverId ?? 0,
+            localId: r.localId,
+            companyId: doc.id,
+            documentId: doc.id,
+            productId: r.productId,
+            productName: p?.name,
+            productCode: p?.code,
+            measurementUnit: p?.measurementUnit,
+            quantity: r.quantity,
+            expectedQuantity: r.quantity,
+            priceBeforeTax: r.priceBeforeTax,
+            price: r.unitPrice,
+            discount: r.discount,
+            discountType: r.discountType,
+            productCost: p?.cost ?? 0,
+            priceBeforeTaxAfterDiscount:
+                r.taxRate > 0 ? r.total / (1 + r.taxRate / 100) : r.total,
+            priceAfterDiscount: r.unitPrice,
+            total: r.total,
+            totalAfterDocumentDiscount: r.total,
+            discountApplyRule: true,
+          );
+        }).toList();
       });
-    } on DioException catch (_) {
+    } catch (_) {
       setState(() { _items = []; });
     } finally {
       setState(() { _itemsLoading = false; });
@@ -341,8 +428,20 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
     if (confirmed != true || !mounted) return;
 
     try {
-      await createDio().delete('/Document/Delete',
-          queryParameters: {'id': doc.id, 'companyId': company.id});
+      // Offline-first: soft/hard-delete locally; the sync queue issues
+      // /Document/Delete on the next sync.
+      final db = ref.read(appDatabaseProvider);
+      var localId = doc.localId;
+      if (localId == null && doc.id > 0) {
+        localId = (await db.getDocumentByServerId(doc.id))?.localId;
+      }
+      if (localId != null) {
+        await db.deleteDocumentLocal(localId);
+        ref.read(syncStateProvider.notifier).sync().catchError((_) {});
+      } else if (doc.id > 0) {
+        await createDio().delete('/Document/Delete',
+            queryParameters: {'id': doc.id, 'companyId': company.id});
+      }
       if (!mounted) return;
       showAppSnackbar(context, ref, 'Document deleted');
       _fetchDocuments();
@@ -359,7 +458,7 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
 
   Future<void> _ensureItemsLoaded(SalesHistoryDocument doc) async {
     if (_items.isEmpty && !_itemsLoading) {
-      await _fetchItems(doc.id);
+      await _fetchItems(doc);
     }
   }
 
@@ -434,7 +533,7 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
 
     // Ensure items are loaded for the selected document
     if (_items.isEmpty && !_itemsLoading) {
-      await _fetchItems(doc.id);
+      await _fetchItems(doc);
     }
     final items = _items;
 
@@ -559,8 +658,8 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
   // ── toolbar ───────────────────────────────────────────────────────────────
 
   Widget _buildToolbar(ThemeData theme, ColorScheme cs) {
-    final sel = _selectedDocumentId != null && _documents.isNotEmpty
-        ? _documents.where((d) => d.id == _selectedDocumentId).firstOrNull
+    final sel = _selectedDocLocalId != null && _documents.isNotEmpty
+        ? _documents.where((d) => d.localId == _selectedDocLocalId).firstOrNull
         : null;
 
     return Container(
@@ -856,11 +955,11 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
     return _FlexTable(
       columns:       _masterCols,
       rows:          rows,
-      isRowSelected: (i) => _documents[i].id == _selectedDocumentId,
+      isRowSelected: (i) => _documents[i].localId == _selectedDocLocalId,
       onRowTap:      (i) {
         final doc = _documents[i];
-        setState(() { _selectedDocumentId = doc.id; _items = []; });
-        _fetchItems(doc.id);
+        setState(() { _selectedDocLocalId = doc.localId; _items = []; });
+        _fetchItems(doc);
       },
       emptyWidget: Center(
         child: Column(
@@ -895,7 +994,7 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
   ];
 
   Widget _buildDetailTable(ThemeData theme, ColorScheme cs, String sym) {
-    if (_selectedDocumentId == null) {
+    if (_selectedDocLocalId == null) {
       return Center(
         child: Text('Select a document above to view its items.',
             style: TextStyle(

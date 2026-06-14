@@ -513,6 +513,11 @@ class StocksTable extends Table {
   RealColumn get quantity =>
       real().withDefault(const Constant(0))();
   DateTimeColumn get lastModified => dateTime()();
+  // Offline-first CRUD: 'synced' | 'pending_create' | 'pending_update' |
+  // 'pending_delete'. pending_create rows use a negative temp id until the
+  // server assigns a real one.
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant('synced'))();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -571,6 +576,20 @@ class DocumentsTable extends Table {
   TextColumn get orderNumber => text().nullable()();
   IntColumn get serviceType => integer().withDefault(const Constant(0))();
   IntColumn get paidStatus => integer().withDefault(const Constant(1))(); // 1=paid, 0=unpaid
+  // True when paidStatus was changed locally (offline-first toggle in the
+  // document editor) and still needs pushing to the server. Cleared by
+  // SyncManager.pushPendingPaidStatus once the PATCH succeeds.
+  BoolColumn get paidStatusDirty =>
+      boolean().withDefault(const Constant(false))();
+  // Editable header fields kept locally so the offline-first manual editor can
+  // round-trip them (display on reopen + push to /Document on sync).
+  DateTimeColumn get stockDate => dateTime().nullable()();
+  DateTimeColumn get dueDate => dateTime().nullable()();
+  TextColumn get internalNote => text().nullable()();
+  TextColumn get note => text().nullable()();
+  TextColumn get referenceDocumentNumber => text().nullable()();
+  BoolColumn get discountApplyRule =>
+      boolean().withDefault(const Constant(true))();
   DateTimeColumn get date => dateTime()();
   // 'pending' until BatchSync confirms Document on server; 'synced' after.
   TextColumn get syncStatus =>
@@ -590,13 +609,24 @@ class DocumentItemsTable extends Table {
   TextColumn get documentId =>
       text().references(DocumentsTable, #localId,
           onDelete: KeyAction.cascade)();
+  // server DocumentItem.Id — null until the editor-added item is pushed.
+  IntColumn get serverId => integer().nullable()();
   IntColumn get productId => integer()();
   RealColumn get quantity => real()();
-  RealColumn get unitPrice => real()();
+  RealColumn get unitPrice => real()();              // price incl. tax
+  RealColumn get priceBeforeTax => real().withDefault(const Constant(0))();
   RealColumn get discount => real().withDefault(const Constant(0))();
   IntColumn get discountType => integer().withDefault(const Constant(0))();
   RealColumn get total => real()();
   RealColumn get taxAmount => real().withDefault(const Constant(0))();
+  // Selected tax for offline-first editor items; pushed to /DocumentItemTaxes.
+  IntColumn get taxId => integer().nullable()();
+  RealColumn get taxRate => real().withDefault(const Constant(0))();
+  DateTimeColumn get expirationDate => dateTime().nullable()();
+  // Checkout items use 'synced' implicitly (pushed with their order). Editor
+  // items use: 'synced' | 'pending_create' | 'pending_update' | 'pending_delete'.
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant('synced'))();
 
   @override
   Set<Column> get primaryKey => {localId};
@@ -607,6 +637,10 @@ class PaymentsTable extends Table {
   String get tableName => 'payments';
 
   TextColumn get localId => text()();
+  // server Payment.Id — null until the standalone payment is pushed, or for
+  // checkout payments that travel inside the order BatchSync. Set when a
+  // server payment is pulled or a local 'pending_create' is confirmed.
+  IntColumn get serverId => integer().nullable()();
   // FK → documents.localId
   TextColumn get documentId =>
       text().references(DocumentsTable, #localId,
@@ -615,6 +649,12 @@ class PaymentsTable extends Table {
   RealColumn get amount => real()();
   IntColumn get userId => integer()();
   DateTimeColumn get date => dateTime()();
+  // Non-null once the payment belongs to a closed Z-report — such payments are
+  // locked (cannot be edited or deleted) in the document editor.
+  IntColumn get zReportId => integer().nullable()();
+  // Checkout payments inserted by insertOfflineDocument use 'pending' (pushed
+  // with their order). Editor-added payments use the standalone CRUD states:
+  // 'synced' | 'pending_create' | 'pending_update' | 'pending_delete'.
   TextColumn get syncStatus =>
       text().withDefault(const Constant('pending'))();
 
@@ -764,6 +804,82 @@ class ShiftsTable extends Table {
 }
 
 // ============================================================================
+// BOOKINGS — reservations / appointments. Pulled from the server with a
+// FULL-REPLACE strategy each sync (the calendar must reflect deletes and the
+// dataset is small). Reads stream from here so the calendar renders offline;
+// writes still go through the API then trigger a re-pull, mirroring the
+// floor-plan provider pattern. `tableIdsJson` holds the assigned floor-plan
+// table id list as a JSON array.
+// ============================================================================
+
+@TableIndex(name: 'idx_bookings_company_start', columns: {#companyId, #startTime})
+class BookingsTable extends Table {
+  @override
+  String get tableName => 'bookings';
+
+  IntColumn get id => integer()();              // server-assigned id
+  IntColumn get companyId => integer()();
+  IntColumn get customerId => integer().nullable()();
+  IntColumn get userId => integer().nullable()();
+  TextColumn get reservationName => text().withDefault(const Constant(''))();
+  TextColumn get tableIdsJson => text().withDefault(const Constant('[]'))();
+  IntColumn get documentId => integer().nullable()();
+  IntColumn get posOrderId => integer().nullable()();
+  DateTimeColumn get startTime => dateTime()();
+  DateTimeColumn get endTime => dateTime()();
+  IntColumn get guestCount => integer().withDefault(const Constant(1))();
+  IntColumn get status => integer().withDefault(const Constant(0))();
+  TextColumn get note => text().nullable()();
+  DateTimeColumn get lastModified => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+// ============================================================================
+// WAREHOUSES — offline-first stock locations. Pulled from the server and also
+// created/edited/deleted locally with a `syncStatus` queue (pending_create uses
+// a temp NEGATIVE id until the server assigns a real one — same pattern as
+// products/customers).
+// ============================================================================
+
+class WarehousesTable extends Table {
+  @override
+  String get tableName => 'warehouses';
+
+  IntColumn get id => integer()();              // positive = server id; negative = temp local
+  IntColumn get companyId => integer()();
+  TextColumn get name => text()();
+  DateTimeColumn get lastModified => dateTime()();
+  // 'synced' | 'pending_create' | 'pending_update' | 'pending_delete'
+  TextColumn get syncStatus => text().withDefault(const Constant('synced'))();
+  TextColumn get syncError => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+// ============================================================================
+// PENDING STOCK OPS — offline queue for the stock reassign/revoke that happens
+// when a warehouse holding stock is deleted. `operation`: 'delete' | 'move'.
+// `stockId` is always a server id (we only mutate already-synced stock rows
+// here). SyncManager drains this via pushPendingStockOps BEFORE pullStocks.
+// ============================================================================
+
+class PendingStockOpsTable extends Table {
+  @override
+  String get tableName => 'pending_stock_ops';
+
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get operation => text()();          // 'delete' | 'move'
+  IntColumn get companyId => integer()();
+  IntColumn get stockId => integer()();          // server Stock.Id
+  IntColumn get targetWarehouseId => integer().nullable()(); // move: destination
+  RealColumn get quantity => real().nullable()();            // move: newQuantity
+  IntColumn get productId => integer().nullable()();         // move: newProductId
+}
+
+// ============================================================================
 // SYNC METADATA — one row per entity; holds the watermark we send as
 // `modifiedAfter` on the next delta pull.
 // ============================================================================
@@ -797,6 +913,103 @@ class PendingUserOpsTable extends Table {
   TextColumn get operation => text()();
   IntColumn get companyId => integer()();
   TextColumn get payload => text()(); // JSON-encoded op params
+}
+
+// ============================================================================
+// DOCUMENT TYPES & CATEGORIES — pull-only master data that drives the document
+// editor's "Select document type" picker. Cached locally so a document can be
+// created entirely offline. DocumentType is global; DocumentCategory is
+// company-scoped.
+// ============================================================================
+
+class DocumentTypesTable extends Table {
+  @override
+  String get tableName => 'document_types';
+
+  IntColumn get id => integer()();
+  TextColumn get name => text()();
+  TextColumn get code => text().nullable()();
+  IntColumn get documentCategoryId => integer().nullable()();
+  IntColumn get warehouseId => integer().nullable()();
+  DateTimeColumn get lastModified => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+class DocumentCategoriesTable extends Table {
+  @override
+  String get tableName => 'document_categories';
+
+  IntColumn get id => integer()();
+  IntColumn get companyId => integer()();
+  TextColumn get name => text()();
+  DateTimeColumn get lastModified => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+// Per-product stock-control rule (reorder point, low-stock warning). The
+// backend only exposes GetByProductId (no bulk pull), so this is cached lazily:
+// the provider reads here and a background fetch upserts the row when online.
+class StockControlsTable extends Table {
+  @override
+  String get tableName => 'stock_controls';
+
+  IntColumn get productId => integer()();           // PK — one rule per product
+  IntColumn get companyId => integer()();
+  IntColumn get serverId => integer().nullable()();
+  RealColumn get reorderPoint => real().withDefault(const Constant(0))();
+  RealColumn get preferredQuantity => real().withDefault(const Constant(0))();
+  BoolColumn get isLowStockWarningEnabled =>
+      boolean().withDefault(const Constant(true))();
+  RealColumn get lowStockWarningQuantity =>
+      real().withDefault(const Constant(0))();
+  // Optional preferred supplier for reordering (products-screen rules editor).
+  IntColumn get customerId => integer().nullable()();
+  DateTimeColumn get lastModified => dateTime().nullable()();
+  // Offline-first CRUD state. 'synced' for pulled rows; pending_* for local
+  // edits awaiting push. (serverId stays null for a pending_create until synced.)
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant('synced'))();
+
+  @override
+  Set<Column> get primaryKey => {productId};
+}
+
+// Per-product tax assignment (productId ↔ taxId). Cached so the product editor
+// shows/sets the assigned tax offline. Pull-seeded by pullProductTaxes; edits
+// queue via syncStatus and push to /ProductTaxes/Add+Delete.
+class ProductTaxesTable extends Table {
+  @override
+  String get tableName => 'product_taxes';
+
+  IntColumn get productId => integer()();
+  IntColumn get taxId => integer()();
+  IntColumn get companyId => integer()();
+  // 'synced' | 'pending_create' | 'pending_delete'
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant('synced'))();
+
+  @override
+  Set<Column> get primaryKey => {productId, taxId};
+}
+
+// Void reasons — pull-only master data so the void dialog (during checkout)
+// and the admin list work offline.
+class VoidReasonsTable extends Table {
+  @override
+  String get tableName => 'void_reasons';
+
+  IntColumn get id => integer()();
+  IntColumn get companyId => integer()();
+  TextColumn get name => text()();
+  IntColumn get rank => integer().withDefault(const Constant(0))();
+  DateTimeColumn get lastModified => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
 }
 
 // ============================================================================
@@ -836,13 +1049,21 @@ class PendingUserOpsTable extends Table {
     LoyaltyCardsTable,
     TimeClockEntriesTable,
     ShiftsTable,
+    BookingsTable,
+    WarehousesTable,
+    PendingStockOpsTable,
+    DocumentTypesTable,
+    DocumentCategoriesTable,
+    VoidReasonsTable,
+    StockControlsTable,
+    ProductTaxesTable,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 28;
+  int get schemaVersion => 37;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -1220,6 +1441,114 @@ class AppDatabase extends _$AppDatabase {
                 "TEXT NOT NULL DEFAULT 'synced'");
           }
 
+          // v29: Offline bookings cache. Reservations are pulled (full replace)
+          // each sync so the calendar renders offline. New table only — no
+          // existing data to migrate.
+          if (from < 29) {
+            await m.createTable(bookingsTable);
+          }
+
+          // v30: Offline-first warehouses + the stock-op queue used when a
+          // warehouse with stock is deleted. New tables only.
+          if (from < 30) {
+            await m.createTable(warehousesTable);
+            await m.createTable(pendingStockOpsTable);
+          }
+
+          // v31: Offline-first paid-status + payments for the document editor.
+          //  • documents.paid_status_dirty flags a locally-toggled paid status
+          //    that SyncManager pushes to /Document/Update on reconnect.
+          //  • payments gains server_id + z_report_id and reuses the standard
+          //    sync_status states so editor add/edit/delete work offline and
+          //    are reconciled with /Payments/* on sync.
+          if (from < 31) {
+            await customStatement(
+                'ALTER TABLE documents ADD COLUMN paid_status_dirty '
+                'INTEGER NOT NULL DEFAULT 0');
+            await customStatement(
+                'ALTER TABLE payments ADD COLUMN server_id INTEGER');
+            await customStatement(
+                'ALTER TABLE payments ADD COLUMN z_report_id INTEGER');
+          }
+
+          // v32: Offline-first manual document editor. document_items gains the
+          // per-item sync fields (server id, tax selection, expiration, sync
+          // state) so header + items can be created/edited/deleted offline and
+          // pushed via /Document + /DocumentItems on reconnect. Documents reuse
+          // their existing sync_status with the manual states pending_create /
+          // pending_update / pending_delete (checkout keeps pending → synced).
+          if (from < 32) {
+            await customStatement(
+                'ALTER TABLE document_items ADD COLUMN server_id INTEGER');
+            await customStatement(
+                'ALTER TABLE document_items ADD COLUMN price_before_tax '
+                'REAL NOT NULL DEFAULT 0');
+            await customStatement(
+                'ALTER TABLE document_items ADD COLUMN tax_id INTEGER');
+            await customStatement(
+                'ALTER TABLE document_items ADD COLUMN tax_rate '
+                'REAL NOT NULL DEFAULT 0');
+            await customStatement(
+                'ALTER TABLE document_items ADD COLUMN expiration_date INTEGER');
+            await customStatement(
+                "ALTER TABLE document_items ADD COLUMN sync_status "
+                "TEXT NOT NULL DEFAULT 'synced'");
+            // Editable header fields persisted for offline round-tripping.
+            await customStatement(
+                'ALTER TABLE documents ADD COLUMN stock_date INTEGER');
+            await customStatement(
+                'ALTER TABLE documents ADD COLUMN due_date INTEGER');
+            await customStatement(
+                'ALTER TABLE documents ADD COLUMN internal_note TEXT');
+            await customStatement(
+                'ALTER TABLE documents ADD COLUMN note TEXT');
+            await customStatement(
+                'ALTER TABLE documents ADD COLUMN reference_document_number TEXT');
+            await customStatement(
+                'ALTER TABLE documents ADD COLUMN discount_apply_rule '
+                'INTEGER NOT NULL DEFAULT 1');
+          }
+
+          // v33: Cache document types + categories locally so the editor's
+          // "Select document type" picker — and therefore offline document
+          // creation — works without a network connection. Pull-only master
+          // data seeded by SyncManager.pullDocumentTypes/Categories.
+          if (from < 33) {
+            await m.createTable(documentTypesTable);
+            await m.createTable(documentCategoriesTable);
+          }
+
+          // v34: Cache void reasons locally so the checkout void dialog and the
+          // admin list work offline. Pull-only, seeded by pullVoidReasons.
+          if (from < 34) {
+            await m.createTable(voidReasonsTable);
+          }
+
+          // v35: Lazy cache of per-product stock-control rules so the stock
+          // screen reads them offline (refreshed from GetByProductId online).
+          if (from < 35) {
+            await m.createTable(stockControlsTable);
+          }
+
+          // v36: Offline-first CRUD for stocks + stock controls — sync_status
+          // drives the local-write queue so adjustments/rules survive offline
+          // and push on reconnect (mirrors warehouses).
+          if (from < 36) {
+            await customStatement(
+                "ALTER TABLE stocks ADD COLUMN sync_status "
+                "TEXT NOT NULL DEFAULT 'synced'");
+            await customStatement(
+                "ALTER TABLE stock_controls ADD COLUMN sync_status "
+                "TEXT NOT NULL DEFAULT 'synced'");
+          }
+
+          // v37: ProductTaxes offline cache + stock_controls preferred supplier.
+          if (from < 37) {
+            await customStatement(
+                'ALTER TABLE stock_controls ADD COLUMN customer_id INTEGER');
+            await m.createTable(productTaxesTable);
+          }
+
           // v24: Employee Time Clock — offline-first attendance tracking.
           // Completely isolated from cash drawer / shift management.
           // One row per clock-in event; clockOutTime null while clocked in.
@@ -1429,7 +1758,8 @@ class AppDatabase extends _$AppDatabase {
     int? customerId,
   }) {
     final query = select(documentsTable)
-      ..where((t) => t.companyId.equals(companyId));
+      ..where((t) => t.companyId.equals(companyId))
+      ..where((t) => t.syncStatus.equals('pending_delete').not());
     if (from != null) query.where((t) => t.date.isBiggerOrEqualValue(from));
     if (to   != null) query.where((t) => t.date.isSmallerOrEqualValue(to));
     if (userId   != null) query.where((t) => t.userId.equals(userId));
@@ -1449,6 +1779,361 @@ class AppDatabase extends _$AppDatabase {
       (select(paymentsTable)
             ..where((t) => t.documentId.equals(documentLocalId)))
           .get();
+
+  /// Resolves a Document row by its server id. Used by the editor to map the
+  /// server-id it holds back to the local UUID that Drift writes key on.
+  Future<DocumentsTableData?> getDocumentByServerId(int serverId) =>
+      (select(documentsTable)
+            ..where((t) => t.serverId.equals(serverId))
+            ..limit(1))
+          .getSingleOrNull();
+
+  Future<DocumentsTableData?> getDocumentByLocalId(String localId) =>
+      (select(documentsTable)
+            ..where((t) => t.localId.equals(localId))
+            ..limit(1))
+          .getSingleOrNull();
+
+  /// Ensures a local Document row exists for a server-side document so the
+  /// offline-first paid-status and payments writes have a row to attach to.
+  /// Returns the existing localId when one is already present (keyed by
+  /// serverId); otherwise inserts a 'srv_<serverId>' sentinel. Never touches
+  /// line items.
+  Future<String> ensureLocalDocumentForServer({
+    required int serverId,
+    required int companyId,
+    required int userId,
+    required int warehouseId,
+    required int documentTypeId,
+    required String? number,
+    required double total,
+    required int paidStatus,
+    required DateTime date,
+  }) async {
+    final existing = await getDocumentByServerId(serverId);
+    if (existing != null) return existing.localId;
+    final localId = 'srv_$serverId';
+    await into(documentsTable).insertOnConflictUpdate(
+      DocumentsTableCompanion(
+        localId: Value(localId),
+        serverId: Value(serverId),
+        companyId: Value(companyId),
+        documentTypeId: Value(documentTypeId),
+        userId: Value(userId),
+        warehouseId: Value(warehouseId),
+        number: Value(number),
+        total: Value(total),
+        paidStatus: Value(paidStatus),
+        date: Value(date),
+        syncStatus: const Value('synced'),
+        lastModified: Value(DateTime.now().toUtc()),
+      ),
+    );
+    return localId;
+  }
+
+  /// Offline-first paid-status write. Drift is the source of truth for the
+  /// documents list, so this persists the toggle immediately and flags the row
+  /// for a server push. Marking Unpaid mirrors the backend by clearing applied
+  /// payments locally.
+  Future<void> setLocalPaidStatus(String docLocalId, int newStatus) {
+    return transaction(() async {
+      await (update(documentsTable)
+            ..where((t) => t.localId.equals(docLocalId)))
+          .write(DocumentsTableCompanion(
+        paidStatus: Value(newStatus),
+        paidStatusDirty: const Value(true),
+        lastModified: Value(DateTime.now().toUtc()),
+      ));
+      if (newStatus == 0) {
+        await (delete(paymentsTable)
+              ..where((t) => t.documentId.equals(docLocalId)))
+            .go();
+      }
+    });
+  }
+
+  /// Live payments for a document, newest-last, hiding soft-deleted rows.
+  Stream<List<PaymentsTableData>> watchPayments(String docLocalId) =>
+      (select(paymentsTable)
+            ..where((t) => t.documentId.equals(docLocalId))
+            ..where((t) => t.syncStatus.equals('pending_delete').not())
+            ..orderBy([(t) => OrderingTerm.asc(t.date)]))
+          .watch();
+
+  /// Inserts an editor-added payment locally with a 'pending_create' status.
+  Future<void> insertLocalPayment(PaymentsTableCompanion payment) =>
+      into(paymentsTable).insert(payment);
+
+  /// Edits a payment's amount offline-first. A never-synced row stays
+  /// 'pending_create'; an already-synced row is flagged 'pending_update'.
+  Future<void> editLocalPayment({
+    required String localId,
+    required double amount,
+    required String currentSyncStatus,
+  }) {
+    final next =
+        currentSyncStatus == 'pending_create' ? 'pending_create' : 'pending_update';
+    return (update(paymentsTable)..where((t) => t.localId.equals(localId)))
+        .write(PaymentsTableCompanion(
+      amount: Value(amount),
+      syncStatus: Value(next),
+    ));
+  }
+
+  /// Deletes a payment offline-first. A row that never reached the server is
+  /// removed outright; one with a server id is soft-deleted ('pending_delete')
+  /// so the pusher can issue /Payments/Delete on the next sync.
+  Future<void> deleteLocalPayment({
+    required String localId,
+    required int? serverId,
+  }) {
+    if (serverId == null) {
+      return (delete(paymentsTable)..where((t) => t.localId.equals(localId)))
+          .go();
+    }
+    return (update(paymentsTable)..where((t) => t.localId.equals(localId)))
+        .write(const PaymentsTableCompanion(syncStatus: Value('pending_delete')));
+  }
+
+  /// Replaces the server-synced payment rows for a document with a fresh server
+  /// snapshot, preserving any local unsynced edits (pending_*). Called when the
+  /// editor opens online so the cache reflects payments made on other devices.
+  Future<void> reconcileServerPayments(
+    String docLocalId,
+    List<PaymentsTableCompanion> serverRows,
+  ) {
+    return transaction(() async {
+      // Keep local pending edits keyed by their server id out of the wipe.
+      final pendingRows = await (select(paymentsTable)
+            ..where((t) => t.documentId.equals(docLocalId))
+            ..where((t) => t.syncStatus.equals('pending_update') |
+                t.syncStatus.equals('pending_delete')))
+          .get();
+      final lockedServerIds =
+          pendingRows.map((r) => r.serverId).whereType<int>().toSet();
+
+      // Wipe everything that is server-authoritative (synced) or a legacy
+      // checkout 'pending' row — the snapshot supersedes them. pending_create /
+      // pending_update / pending_delete rows survive.
+      await (delete(paymentsTable)
+            ..where((t) => t.documentId.equals(docLocalId))
+            ..where((t) =>
+                t.syncStatus.equals('synced') | t.syncStatus.equals('pending')))
+          .go();
+
+      for (final row in serverRows) {
+        if (row.serverId.present &&
+            lockedServerIds.contains(row.serverId.value)) {
+          continue; // a local pending edit owns this server id
+        }
+        await into(paymentsTable).insert(row, mode: InsertMode.insertOrReplace);
+      }
+    });
+  }
+
+  // ── Sync getters / markers for offline-first paid status + payments ────────
+
+  Future<List<DocumentsTableData>> getPaidStatusDirtyDocuments(int companyId) =>
+      (select(documentsTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..where((t) => t.paidStatusDirty.equals(true))
+            ..where((t) => t.serverId.isNotNull()))
+          .get();
+
+  Future<void> clearPaidStatusDirty(String docLocalId) =>
+      (update(documentsTable)..where((t) => t.localId.equals(docLocalId)))
+          .write(const DocumentsTableCompanion(paidStatusDirty: Value(false)));
+
+  Future<List<PaymentsTableData>> getPaymentsBySyncStatus(String status) =>
+      (select(paymentsTable)..where((t) => t.syncStatus.equals(status))).get();
+
+  Future<void> markPaymentSynced(String localId, int? serverId) =>
+      (update(paymentsTable)..where((t) => t.localId.equals(localId)))
+          .write(PaymentsTableCompanion(
+        serverId: serverId == null ? const Value.absent() : Value(serverId),
+        syncStatus: const Value('synced'),
+      ));
+
+  Future<void> hardDeletePayment(String localId) =>
+      (delete(paymentsTable)..where((t) => t.localId.equals(localId))).go();
+
+  // ─── Offline-first MANUAL document editor (header + items) ─────────────────
+
+  /// Inserts a brand-new editor document. The caller sets localId (UUID) and
+  /// syncStatus 'pending_create'.
+  Future<void> createManualDocument(DocumentsTableCompanion doc) =>
+      into(documentsTable).insert(doc);
+
+  /// Writes header fields for an editor document and queues a server push.
+  /// A document that was never synced stays 'pending_create'; an already-synced
+  /// one becomes 'pending_update'. `total` is optional (recomputed from items).
+  Future<void> updateManualDocumentHeader(
+    String localId,
+    DocumentsTableCompanion fields,
+  ) async {
+    final current = await getDocumentByLocalId(localId);
+    final next = current?.syncStatus == 'pending_create'
+        ? 'pending_create'
+        : 'pending_update';
+    await (update(documentsTable)..where((t) => t.localId.equals(localId)))
+        .write(fields.copyWith(
+      syncStatus: Value(next),
+      lastModified: Value(DateTime.now().toUtc()),
+    ));
+  }
+
+  /// Persists the recomputed document total without changing its sync intent
+  /// beyond flagging it for push.
+  Future<void> setDocumentTotalLocal(String localId, double total) async {
+    final current = await getDocumentByLocalId(localId);
+    final next = current?.syncStatus == 'pending_create'
+        ? 'pending_create'
+        : current?.syncStatus == 'synced'
+            ? 'pending_update'
+            : (current?.syncStatus ?? 'pending_update');
+    await (update(documentsTable)..where((t) => t.localId.equals(localId)))
+        .write(DocumentsTableCompanion(
+      total: Value(total),
+      syncStatus: Value(next),
+      lastModified: Value(DateTime.now().toUtc()),
+    ));
+  }
+
+  /// Deletes an editor document offline-first. A never-synced document (and its
+  /// items, via cascade) is removed outright; a synced one is soft-deleted
+  /// ('pending_delete') so the pusher can DELETE it on the next sync.
+  Future<void> deleteDocumentLocal(String localId) async {
+    final current = await getDocumentByLocalId(localId);
+    if (current == null) return;
+    if (current.serverId == null && current.syncStatus != 'synced') {
+      await (delete(documentsTable)..where((t) => t.localId.equals(localId)))
+          .go();
+      return;
+    }
+    await (update(documentsTable)..where((t) => t.localId.equals(localId)))
+        .write(const DocumentsTableCompanion(syncStatus: Value('pending_delete')));
+  }
+
+  Future<List<DocumentsTableData>> getDocumentsBySyncStatus(
+    int companyId,
+    String status,
+  ) =>
+      (select(documentsTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..where((t) => t.syncStatus.equals(status)))
+          .get();
+
+  /// Live, active (non-deleted) items for a document — drives the editor list.
+  Stream<List<DocumentItemsTableData>> watchDocumentItems(String docLocalId) =>
+      (select(documentItemsTable)
+            ..where((t) => t.documentId.equals(docLocalId))
+            ..where((t) => t.syncStatus.equals('pending_delete').not()))
+          .watch();
+
+  /// Active items for a document (excludes soft-deleted) — used to recompute the
+  /// document total.
+  Future<List<DocumentItemsTableData>> getActiveDocumentItems(
+          String docLocalId) =>
+      (select(documentItemsTable)
+            ..where((t) => t.documentId.equals(docLocalId))
+            ..where((t) => t.syncStatus.equals('pending_delete').not()))
+          .get();
+
+  Future<void> insertDocumentItemLocal(DocumentItemsTableCompanion item) =>
+      into(documentItemsTable).insert(item);
+
+  /// Edits an item offline-first. A never-synced row stays 'pending_create';
+  /// a synced row becomes 'pending_update'.
+  Future<void> updateDocumentItemLocal(
+    String localId,
+    DocumentItemsTableCompanion fields,
+  ) async {
+    final current = await (select(documentItemsTable)
+          ..where((t) => t.localId.equals(localId))
+          ..limit(1))
+        .getSingleOrNull();
+    final next = current?.syncStatus == 'pending_create'
+        ? 'pending_create'
+        : 'pending_update';
+    await (update(documentItemsTable)..where((t) => t.localId.equals(localId)))
+        .write(fields.copyWith(syncStatus: Value(next)));
+  }
+
+  /// Deletes an item offline-first. A never-synced row is removed; a synced one
+  /// is soft-deleted ('pending_delete').
+  Future<void> deleteDocumentItemLocal(String localId) async {
+    final current = await (select(documentItemsTable)
+          ..where((t) => t.localId.equals(localId))
+          ..limit(1))
+        .getSingleOrNull();
+    if (current == null) return;
+    if (current.serverId == null && current.syncStatus != 'synced') {
+      await (delete(documentItemsTable)
+            ..where((t) => t.localId.equals(localId)))
+          .go();
+      return;
+    }
+    await (update(documentItemsTable)..where((t) => t.localId.equals(localId)))
+        .write(const DocumentItemsTableCompanion(
+            syncStatus: Value('pending_delete')));
+  }
+
+  Future<List<DocumentItemsTableData>> getDocumentItemsBySyncStatus(
+          String status) =>
+      (select(documentItemsTable)..where((t) => t.syncStatus.equals(status)))
+          .get();
+
+  Future<void> markDocumentItemSynced(String localId, int? serverId) =>
+      (update(documentItemsTable)..where((t) => t.localId.equals(localId)))
+          .write(DocumentItemsTableCompanion(
+        serverId: serverId == null ? const Value.absent() : Value(serverId),
+        syncStatus: const Value('synced'),
+      ));
+
+  Future<void> hardDeleteDocumentItem(String localId) =>
+      (delete(documentItemsTable)..where((t) => t.localId.equals(localId)))
+          .go();
+
+  // ─── Document types / categories (pull-only master data) ───────────────────
+
+  Stream<List<DocumentTypesTableData>> watchDocumentTypes() =>
+      select(documentTypesTable).watch();
+
+  Stream<List<DocumentCategoriesTableData>> watchDocumentCategories(
+          int companyId) =>
+      (select(documentCategoriesTable)
+            ..where((t) => t.companyId.equals(companyId)))
+          .watch();
+
+  Future<void> upsertDocumentTypes(
+          List<DocumentTypesTableCompanion> rows) async =>
+      batch((b) => b.insertAllOnConflictUpdate(documentTypesTable, rows));
+
+  Future<void> upsertDocumentCategories(
+          List<DocumentCategoriesTableCompanion> rows) async =>
+      batch((b) => b.insertAllOnConflictUpdate(documentCategoriesTable, rows));
+
+  // ─── Void reasons (pull-only master data) ──────────────────────────────────
+
+  Stream<List<VoidReasonsTableData>> watchVoidReasons(int companyId) =>
+      (select(voidReasonsTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..orderBy([(t) => OrderingTerm.asc(t.rank)]))
+          .watch();
+
+  /// Full-replace the void reasons for a company (small dataset; mirrors server
+  /// deletes that a delta pull would miss).
+  Future<void> replaceVoidReasons(
+          int companyId, List<VoidReasonsTableCompanion> rows) =>
+      transaction(() async {
+        await (delete(voidReasonsTable)
+              ..where((t) => t.companyId.equals(companyId)))
+            .go();
+        if (rows.isNotEmpty) {
+          await batch((b) => b.insertAll(voidReasonsTable, rows));
+        }
+      });
 
   /// Upserts a Document + items + payment pulled from the server.
   /// localId is fabricated as 'srv_<serverId>' for server-originated rows.
@@ -1641,6 +2326,285 @@ class AppDatabase extends _$AppDatabase {
       lastModified: Value(DateTime.now().toUtc()),
     ));
   }
+
+  /// Local Z-report history for a company, newest-first. Offline-first source
+  /// for the End-of-Day "History" tab.
+  Future<List<ZReportsTableData>> getZReportHistory(int companyId) =>
+      (select(zReportsTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..orderBy([(t) => OrderingTerm.desc(t.closedAt)]))
+          .get();
+
+  /// All cached stocks for a company — offline-first source for the stock list.
+  /// Soft-deleted rows (pending_delete) are hidden so they vanish immediately.
+  Future<List<StocksTableData>> getStocksForCompany(int companyId) =>
+      (select(stocksTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..where((t) => t.syncStatus.equals('pending_delete').not()))
+          .get();
+
+  // ─── Offline-first PRODUCT TAXES (per-product tax assignment) ──────────────
+
+  /// Active (non-deleted) tax assignments for a product.
+  Future<List<ProductTaxesTableData>> getProductTaxes(int productId) =>
+      (select(productTaxesTable)
+            ..where((t) => t.productId.equals(productId))
+            ..where((t) => t.syncStatus.equals('pending_delete').not()))
+          .get();
+
+  /// Changes a product's single assigned tax offline-first: removes the old
+  /// assignment and adds the new one (either may be null = none).
+  Future<void> setProductTaxLocal({
+    required int companyId,
+    required int productId,
+    required int? oldTaxId,
+    required int? newTaxId,
+  }) async {
+    if (oldTaxId == newTaxId) return;
+    await transaction(() async {
+      if (oldTaxId != null) {
+        final row = await (select(productTaxesTable)
+              ..where((t) => t.productId.equals(productId))
+              ..where((t) => t.taxId.equals(oldTaxId)))
+            .getSingleOrNull();
+        if (row != null) {
+          if (row.syncStatus == 'pending_create') {
+            // Never synced — just drop it.
+            await (delete(productTaxesTable)
+                  ..where((t) => t.productId.equals(productId))
+                  ..where((t) => t.taxId.equals(oldTaxId)))
+                .go();
+          } else {
+            await (update(productTaxesTable)
+                  ..where((t) => t.productId.equals(productId))
+                  ..where((t) => t.taxId.equals(oldTaxId)))
+                .write(const ProductTaxesTableCompanion(
+                    syncStatus: Value('pending_delete')));
+          }
+        }
+      }
+      if (newTaxId != null) {
+        await into(productTaxesTable).insertOnConflictUpdate(
+          ProductTaxesTableCompanion(
+            productId: Value(productId),
+            taxId: Value(newTaxId),
+            companyId: Value(companyId),
+            syncStatus: const Value('pending_create'),
+          ),
+        );
+      }
+    });
+  }
+
+  Future<List<ProductTaxesTableData>> getProductTaxesBySyncStatus(
+          int companyId, String status) =>
+      (select(productTaxesTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..where((t) => t.syncStatus.equals(status)))
+          .get();
+
+  Future<void> markProductTaxSynced(int productId, int taxId) =>
+      (update(productTaxesTable)
+            ..where((t) => t.productId.equals(productId))
+            ..where((t) => t.taxId.equals(taxId)))
+          .write(const ProductTaxesTableCompanion(syncStatus: Value('synced')));
+
+  Future<void> hardDeleteProductTax(int productId, int taxId) =>
+      (delete(productTaxesTable)
+            ..where((t) => t.productId.equals(productId))
+            ..where((t) => t.taxId.equals(taxId)))
+          .go();
+
+  /// Cascades a product's temp→real id swap to every product-keyed local table
+  /// so offline-created taxes / stock rules / barcodes / stock rows push with
+  /// the real product id. Called inside pushPendingProductOps' create swap.
+  Future<void> remapProductId(int tempId, int realId) async {
+    await (update(barcodesTable)..where((t) => t.productId.equals(tempId)))
+        .write(BarcodesTableCompanion(productId: Value(realId)));
+    await (update(productTaxesTable)..where((t) => t.productId.equals(tempId)))
+        .write(ProductTaxesTableCompanion(productId: Value(realId)));
+    await (update(stockControlsTable)..where((t) => t.productId.equals(tempId)))
+        .write(StockControlsTableCompanion(productId: Value(realId)));
+    await (update(stocksTable)..where((t) => t.productId.equals(tempId)))
+        .write(StocksTableCompanion(productId: Value(realId)));
+  }
+
+  /// Upserts a server-pulled product-tax row without clobbering local edits.
+  Future<void> upsertSyncedProductTax(ProductTaxesTableCompanion row) async {
+    final existing = await (select(productTaxesTable)
+          ..where((t) => t.productId.equals(row.productId.value))
+          ..where((t) => t.taxId.equals(row.taxId.value)))
+        .getSingleOrNull();
+    if (existing != null && existing.syncStatus != 'synced') return;
+    await into(productTaxesTable).insertOnConflictUpdate(row);
+  }
+
+  // ─── Offline-first STOCK CRUD (mirrors the warehouses pattern) ─────────────
+
+  /// Next negative temp id for an offline-created stock row.
+  Future<int> _nextStockTempId() async {
+    final row = await (selectOnly(stocksTable)
+          ..addColumns([stocksTable.id.min()]))
+        .getSingleOrNull();
+    final min = row?.read(stocksTable.id.min());
+    return ((min != null && min < 0) ? min : 0) - 1;
+  }
+
+  /// Adds a stock row offline-first (negative temp id, pending_create).
+  Future<void> addStockLocal({
+    required int companyId,
+    required int productId,
+    required int warehouseId,
+    required double quantity,
+  }) async {
+    final tempId = await _nextStockTempId();
+    await into(stocksTable).insert(StocksTableCompanion(
+      id: Value(tempId),
+      productId: Value(productId),
+      warehouseId: Value(warehouseId),
+      companyId: Value(companyId),
+      quantity: Value(quantity),
+      lastModified: Value(DateTime.now().toUtc()),
+      syncStatus: const Value('pending_create'),
+    ));
+  }
+
+  /// Updates a stock row offline-first. A never-synced (temp) row keeps
+  /// 'pending_create'; a synced row becomes 'pending_update'.
+  Future<void> updateStockLocal({
+    required int id,
+    required int productId,
+    required int warehouseId,
+    required double quantity,
+  }) async {
+    final cur = await (select(stocksTable)..where((t) => t.id.equals(id))
+          ..limit(1))
+        .getSingleOrNull();
+    final next =
+        cur?.syncStatus == 'pending_create' ? 'pending_create' : 'pending_update';
+    await (update(stocksTable)..where((t) => t.id.equals(id))).write(
+      StocksTableCompanion(
+        productId: Value(productId),
+        warehouseId: Value(warehouseId),
+        quantity: Value(quantity),
+        lastModified: Value(DateTime.now().toUtc()),
+        syncStatus: Value(next),
+      ),
+    );
+  }
+
+  /// Deletes a stock row offline-first. A never-synced row is removed outright;
+  /// a synced row is soft-deleted ('pending_delete') for the pusher.
+  Future<void> deleteStockLocal(int id) async {
+    final cur = await (select(stocksTable)..where((t) => t.id.equals(id))
+          ..limit(1))
+        .getSingleOrNull();
+    if (cur == null) return;
+    if (id < 0 || cur.syncStatus == 'pending_create') {
+      await (delete(stocksTable)..where((t) => t.id.equals(id))).go();
+      return;
+    }
+    await (update(stocksTable)..where((t) => t.id.equals(id)))
+        .write(const StocksTableCompanion(syncStatus: Value('pending_delete')));
+  }
+
+  Future<List<StocksTableData>> getStocksBySyncStatus(
+          int companyId, String status) =>
+      (select(stocksTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..where((t) => t.syncStatus.equals(status)))
+          .get();
+
+  /// Swaps a temp-id stock row for its real server id (and marks it synced).
+  Future<void> replaceStockTempId(int tempId, int serverId) =>
+      transaction(() async {
+        final row = await (select(stocksTable)..where((t) => t.id.equals(tempId)))
+            .getSingleOrNull();
+        if (row == null) return;
+        await (delete(stocksTable)..where((t) => t.id.equals(tempId))).go();
+        await into(stocksTable).insertOnConflictUpdate(
+          row.toCompanion(true).copyWith(
+                id: Value(serverId),
+                syncStatus: const Value('synced'),
+              ),
+        );
+      });
+
+  Future<void> markStockSynced(int id) =>
+      (update(stocksTable)..where((t) => t.id.equals(id)))
+          .write(const StocksTableCompanion(syncStatus: Value('synced')));
+
+  Future<void> hardDeleteStock(int id) =>
+      (delete(stocksTable)..where((t) => t.id.equals(id))).go();
+
+  // ─── Offline-first STOCK CONTROL CRUD ──────────────────────────────────────
+
+  /// Saves a per-product stock-control rule offline-first. New rules become
+  /// 'pending_create'; edits to a synced rule become 'pending_update'.
+  Future<void> saveStockControlLocal({
+    required int companyId,
+    required int productId,
+    required double reorderPoint,
+    required double preferredQuantity,
+    required bool isLowStockWarningEnabled,
+    required double lowStockWarningQuantity,
+    int? customerId,
+  }) async {
+    final existing = await getStockControl(productId);
+    final next = (existing?.serverId == null) ? 'pending_create' : 'pending_update';
+    await into(stockControlsTable).insertOnConflictUpdate(StockControlsTableCompanion(
+      productId: Value(productId),
+      companyId: Value(companyId),
+      serverId: Value(existing?.serverId),
+      reorderPoint: Value(reorderPoint),
+      preferredQuantity: Value(preferredQuantity),
+      isLowStockWarningEnabled: Value(isLowStockWarningEnabled),
+      lowStockWarningQuantity: Value(lowStockWarningQuantity),
+      customerId: Value(customerId),
+      lastModified: Value(DateTime.now().toUtc()),
+      syncStatus: Value(next),
+    ));
+  }
+
+  /// Deletes a stock-control rule offline-first.
+  Future<void> deleteStockControlLocal(int productId) async {
+    final existing = await getStockControl(productId);
+    if (existing == null) return;
+    if (existing.serverId == null) {
+      await (delete(stockControlsTable)..where((t) => t.productId.equals(productId)))
+          .go();
+      return;
+    }
+    await (update(stockControlsTable)..where((t) => t.productId.equals(productId)))
+        .write(const StockControlsTableCompanion(
+            syncStatus: Value('pending_delete')));
+  }
+
+  Future<List<StockControlsTableData>> getStockControlsBySyncStatus(
+          int companyId, String status) =>
+      (select(stockControlsTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..where((t) => t.syncStatus.equals(status)))
+          .get();
+
+  Future<void> markStockControlSynced(int productId, int? serverId) =>
+      (update(stockControlsTable)..where((t) => t.productId.equals(productId)))
+          .write(StockControlsTableCompanion(
+        serverId: serverId == null ? const Value.absent() : Value(serverId),
+        syncStatus: const Value('synced'),
+      ));
+
+  Future<void> hardDeleteStockControl(int productId) =>
+      (delete(stockControlsTable)..where((t) => t.productId.equals(productId)))
+          .go();
+
+  /// Upserts a server-pulled stock-control row without clobbering local edits.
+  Future<void> upsertSyncedStockControl(StockControlsTableCompanion row) async {
+    final pid = row.productId.value;
+    final existing = await getStockControl(pid);
+    if (existing != null && existing.syncStatus != 'synced') return; // keep local edit
+    await into(stockControlsTable).insertOnConflictUpdate(row);
+  }
 }
 
 /// Pairs a pos_orders row with its line items. Plain Dart so callers
@@ -1829,6 +2793,69 @@ extension OfflineQueueHelpers on AppDatabase {
       syncError: Value(errorMessage),
     ));
   }
+
+  // ─── Unreported payments (offline Z-report aggregation) ────────────────────
+
+  /// Payments not yet assigned to a Z-report, scoped to a company via their
+  /// parent document. Drives the offline `unreportedPaymentsProvider` and the
+  /// Close-Register aggregation.
+  Future<List<PaymentsTableData>> getUnreportedPayments(int companyId) async {
+    final q = select(paymentsTable).join([
+      innerJoin(documentsTable,
+          documentsTable.localId.equalsExp(paymentsTable.documentId)),
+    ])
+      ..where(documentsTable.companyId.equals(companyId))
+      ..where(paymentsTable.zReportId.isNull())
+      ..where(paymentsTable.syncStatus.equals('pending_delete').not());
+    final rows = await q.get();
+    return rows.map((r) => r.readTable(paymentsTable)).toList();
+  }
+
+  /// Stamps the optimistic placeholder Z-report id on every still-unreported
+  /// payment for a company so they drop out of the unreported list immediately
+  /// when the register is closed offline.
+  Future<void> assignUnreportedPaymentsToZReport(int companyId) async {
+    final docRows = await (selectOnly(documentsTable)
+          ..addColumns([documentsTable.localId])
+          ..where(documentsTable.companyId.equals(companyId)))
+        .get();
+    final docIds =
+        docRows.map((r) => r.read(documentsTable.localId)!).toList();
+    if (docIds.isEmpty) return;
+    await (update(paymentsTable)
+          ..where((t) => t.documentId.isIn(docIds))
+          ..where((t) => t.zReportId.isNull()))
+        .write(const PaymentsTableCompanion(
+            zReportId: Value(optimisticZReportPlaceholder)));
+  }
+
+  /// Active (unfinalized) cash movements for a company — used to total cash
+  /// in/out into the offline Z-report.
+  Future<List<StartingCashTableData>> getActiveStartingCash(int companyId) =>
+      (select(startingCashTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..where((t) => t.zReportNumber.isNull()))
+          .get();
+
+  // ─── Stock-control rules (lazy offline cache) ──────────────────────────────
+
+  Future<StockControlsTableData?> getStockControl(int productId) =>
+      (select(stockControlsTable)
+            ..where((t) => t.productId.equals(productId))
+            ..limit(1))
+          .getSingleOrNull();
+
+  Future<void> upsertStockControl(StockControlsTableCompanion row) =>
+      into(stockControlsTable).insertOnConflictUpdate(row);
+
+  /// All active (non-deleted) stock-control rules for a company — offline-first
+  /// source for evaluating low-stock / reorder status across the stock list.
+  Future<List<StockControlsTableData>> getStockControlsForCompany(
+          int companyId) =>
+      (select(stockControlsTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..where((t) => t.syncStatus.equals('pending_delete').not()))
+          .get();
 
   // ---------------- SHIFTS ----------------
 

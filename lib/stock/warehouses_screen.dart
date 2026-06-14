@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
-import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/stock/stock_model.dart';
 import 'package:pos_app/stock/warehouse_model.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 
@@ -110,32 +109,8 @@ class WarehousesScreen extends ConsumerWidget {
                     IconButton(
                       icon: const Icon(Icons.delete, color: Colors.red),
                       tooltip: "Delete",
-                      onPressed: () async {
-                        final confirm = await showDialog<bool>(
-                          context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text("Delete Warehouse"),
-                            content: Text(
-                                "Are you sure you want to delete '${w.name}'?"),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.of(ctx).pop(false),
-                                child: const Text("Cancel"),
-                              ),
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.red),
-                                onPressed: () => Navigator.of(ctx).pop(true),
-                                child: const Text("Delete",
-                                    style: TextStyle(color: Colors.white)),
-                              ),
-                            ],
-                          ),
-                        );
-                        if (confirm == true && context.mounted) {
-                          await _delete(context, ref, w.id, companyId);
-                        }
-                      },
+                      onPressed: () => _handleDelete(
+                          context, ref, w, companyId, warehouses),
                     ),
                   ],
                 ),
@@ -147,27 +122,149 @@ class WarehousesScreen extends ConsumerWidget {
     );
   }
 
-  Future<void> _delete(
-      BuildContext context, WidgetRef ref, int id, int companyId) async {
+  // ── Delete flow ─────────────────────────────────────────────────────────
+  // A warehouse can't just be dropped if it still holds stock (the DB FK would
+  // reject it, and silently losing inventory is worse). So we first look up the
+  // warehouse's stock and, when there is any, ask the user to either REVOKE it
+  // (delete the stock rows) or MOVE it to another warehouse — then delete.
+
+  Future<void> _handleDelete(BuildContext context, WidgetRef ref, Warehouse w,
+      int companyId, List<Warehouse> all) async {
+    final repo = ref.read(warehouseRepositoryProvider);
+
+    // Offline-first: the stock check reads the local Drift cache.
+    List<StockItem> stocks;
     try {
-      final dio = createDio();
-      await dio.delete(
-        '/Warehouses/Delete',
-        queryParameters: {'id': id, 'companyId': companyId},
-      );
-      ref.invalidate(allWarehousesProvider);
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text("Warehouse deleted"), backgroundColor: Colors.green),
-      );
-    } on DioException catch (e) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(e.response?.data?.toString() ?? "Delete failed"),
-        backgroundColor: Colors.red,
-      ));
+      stocks = await repo.stocksFor(w.id);
+    } catch (e) {
+      if (context.mounted) _snack(context, 'Could not check stock: $e', error: true);
+      return;
     }
+    if (!context.mounted) return;
+
+    // No stock → simple confirm + delete.
+    if (stocks.isEmpty) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text("Delete Warehouse"),
+          content: Text("Are you sure you want to delete '${w.name}'?"),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text("Cancel")),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(ctx, true),
+              child:
+                  const Text("Delete", style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+      if (confirm == true && context.mounted) {
+        await _run(context, () => repo.delete(w.id), "Warehouse deleted");
+      }
+      return;
+    }
+
+    // Has stock → revoke or move.
+    final others = all.where((x) => x.id != w.id).toList();
+    if (!context.mounted) return;
+    final action = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Warehouse has stock"),
+        content: Text(
+          "'${w.name}' still holds ${stocks.length} stock item"
+          "${stocks.length == 1 ? '' : 's'}. What should happen to it before "
+          "the warehouse is deleted?",
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Cancel")),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'revoke'),
+            child: const Text("Revoke stock",
+                style: TextStyle(color: Colors.red)),
+          ),
+          if (others.isNotEmpty)
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, 'move'),
+              child: const Text("Move stock"),
+            ),
+        ],
+      ),
+    );
+    if (action == null || !context.mounted) return;
+
+    if (action == 'revoke') {
+      await _run(context, () => repo.delete(w.id, stockAction: 'revoke'),
+          "Warehouse and its stock deleted");
+    } else if (action == 'move') {
+      final target = await showDialog<Warehouse>(
+        context: context,
+        builder: (_) => _MoveTargetDialog(targets: others),
+      );
+      if (target == null || !context.mounted) return;
+      await _run(
+          context,
+          () => repo.delete(w.id,
+              stockAction: 'move', targetWarehouseId: target.id),
+          "Stock moved to ${target.name}; warehouse deleted");
+    }
+  }
+
+  /// Runs a local (offline-first) [op] and reports the outcome. The Drift stream
+  /// behind `allWarehousesProvider` refreshes the list on its own — no manual
+  /// invalidate, no network round-trip.
+  Future<void> _run(BuildContext context, Future<void> Function() op,
+      String successMsg) async {
+    try {
+      await op();
+      if (context.mounted) _snack(context, successMsg);
+    } catch (e) {
+      if (context.mounted) _snack(context, e.toString(), error: true);
+    }
+  }
+
+  void _snack(BuildContext context, String msg, {bool error = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: error ? Colors.red : Colors.green,
+    ));
+  }
+}
+
+/// Lists the other warehouses so the user can pick where the stock moves to.
+class _MoveTargetDialog extends StatelessWidget {
+  final List<Warehouse> targets;
+  const _MoveTargetDialog({required this.targets});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text("Move stock to…"),
+      content: SizedBox(
+        width: 320,
+        child: ListView(
+          shrinkWrap: true,
+          children: targets
+              .map((w) => ListTile(
+                    leading: const Icon(Icons.warehouse, color: Colors.indigo),
+                    title: Text(w.name),
+                    onTap: () => Navigator.pop(context, w),
+                  ))
+              .toList(),
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel")),
+      ],
+    );
   }
 }
 
@@ -214,28 +311,17 @@ class _WarehouseFormDialogState extends ConsumerState<_WarehouseFormDialog> {
     });
 
     try {
-      final dio = createDio();
+      final repo = ref.read(warehouseRepositoryProvider);
       if (_isEditing) {
-        await dio.patch(
-          '/Warehouses/Update',
-          queryParameters: {'companyId': widget.companyId},
-          data: {
-            'id': widget.warehouse!.id,
-            'name': _nameCtrl.text.trim(),
-          },
-        );
+        await repo.rename(widget.warehouse!.id, _nameCtrl.text.trim());
       } else {
-        await dio.post(
-          '/Warehouses/Add',
-          queryParameters: {'companyId': widget.companyId},
-          data: {'name': _nameCtrl.text.trim()},
-        );
+        await repo.add(_nameCtrl.text.trim());
       }
       if (!mounted) return;
       Navigator.of(context).pop();
-    } on DioException catch (e) {
+    } catch (e) {
       setState(() {
-        _errorMessage = e.response?.data?.toString() ?? "Operation failed.";
+        _errorMessage = e.toString();
         _isLoading = false;
       });
     }

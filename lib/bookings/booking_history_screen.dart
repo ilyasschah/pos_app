@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:pos_app/bookings/booking_model.dart';
 import 'package:pos_app/bookings/bookings_provider.dart';
+import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/sync/sync_provider.dart';
 
 class BookingHistoryScreen extends ConsumerStatefulWidget {
   const BookingHistoryScreen({super.key});
@@ -29,6 +31,15 @@ class _BookingHistoryScreenState extends ConsumerState<BookingHistoryScreen>
     super.dispose();
   }
 
+  /// Pulls bookings from the server into the local Drift cache. The
+  /// Drift-backed [allBookingsProvider] stream re-emits when the rows land.
+  /// Offline, this no-ops and the existing cache stays on screen.
+  void _refresh() {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    if (companyId == null) return;
+    ref.read(syncManagerProvider).pullBookings(companyId).catchError((_) {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final asyncBookings = ref.watch(allBookingsProvider);
@@ -47,7 +58,7 @@ class _BookingHistoryScreenState extends ConsumerState<BookingHistoryScreen>
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',
-            onPressed: () => ref.invalidate(allBookingsProvider),
+            onPressed: _refresh,
           ),
         ],
       ),

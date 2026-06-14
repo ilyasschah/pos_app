@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:pos_app/database/database_provider.dart';
@@ -36,8 +37,26 @@ import 'package:pos_app/currency/country_model.dart';
 import 'package:dio/dio.dart';
 import 'package:pos_app/settings/printer_settings_screen.dart';
 import 'package:pos_app/kitchen/kitchen_push_service.dart';
+import 'package:pos_app/kitchen/printer_group_model.dart';
+import 'package:pos_app/product/product_group_model.dart';
+import 'package:pos_app/product/product_group_provider.dart';
+import 'package:pos_app/stock/warehouse_provider.dart';
+import 'package:pos_app/tax/tax_provider.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GLOBAL SEARCH STATE
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Live query for the global settings search.
+///
+/// Empty string ⇒ the normal tabbed view is shown. Any non-empty value
+/// overrides the right-hand content with a flat "Search Results" list.
+/// The value is stored already trimmed + lowercased so that
+/// [_SettingSearchEntry.matches] can do a plain `contains` with no per-frame
+/// string allocations. Local to the settings screen — never persisted.
+final settingsSearchQueryProvider = StateProvider<String>((ref) => '');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ENTRY POINT
@@ -57,20 +76,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void _selectTab(int i) => setState(() => _selectedIndex = i);
 
   static const _tabs = [
-    (icon: Icons.tune,              label: 'General'),
-    (icon: Icons.receipt_long,      label: 'Order & Payment'),
-    (icon: Icons.inventory_2,       label: 'Products'),
-    (icon: Icons.description,       label: 'Documents'),
-    (icon: Icons.monitor_weight,    label: 'Weighing Scale'),
-    (icon: Icons.display_settings,  label: 'Customer Display'),
-    (icon: Icons.kitchen,           label: 'Kitchen Display'),
-    (icon: Icons.email,             label: 'Email'),
-    (icon: Icons.print,             label: 'Print'),
+    (icon: Icons.tune, label: 'General'),
+    (icon: Icons.receipt_long, label: 'Order & Payment'),
+    (icon: Icons.inventory_2, label: 'Products'),
+    (icon: Icons.description, label: 'Documents'),
+    (icon: Icons.monitor_weight, label: 'Weighing Scale'),
+    (icon: Icons.display_settings, label: 'Customer Display'),
+    (icon: Icons.kitchen, label: 'Kitchen Display'),
+    (icon: Icons.email, label: 'Email'),
+    (icon: Icons.print, label: 'Print'),
     (icon: Icons.currency_exchange, label: 'Dual Currency'),
-    (icon: Icons.storage,           label: 'Database'),
-    (icon: Icons.vpn_key,           label: 'License'),
-    (icon: Icons.info_outline,      label: 'About'),
-    (icon: Icons.public,            label: 'Countries'),
+    (icon: Icons.storage, label: 'Database'),
+    (icon: Icons.vpn_key, label: 'License'),
+    (icon: Icons.info_outline, label: 'About'),
+    (icon: Icons.public, label: 'Countries'),
   ];
 
   static const _tabViews = [
@@ -111,7 +130,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } catch (e) {
       if (mounted) {
         Navigator.pop(context);
-        showAppSnackbar(context, ref, 'Failed to save settings: $e', isError: true);
+        showAppSnackbar(
+          context,
+          ref,
+          'Failed to save settings: $e',
+          isError: true,
+        );
       }
     }
   }
@@ -119,13 +143,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final isLoading = ref.watch(rawAppPropertiesProvider).isLoading;
+    final searchQuery = ref.watch(settingsSearchQueryProvider);
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Settings',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: cs.surface,
         foregroundColor: cs.onSurface,
         elevation: 0,
@@ -156,6 +184,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 child: Column(
                   children: [
+                    // Global settings search — overrides the tab content on the
+                    // right with a flat "Search Results" list while non-empty.
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(12, 12, 12, 6),
+                      child: _SettingsSearchField(),
+                    ),
+
                     // Scrollable tab list — takes all space above the pinned action.
                     Expanded(
                       child: ListView.builder(
@@ -219,11 +254,22 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           Expanded(
             child: Stack(
               children: [
-                // No auto-hide — the sidebar only changes on manual toggles.
-                LazyIndexedStack(
-                  index: _selectedIndex,
-                  children: _tabViews,
-                ),
+                // When a search is active, the per-tab layout is completely
+                // hidden and replaced by the unified "Search Results" view.
+                // Otherwise the normal tabbed content renders (no auto-hide —
+                // the sidebar only changes on manual toggles).
+                if (searchQuery.isEmpty)
+                  LazyIndexedStack(index: _selectedIndex, children: _tabViews)
+                else
+                  _SearchResultsView(
+                    query: searchQuery,
+                    onOpenTab: (i) {
+                      // Clear the query (also empties the search field via its
+                      // provider listener) and jump to the requested tab.
+                      ref.read(settingsSearchQueryProvider.notifier).state = '';
+                      setState(() => _selectedIndex = i);
+                    },
+                  ),
                 if (!_isSidebarVisible)
                   Positioned(
                     left: 0,
@@ -231,8 +277,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     bottom: 0,
                     child: Center(
                       child: NavEdgeToggle(
-                        onTap: () =>
-                            setState(() => _isSidebarVisible = true),
+                        onTap: () => setState(() => _isSidebarVisible = true),
                       ),
                     ),
                   ),
@@ -335,7 +380,12 @@ class _SettingTextFieldState extends ConsumerState<_SettingTextField> {
       }
     } catch (_) {
       if (mounted) {
-        showAppSnackbar(context, ref, 'Failed to save ${widget.label}', isError: true);
+        showAppSnackbar(
+          context,
+          ref,
+          'Failed to save ${widget.label}',
+          isError: true,
+        );
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -603,41 +653,41 @@ class _CustomServiceTypesEditorState
                 borderRadius: BorderRadius.circular(8),
                 clipBehavior: Clip.antiAlias,
                 child: ListTile(
-                dense: true,
-                leading: CircleAvatar(
-                  backgroundColor: _palette[idx % _palette.length],
-                  radius: 14,
-                  child: Text(
-                    '${t.id}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
+                  dense: true,
+                  leading: CircleAvatar(
+                    backgroundColor: _palette[idx % _palette.length],
+                    radius: 14,
+                    child: Text(
+                      '${t.id}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                ),
-                title: Text(t.name),
-                subtitle: Text(
-                  'Prefix: ${t.prefix}',
-                  style: theme.textTheme.bodySmall,
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit_outlined, size: 18),
-                      onPressed: () => _showTypeDialog(existing: t),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 18),
-                      color: theme.colorScheme.error,
-                      onPressed: () => _delete(t),
-                    ),
-                  ],
+                  title: Text(t.name),
+                  subtitle: Text(
+                    'Prefix: ${t.prefix}',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        onPressed: () => _showTypeDialog(existing: t),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        color: theme.colorScheme.error,
+                        onPressed: () => _delete(t),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          );
+            );
           }),
         ],
       ),
@@ -1182,52 +1232,6 @@ class _BookingSettingsCardState extends ConsumerState<_BookingSettingsCard> {
   }
 }
 
-class _WorkflowCard extends ConsumerWidget {
-  const _WorkflowCard();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final settings = ref.watch(appSettingsProvider);
-    final typeEnabled =
-        settings[SettingKeys.featureServiceTypeEnabled]?.toLowerCase() ==
-        'true';
-    final statusEnabled =
-        settings[SettingKeys.featureServiceStatusEnabled]?.toLowerCase() ==
-        'true';
-
-    return _SettingsCard(
-      title: 'WORKFLOW',
-      children: [
-        const _SettingSwitch(
-          settingKey: SettingKeys.featureServiceTypeEnabled,
-          label: 'Service Type Selector',
-          subtitle:
-              'Show order type buttons (e.g. Dine-In, Takeaway) on the POS',
-        ),
-        Opacity(
-          opacity: typeEnabled ? 1.0 : 0.4,
-          child: IgnorePointer(
-            ignoring: !typeEnabled,
-            child: const _CustomServiceTypesEditor(),
-          ),
-        ),
-        const _SettingSwitch(
-          settingKey: SettingKeys.featureServiceStatusEnabled,
-          label: 'Service Status Selector',
-          subtitle: 'Show service status badge on table/booking cards',
-        ),
-        Opacity(
-          opacity: statusEnabled ? 1.0 : 0.4,
-          child: IgnorePointer(
-            ignoring: !statusEnabled,
-            child: const _CustomServiceStatusesEditor(),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 // Currency picker — loads from /Currencies/GetAll and saves code to settings
 class _CurrencyDropdown extends ConsumerWidget {
   const _CurrencyDropdown();
@@ -1304,7 +1308,11 @@ class _StepBtn extends StatelessWidget {
   final IconData icon;
   final bool enabled;
   final VoidCallback onTap;
-  const _StepBtn({required this.icon, required this.enabled, required this.onTap});
+  const _StepBtn({
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1420,6 +1428,1273 @@ class _StepperRow extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GLOBAL SEARCH — UI + RESULTS + REGISTRY
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Flat Material-3 search box pinned at the top of the settings sidebar.
+///
+/// Low-spec friendly: no animated container, no blur, no drop shadow — just a
+/// filled field with a thin explicit border. Pushes the live (trimmed +
+/// lowercased) value into [settingsSearchQueryProvider] on every keystroke.
+class _SettingsSearchField extends ConsumerStatefulWidget {
+  const _SettingsSearchField();
+
+  @override
+  ConsumerState<_SettingsSearchField> createState() =>
+      _SettingsSearchFieldState();
+}
+
+class _SettingsSearchFieldState extends ConsumerState<_SettingsSearchField> {
+  final _ctrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _onChanged(String raw) {
+    // setState only drives the inline clear-button visibility; the actual
+    // query lives in the provider so the results view can react to it.
+    setState(() {});
+    ref.read(settingsSearchQueryProvider.notifier).state = raw
+        .trim()
+        .toLowerCase();
+  }
+
+  void _clear() {
+    _ctrl.clear();
+    _onChanged('');
+    FocusScope.of(context).unfocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Keep the field in sync when the query is cleared programmatically
+    // (e.g. tapping a navigational result that jumps to a tab).
+    ref.listen(settingsSearchQueryProvider, (_, next) {
+      if (next.isEmpty && _ctrl.text.isNotEmpty) {
+        _ctrl.clear();
+        setState(() {});
+      }
+    });
+
+    final hasText = _ctrl.text.isNotEmpty;
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(8),
+      borderSide: BorderSide(color: context.navDivider, width: 1),
+    );
+
+    return TextField(
+      controller: _ctrl,
+      onChanged: _onChanged,
+      textInputAction: TextInputAction.search,
+      cursorColor: context.navAccent,
+      style: TextStyle(color: context.navText, fontSize: 14),
+      decoration: InputDecoration(
+        isDense: true,
+        filled: true,
+        fillColor: context.navSidebarBg,
+        hintText: 'Search all settings...',
+        hintStyle: TextStyle(color: context.navMuted, fontSize: 14),
+        prefixIcon: Icon(Icons.search, size: 18, color: context.navMuted),
+        prefixIconConstraints: const BoxConstraints(
+          minWidth: 36,
+          minHeight: 36,
+        ),
+        suffixIcon: hasText
+            ? IconButton(
+                icon: Icon(Icons.close, size: 16, color: context.navMuted),
+                splashRadius: 16,
+                tooltip: 'Clear',
+                onPressed: _clear,
+              )
+            : null,
+        suffixIconConstraints: const BoxConstraints(
+          minWidth: 36,
+          minHeight: 36,
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        border: border,
+        enabledBorder: border,
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: context.navAccent, width: 1),
+        ),
+      ),
+    );
+  }
+}
+
+/// One catalogued setting, surfaced as a single iOS-style row in search.
+///
+/// [title] is the precise setting name — the *only* field matched against the
+/// query. [tabName] is the category shown as the muted subtitle. [tabIndex] is
+/// the owning tab. [trailingBuilder] returns the live, actionable control
+/// (Switch / Dropdown / stepper / text field / "Open" button) that binds to the
+/// very same [appSettingsProvider] state as the tab view — so changing a value
+/// from the search list is identical to changing it inside its tab. When
+/// [navigational] is true the whole row opens [tabIndex] (used for panels whose
+/// editor is a full screen, e.g. Database, Printer).
+class SearchableSetting {
+  final String title;
+  final String tabName;
+  final int tabIndex;
+  final bool navigational;
+  final Widget Function(VoidCallback openTab)? trailingBuilder;
+
+  const SearchableSetting({
+    required this.title,
+    required this.tabName,
+    required this.tabIndex,
+    this.navigational = false,
+    this.trailingBuilder,
+  });
+
+  /// Strict, surgical match: the query is tested against the title only.
+  /// [q] is expected to already be trimmed + lowercased.
+  bool matches(String q) => title.toLowerCase().contains(q);
+}
+
+/// The right-hand "Search Results" override — a flat, iOS-style list.
+///
+/// Filters [_kSearchableSettings] strictly by title and renders each match as a
+/// [ListTile]: setting name as the title, its category as a muted subtitle, and
+/// the real interactive control as the trailing widget. Nothing here is a copy
+/// of the setting — the trailing controls drive [appSettingsProvider] directly.
+class _SearchResultsView extends ConsumerWidget {
+  const _SearchResultsView({required this.query, required this.onOpenTab});
+
+  final String query;
+  final ValueChanged<int> onOpenTab;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final matches = _kSearchableSettings
+        .where((s) => s.matches(query))
+        .toList();
+
+    if (matches.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.search_off, size: 44, color: context.navMuted),
+              const SizedBox(height: 12),
+              Text(
+                "No settings found matching '$query'",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: context.navMuted, fontSize: 15),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: matches.length,
+      separatorBuilder: (_, __) => Divider(
+        height: 1,
+        indent: 20,
+        endIndent: 16,
+        color: context.navDivider,
+      ),
+      itemBuilder: (context, i) {
+        final s = matches[i];
+        void openTab() => onOpenTab(s.tabIndex);
+        return ListTile(
+          contentPadding: const EdgeInsets.fromLTRB(20, 4, 16, 4),
+          title: Text(
+            s.title,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              s.tabName,
+              style: TextStyle(color: context.navMuted, fontSize: 12),
+            ),
+          ),
+          trailing: s.navigational
+              ? Icon(Icons.chevron_right, color: context.navMuted)
+              : s.trailingBuilder?.call(openTab),
+          onTap: s.navigational ? openTab : null,
+        );
+      },
+    );
+  }
+}
+
+// ── Compact trailing controls (bind straight to appSettingsProvider) ──────────
+
+/// Bare on/off control. [onChanged] mirrors any tab-side interlock side effects.
+class _SwitchControl extends ConsumerWidget {
+  final String settingKey;
+  final void Function(WidgetRef, bool)? onChanged;
+  const _SwitchControl(this.settingKey, {this.onChanged});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final value =
+        ref.watch(appSettingsProvider)[settingKey]?.toLowerCase() == 'true';
+    return Switch(
+      value: value,
+      activeThumbColor: Theme.of(context).colorScheme.primary,
+      onChanged: (v) {
+        ref.read(appSettingsProvider.notifier).setBool(settingKey, v);
+        onChanged?.call(ref, v);
+      },
+    );
+  }
+}
+
+/// Bare dropdown bound to a string setting.
+class _DropdownControl extends ConsumerWidget {
+  final String settingKey;
+  final List<String> options;
+  const _DropdownControl(this.settingKey, this.options);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current =
+        ref.watch(appSettingsProvider)[settingKey] ??
+        kSettingDefaults[settingKey] ??
+        options.first;
+    final safe = options.contains(current) ? current : options.first;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 180),
+      child: DropdownButton<String>(
+        value: safe,
+        isDense: true,
+        underline: const SizedBox.shrink(),
+        borderRadius: BorderRadius.circular(8),
+        dropdownColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+        items: options
+            .map((o) => DropdownMenuItem(value: o, child: Text(o)))
+            .toList(),
+        onChanged: (v) {
+          if (v != null) {
+            ref.read(appSettingsProvider.notifier).set(settingKey, v);
+          }
+        },
+      ),
+    );
+  }
+}
+
+/// Theme-mode dropdown with friendly labels (keys live in app settings).
+class _ThemeModeControl extends ConsumerWidget {
+  const _ThemeModeControl();
+
+  static const _labels = <String, String>{
+    'light': 'Light',
+    'dark': 'Dark',
+    'dimmed': 'Dimmed',
+    'night': 'Night',
+    'gray': 'Gray',
+    'high_contrast': 'High Contrast',
+  };
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current =
+        ref.watch(appSettingsProvider)[SettingKeys.themeMode] ?? 'dark';
+    final safe = _labels.containsKey(current) ? current : 'dark';
+    return DropdownButton<String>(
+      value: safe,
+      isDense: true,
+      underline: const SizedBox.shrink(),
+      borderRadius: BorderRadius.circular(8),
+      dropdownColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+      items: _labels.entries
+          .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+          .toList(),
+      onChanged: (v) {
+        if (v != null) {
+          ref.read(appSettingsProvider.notifier).set(SettingKeys.themeMode, v);
+        }
+      },
+    );
+  }
+}
+
+/// Compact text control that saves on submit / focus loss, like the tab row.
+class _TextFieldControl extends ConsumerStatefulWidget {
+  final String settingKey;
+  final String? hint;
+  final TextInputType keyboardType;
+  const _TextFieldControl(
+    this.settingKey, {
+    this.hint,
+    this.keyboardType = TextInputType.text,
+  });
+
+  @override
+  ConsumerState<_TextFieldControl> createState() => _TextFieldControlState();
+}
+
+class _TextFieldControlState extends ConsumerState<_TextFieldControl> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(
+      text: ref.read(appSettingsProvider.notifier).get(widget.settingKey),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final notifier = ref.read(appSettingsProvider.notifier);
+    if (_ctrl.text == notifier.get(widget.settingKey)) return;
+    notifier.set(widget.settingKey, _ctrl.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: 200,
+      child: TextField(
+        controller: _ctrl,
+        keyboardType: widget.keyboardType,
+        maxLines: 1,
+        textAlign: TextAlign.end,
+        style: const TextStyle(fontSize: 13),
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: widget.hint,
+          filled: true,
+          fillColor: theme.colorScheme.surface,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 8,
+          ),
+          border: const OutlineInputBorder(),
+        ),
+        onSubmitted: (_) => _save(),
+        onEditingComplete: _save,
+        onTapOutside: (_) => _save(),
+      ),
+    );
+  }
+}
+
+/// Trailing "Open" button for settings whose editor is a richer panel that
+/// doesn't reduce to a single inline control (colour grids, async pickers…).
+class _OpenTabButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _OpenTabButton(this.onTap);
+
+  @override
+  Widget build(BuildContext context) {
+    return FilledButton.tonal(
+      onPressed: onTap,
+      style: FilledButton.styleFrom(
+        elevation: 0,
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+      ),
+      child: const Text('Open'),
+    );
+  }
+}
+
+/// The flat, catalogued index of every individually-addressable setting. The
+/// trailing controls reuse the same [appSettingsProvider] plumbing as the tabs,
+/// so editing from search and editing in a tab are the same operation.
+///
+/// Tab indices mirror `_SettingsScreenState._tabs`.
+final _kSearchableSettings = <SearchableSetting>[
+  // ── General ────────────────────────────────────────────────────────────────
+  SearchableSetting(
+    title: 'Default screen',
+    tabName: 'General · Startup',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _DropdownControl(SettingKeys.defaultScreen, [
+      'POS',
+      'Tables',
+      'Booking',
+    ]),
+  ),
+  SearchableSetting(
+    title: 'Currency',
+    tabName: 'General · Regional',
+    tabIndex: 0,
+    trailingBuilder: (openTab) => _OpenTabButton(openTab),
+  ),
+  SearchableSetting(
+    title: 'Language',
+    tabName: 'General · Regional',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _DropdownControl(SettingKeys.language, [
+      'en',
+      'fr',
+      'ar',
+      'es',
+      'de',
+      'it',
+      'pt',
+    ]),
+  ),
+  SearchableSetting(
+    title: 'Date Format',
+    tabName: 'General · Regional',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _DropdownControl(SettingKeys.dateFormat, [
+      'dd-MM-yyyy',
+      'MM/dd/yyyy',
+      'yyyy-MM-dd',
+      'dd/MM/yyyy',
+    ]),
+  ),
+  SearchableSetting(
+    title: 'Timezone',
+    tabName: 'General · Regional',
+    tabIndex: 0,
+    trailingBuilder: (openTab) => _OpenTabButton(openTab),
+  ),
+  SearchableSetting(
+    title: 'Industry Mode',
+    tabName: 'General · Regional',
+    tabIndex: 0,
+    trailingBuilder: (_) =>
+        const _DropdownControl(SettingKeys.industryMode, ['FB', 'Service']),
+  ),
+  SearchableSetting(
+    title: 'Tax Included in Price by Default',
+    tabName: 'General · Tax',
+    tabIndex: 0,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.taxIncludedByDefault),
+  ),
+  SearchableSetting(
+    title: 'Theme Mode',
+    tabName: 'General · Appearance',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _ThemeModeControl(),
+  ),
+  SearchableSetting(
+    title: 'Accent Color',
+    tabName: 'General · Appearance',
+    tabIndex: 0,
+    trailingBuilder: (openTab) => _OpenTabButton(openTab),
+  ),
+  SearchableSetting(
+    title: 'Writing Direction',
+    tabName: 'General · Application Style',
+    tabIndex: 0,
+    trailingBuilder: (_) =>
+        const _DropdownControl(SettingKeys.writingDirection, ['LTR', 'RTL']),
+  ),
+  SearchableSetting(
+    title: 'POS Layout',
+    tabName: 'General · Application Style',
+    tabIndex: 0,
+    trailingBuilder: (_) =>
+        const _DropdownControl(SettingKeys.posLayout, ['Visual', 'Standard']),
+  ),
+  SearchableSetting(
+    title: 'Enable Virtual Keyboard',
+    tabName: 'General · Application Style',
+    tabIndex: 0,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.enableVirtualKeyboard),
+  ),
+  SearchableSetting(
+    title: 'Message Duration (seconds)',
+    tabName: 'General · Messages',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _NumericStepper(
+      settingKey: SettingKeys.messageDuration,
+      min: 1,
+      max: 10,
+    ),
+  ),
+  SearchableSetting(
+    title: 'Message Position',
+    tabName: 'General · Messages',
+    tabIndex: 0,
+    trailingBuilder: (_) =>
+        const _DropdownControl(SettingKeys.messagePosition, ['Top', 'Bottom']),
+  ),
+  SearchableSetting(
+    title: 'Show cash in on application start',
+    tabName: 'General · Business Day',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showCashInOnStart),
+  ),
+  SearchableSetting(
+    title: 'Select business day on application start',
+    tabName: 'General · Business Day',
+    tabIndex: 0,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.selectBusinessDayOnStart),
+  ),
+  SearchableSetting(
+    title: 'Search button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showSearchBtn),
+  ),
+  SearchableSetting(
+    title: 'Transfer button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showTransferBtn),
+  ),
+  SearchableSetting(
+    title: 'Customer button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showCustomerBtn),
+  ),
+  SearchableSetting(
+    title: 'Discount button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showDiscountBtn),
+  ),
+  SearchableSetting(
+    title: 'Comment button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showCommentBtn),
+  ),
+  SearchableSetting(
+    title: 'New Sale button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showNewSaleBtn),
+  ),
+  SearchableSetting(
+    title: 'Refund button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showRefundBtn),
+  ),
+  SearchableSetting(
+    title: 'Order Name button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showOrderNameBtn),
+  ),
+  SearchableSetting(
+    title: 'Cash Drawer button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showCashDrawerBtn),
+  ),
+  SearchableSetting(
+    title: 'Warehouse Switcher button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showWarehouseBtn),
+  ),
+  SearchableSetting(
+    title: 'Bookings button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showBookingBtn),
+  ),
+  SearchableSetting(
+    title: 'Tables / Floor Plan button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showTablesBtn),
+  ),
+  SearchableSetting(
+    title: 'Send to Kitchen button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showKitchenBtn),
+  ),
+  SearchableSetting(
+    title: 'Tax button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showTaxBtn),
+  ),
+  SearchableSetting(
+    title: 'API Base URL',
+    tabName: 'General · API',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _TextFieldControl(
+      SettingKeys.apiBaseUrl,
+      hint: 'http://192.168.1.1:5002/api',
+      keyboardType: TextInputType.url,
+    ),
+  ),
+
+  // ── Order & Payment ──────────────────────────────────────────────────────────
+  SearchableSetting(
+    title: 'Enable Floor Plan / Tables',
+    tabName: 'Order & Payment · Features',
+    tabIndex: 1,
+    trailingBuilder: (_) => _SwitchControl(
+      SettingKeys.featureFloorPlanEnabled,
+      onChanged: (ref, enabled) {
+        if (!enabled) {
+          ref
+              .read(appSettingsProvider.notifier)
+              .setBool(SettingKeys.featureBookingEnabled, false);
+        }
+      },
+    ),
+  ),
+  SearchableSetting(
+    title: 'Enable Bookings / Calendar',
+    tabName: 'Order & Payment · Features',
+    tabIndex: 1,
+    trailingBuilder: (_) => _SwitchControl(
+      SettingKeys.featureBookingEnabled,
+      onChanged: (ref, enabled) {
+        if (enabled) {
+          ref
+              .read(appSettingsProvider.notifier)
+              .setBool(SettingKeys.featureFloorPlanEnabled, true);
+        }
+      },
+    ),
+  ),
+  SearchableSetting(
+    title: 'Tables Button Label',
+    tabName: 'Order & Payment · Features',
+    tabIndex: 1,
+    trailingBuilder: (_) => const _TextFieldControl(
+      SettingKeys.tablesButtonLabel,
+      hint: 'e.g. Tables, Rooms',
+    ),
+  ),
+  SearchableSetting(
+    title: 'Booking settings',
+    tabName: 'Order & Payment · Booking',
+    tabIndex: 1,
+    trailingBuilder: (openTab) => _OpenTabButton(openTab),
+  ),
+  SearchableSetting(
+    title: 'Sounds',
+    tabName: 'Order & Payment · Basic Operations',
+    tabIndex: 1,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.enableSounds),
+  ),
+  SearchableSetting(
+    title: 'Default search',
+    tabName: 'Order & Payment · Items',
+    tabIndex: 1,
+    trailingBuilder: (_) => const _DropdownControl(SettingKeys.defaultSearch, [
+      'Name',
+      'Code',
+      'Barcode',
+      'All fields',
+    ]),
+  ),
+  SearchableSetting(
+    title: 'Show search options',
+    tabName: 'Order & Payment · Items',
+    tabIndex: 1,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showSearchOptions),
+  ),
+  SearchableSetting(
+    title: 'Default discount type',
+    tabName: 'Order & Payment · Items',
+    tabIndex: 1,
+    trailingBuilder: (_) => const _DropdownControl(
+      SettingKeys.defaultDiscountType,
+      ['Percentage', 'Fixed'],
+    ),
+  ),
+  SearchableSetting(
+    title: 'Separate row for each item',
+    tabName: 'Order & Payment · Items',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.separateRowForEachItem),
+  ),
+  SearchableSetting(
+    title: 'Prevent sale below cost price',
+    tabName: 'Order & Payment · Items',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.preventSaleBelowCostPrice),
+  ),
+  SearchableSetting(
+    title: 'Prevent negative inventory',
+    tabName: 'Order & Payment · Items',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.preventNegativeInventory),
+  ),
+  SearchableSetting(
+    title: 'Single user',
+    tabName: 'Order & Payment · Users',
+    tabIndex: 1,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.singleUser),
+  ),
+  SearchableSetting(
+    title: 'Display receipt print dialog',
+    tabName: 'Order & Payment · Payment',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.displayReceiptPrintDialog),
+  ),
+  SearchableSetting(
+    title: 'Default due date (days)',
+    tabName: 'Order & Payment · Payment',
+    tabIndex: 1,
+    trailingBuilder: (_) => const _NumericStepper(
+      settingKey: SettingKeys.defaultDueDateDays,
+      min: 0,
+      max: 90,
+    ),
+  ),
+  SearchableSetting(
+    title: 'Merge items on receipt',
+    tabName: 'Order & Payment · Payment',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.mergeItemsOnReceipt),
+  ),
+  SearchableSetting(
+    title: 'Single item discount allowed',
+    tabName: 'Order & Payment · Payment',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.singleItemDiscountAllowed),
+  ),
+  SearchableSetting(
+    title: 'Shortcut keys payment confirmation',
+    tabName: 'Order & Payment · Payment',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.shortcutKeysPaymentConfirmation),
+  ),
+  SearchableSetting(
+    title: 'Require reason on void',
+    tabName: 'Order & Payment · Void Items',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.requireReasonOnVoid),
+  ),
+  SearchableSetting(
+    title: 'Track unconfirmed voided items',
+    tabName: 'Order & Payment · Void Items',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.trackUnconfirmedVoidedItems),
+  ),
+  SearchableSetting(
+    title: 'Enable custom order name',
+    tabName: 'Order & Payment · Order Name',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.enableCustomOrderName),
+  ),
+  SearchableSetting(
+    title: 'Order name required',
+    tabName: 'Order & Payment · Order Name',
+    tabIndex: 1,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.orderNameRequired),
+  ),
+  SearchableSetting(
+    title: 'Request order name automatically',
+    tabName: 'Order & Payment · Order Name',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.requestOrderNameAutomatically),
+  ),
+  SearchableSetting(
+    title: 'Request service type automatically',
+    tabName: 'Order & Payment · Service Type',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.requestServiceTypeAutomatically),
+  ),
+  SearchableSetting(
+    title: 'Default service type',
+    tabName: 'Order & Payment · Service Type',
+    tabIndex: 1,
+    trailingBuilder: (_) => const _DropdownControl(
+      SettingKeys.defaultServiceType,
+      ['Dine-in', 'Takeaway', 'Delivery'],
+    ),
+  ),
+  SearchableSetting(
+    title: 'Print large order number in receipt',
+    tabName: 'Order & Payment · Service Type',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.printLargeOrderNumberInReceipt),
+  ),
+  SearchableSetting(
+    title: 'Service Type Selector',
+    tabName: 'Order & Payment · Service Type',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.featureServiceTypeEnabled),
+  ),
+  SearchableSetting(
+    title: 'Service Status Selector',
+    tabName: 'Order & Payment · Service Type',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.featureServiceStatusEnabled),
+  ),
+  SearchableSetting(
+    title: 'Reset order number on day close',
+    tabName: 'Order & Payment · Advanced',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.resetOrderNumberOnDayClose),
+  ),
+  SearchableSetting(
+    title: 'Show items on payment form',
+    tabName: 'Order & Payment · Advanced',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.showItemsOnPaymentForm),
+  ),
+  SearchableSetting(
+    title: 'Number of payment type rows',
+    tabName: 'Order & Payment · Advanced',
+    tabIndex: 1,
+    trailingBuilder: (_) => const _NumericStepper(
+      settingKey: SettingKeys.numberOfPaymentTypeRows,
+      min: 0,
+      max: 10,
+    ),
+  ),
+  SearchableSetting(
+    title: 'Show all occupied tables in floor plan',
+    tabName: 'Order & Payment · Advanced',
+    tabIndex: 1,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.showAllOccupiedTablesInFloorPlan),
+  ),
+
+  // ── Products ─────────────────────────────────────────────────────────────────
+  SearchableSetting(
+    title: 'Display and print items with tax included',
+    tabName: 'Products · General',
+    tabIndex: 2,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.displayAndPrintTaxIncluded),
+  ),
+  SearchableSetting(
+    title: 'Discount apply rule',
+    tabName: 'Products · General',
+    tabIndex: 2,
+    trailingBuilder: (_) => const _DropdownControl(
+      SettingKeys.discountApplyRule,
+      ['Before tax', 'After tax'],
+    ),
+  ),
+  SearchableSetting(
+    title: 'Sorting',
+    tabName: 'Products · General',
+    tabIndex: 2,
+    trailingBuilder: (_) => const _DropdownControl(SettingKeys.productSorting, [
+      'Name',
+      'Code',
+      'Barcode',
+    ]),
+  ),
+  SearchableSetting(
+    title: 'Allow negative price',
+    tabName: 'Products · General',
+    tabIndex: 2,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.allowNegativePrice),
+  ),
+  SearchableSetting(
+    title: 'Show Product Images in POS Grid',
+    tabName: 'Products · General',
+    tabIndex: 2,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showProductImages),
+  ),
+  SearchableSetting(
+    title: 'Default warehouse',
+    tabName: 'Products · Inventory',
+    tabIndex: 2,
+    trailingBuilder: (openTab) => _OpenTabButton(openTab),
+  ),
+  SearchableSetting(
+    title: 'Default tax rate',
+    tabName: 'Products · Product Defaults',
+    tabIndex: 2,
+    trailingBuilder: (openTab) => _OpenTabButton(openTab),
+  ),
+  SearchableSetting(
+    title: 'Default Measurement Unit',
+    tabName: 'Products · Product Defaults',
+    tabIndex: 2,
+    trailingBuilder: (_) => const _TextFieldControl(
+      SettingKeys.defaultMeasurementUnit,
+      hint: 'e.g. pcs, kg, L',
+    ),
+  ),
+  SearchableSetting(
+    title: 'Default Barcode Format',
+    tabName: 'Products · Product Defaults',
+    tabIndex: 2,
+    trailingBuilder: (_) => const _DropdownControl(SettingKeys.barcodeFormat, [
+      'EAN-13',
+      'EAN-8',
+      'UPC-A',
+      'Code128',
+      'QR',
+    ]),
+  ),
+  SearchableSetting(
+    title: 'Cost price based markup',
+    tabName: 'Products · Product Defaults',
+    tabIndex: 2,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.costPriceBasedMarkup),
+  ),
+  SearchableSetting(
+    title: 'Automatically update cost price on purchase',
+    tabName: 'Products · Product Defaults',
+    tabIndex: 2,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.autoUpdateCostPrice),
+  ),
+  SearchableSetting(
+    title: 'Update sale price based on markup',
+    tabName: 'Products · Product Defaults',
+    tabIndex: 2,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.updateSalePriceOnMarkup),
+  ),
+  SearchableSetting(
+    title: 'Enable moving average price',
+    tabName: 'Products · Moving Average Price',
+    tabIndex: 2,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.enableMovingAveragePrice),
+  ),
+  SearchableSetting(
+    title: 'Menu Grid Columns',
+    tabName: 'Products · Menu Grid',
+    tabIndex: 2,
+    trailingBuilder: (_) =>
+        const _DropdownControl(SettingKeys.menuGridCols, ['4', '5']),
+  ),
+  SearchableSetting(
+    title: 'Menu Grid Rows',
+    tabName: 'Products · Menu Grid',
+    tabIndex: 2,
+    trailingBuilder: (_) =>
+        const _DropdownControl(SettingKeys.menuGridRows, ['3', '4', '5']),
+  ),
+
+  // ── Documents ────────────────────────────────────────────────────────────────
+  SearchableSetting(
+    title: 'Invoice Number Prefix',
+    tabName: 'Documents · Numbering',
+    tabIndex: 3,
+    trailingBuilder: (_) =>
+        const _TextFieldControl(SettingKeys.invoicePrefix, hint: 'e.g. INV'),
+  ),
+  SearchableSetting(
+    title: 'Auto-generate Document Numbers',
+    tabName: 'Documents · Numbering',
+    tabIndex: 3,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.autoGenerateNumber),
+  ),
+  SearchableSetting(
+    title: 'Default Document Type',
+    tabName: 'Documents · Defaults',
+    tabIndex: 3,
+    trailingBuilder: (_) => const _TextFieldControl(
+      SettingKeys.defaultDocumentType,
+      hint: 'e.g. Sales',
+    ),
+  ),
+
+  // ── Weighing Scale ───────────────────────────────────────────────────────────
+  SearchableSetting(
+    title: 'Enable weighing scales barcode',
+    tabName: 'Weighing Scale · Barcode Parsing',
+    tabIndex: 4,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.scaleBarcodeEnabled),
+  ),
+  SearchableSetting(
+    title: 'First two digits / prefix',
+    tabName: 'Weighing Scale · Barcode Parsing',
+    tabIndex: 4,
+    trailingBuilder: (_) => const _TextFieldControl(
+      SettingKeys.scaleBarcodePrefix,
+      hint: 'e.g. 21',
+    ),
+  ),
+  SearchableSetting(
+    title: 'Number of digits for product code',
+    tabName: 'Weighing Scale · Barcode Parsing',
+    tabIndex: 4,
+    trailingBuilder: (_) => const _NumericStepper(
+      settingKey: SettingKeys.scaleBarcodeCodeLength,
+      min: 1,
+      max: 10,
+    ),
+  ),
+  SearchableSetting(
+    title: 'Number of decimal places',
+    tabName: 'Weighing Scale · Barcode Parsing',
+    tabIndex: 4,
+    trailingBuilder: (_) => const _NumericStepper(
+      settingKey: SettingKeys.scaleBarcodeDecimalPlaces,
+      min: 0,
+      max: 5,
+    ),
+  ),
+  SearchableSetting(
+    title: 'Remove zeros from product code (trim zeros)',
+    tabName: 'Weighing Scale · Barcode Parsing',
+    tabIndex: 4,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.scaleBarcodeTrimZeros),
+  ),
+  SearchableSetting(
+    title: 'Scale prints price instead of quantity',
+    tabName: 'Weighing Scale · Barcode Parsing',
+    tabIndex: 4,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.scaleBarcodePrintsPrice),
+  ),
+
+  // ── Customer Display ─────────────────────────────────────────────────────────
+  SearchableSetting(
+    title: 'Customer display enabled',
+    tabName: 'Customer Display',
+    tabIndex: 5,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.customerDisplayEnabled),
+  ),
+  SearchableSetting(
+    title: 'COM port',
+    tabName: 'Customer Display',
+    tabIndex: 5,
+    trailingBuilder: (_) =>
+        const _DropdownControl(SettingKeys.customerDisplayPort, [
+          'COM1',
+          'COM2',
+          'COM3',
+          'COM4',
+          'COM5',
+          'COM6',
+          'COM7',
+          'COM8',
+          'COM9',
+          'COM10',
+        ]),
+  ),
+  SearchableSetting(
+    title: 'Bits per second',
+    tabName: 'Customer Display',
+    tabIndex: 5,
+    trailingBuilder: (_) => const _DropdownControl(
+      SettingKeys.customerDisplayBaudRate,
+      ['1200', '2400', '4800', '9600', '19200', '38400', '57600', '115200'],
+    ),
+  ),
+  SearchableSetting(
+    title: 'Data bits',
+    tabName: 'Customer Display',
+    tabIndex: 5,
+    trailingBuilder: (_) => const _DropdownControl(
+      SettingKeys.customerDisplayDataBits,
+      ['5', '6', '7', '8'],
+    ),
+  ),
+  SearchableSetting(
+    title: 'Parity',
+    tabName: 'Customer Display',
+    tabIndex: 5,
+    trailingBuilder: (_) => const _DropdownControl(
+      SettingKeys.customerDisplayParity,
+      ['None', 'Even', 'Odd', 'Mark', 'Space'],
+    ),
+  ),
+  SearchableSetting(
+    title: 'Stop bits',
+    tabName: 'Customer Display',
+    tabIndex: 5,
+    trailingBuilder: (_) => const _DropdownControl(
+      SettingKeys.customerDisplayStopBits,
+      ['1', '1.5', '2'],
+    ),
+  ),
+  SearchableSetting(
+    title: 'Flow control',
+    tabName: 'Customer Display',
+    tabIndex: 5,
+    trailingBuilder: (_) => const _DropdownControl(
+      SettingKeys.customerDisplayFlowControl,
+      ['None', 'RTS/CTS', 'XON/XOFF'],
+    ),
+  ),
+  SearchableSetting(
+    title: 'Number of characters',
+    tabName: 'Customer Display',
+    tabIndex: 5,
+    trailingBuilder: (_) => const _NumericStepper(
+      settingKey: SettingKeys.customerDisplayNumChars,
+      min: 1,
+      max: 40,
+    ),
+  ),
+  SearchableSetting(
+    title: 'Welcome message top line',
+    tabName: 'Customer Display · Welcome Message',
+    tabIndex: 5,
+    trailingBuilder: (_) => const _TextFieldControl(
+      SettingKeys.customerDisplayWelcomeMessage,
+      hint: 'WELCOME!',
+    ),
+  ),
+  SearchableSetting(
+    title: 'Welcome message bottom line',
+    tabName: 'Customer Display · Welcome Message',
+    tabIndex: 5,
+    trailingBuilder: (_) =>
+        const _TextFieldControl(SettingKeys.customerDisplayWelcomeBottom),
+  ),
+  SearchableSetting(
+    title: 'Enable live web customer display',
+    tabName: 'Customer Display · Screen Display (Web)',
+    tabIndex: 5,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.customerDisplayWebEnabled),
+  ),
+
+  // ── Email ────────────────────────────────────────────────────────────────────
+  SearchableSetting(
+    title: 'SMTP Host',
+    tabName: 'Email · SMTP Server',
+    tabIndex: 7,
+    trailingBuilder: (_) => const _TextFieldControl(
+      SettingKeys.emailSmtpHost,
+      hint: 'smtp.gmail.com',
+      keyboardType: TextInputType.url,
+    ),
+  ),
+  SearchableSetting(
+    title: 'SMTP Port',
+    tabName: 'Email · SMTP Server',
+    tabIndex: 7,
+    trailingBuilder: (_) => const _TextFieldControl(
+      SettingKeys.emailSmtpPort,
+      hint: '587',
+      keyboardType: TextInputType.number,
+    ),
+  ),
+  SearchableSetting(
+    title: 'From Email Address',
+    tabName: 'Email · Sender',
+    tabIndex: 7,
+    trailingBuilder: (_) => const _TextFieldControl(
+      SettingKeys.emailFromAddress,
+      hint: 'pos@yourbusiness.com',
+      keyboardType: TextInputType.emailAddress,
+    ),
+  ),
+  SearchableSetting(
+    title: 'From Name',
+    tabName: 'Email · Sender',
+    tabIndex: 7,
+    trailingBuilder: (_) =>
+        const _TextFieldControl(SettingKeys.emailFromName, hint: 'POS System'),
+  ),
+  SearchableSetting(
+    title: 'Account / User Email',
+    tabName: 'Email · Sender',
+    tabIndex: 7,
+    trailingBuilder: (_) => const _TextFieldControl(
+      SettingKeys.emailUserEmail,
+      hint: 'your@email.com',
+      keyboardType: TextInputType.emailAddress,
+    ),
+  ),
+
+  // ── Dual Currency ────────────────────────────────────────────────────────────
+  SearchableSetting(
+    title: 'Dual Currency Enabled',
+    tabName: 'Dual Currency',
+    tabIndex: 9,
+    trailingBuilder: (_) =>
+        const _SwitchControl(SettingKeys.dualCurrencyEnabled),
+  ),
+  SearchableSetting(
+    title: 'Secondary Currency Symbol',
+    tabName: 'Dual Currency',
+    tabIndex: 9,
+    trailingBuilder: (_) =>
+        const _TextFieldControl(SettingKeys.dualCurrencySymbol, hint: 'e.g. €'),
+  ),
+  SearchableSetting(
+    title: 'Exchange Rate',
+    tabName: 'Dual Currency',
+    tabIndex: 9,
+    trailingBuilder: (_) => const _TextFieldControl(
+      SettingKeys.dualCurrencyRate,
+      hint: 'e.g. 1.08',
+      keyboardType: TextInputType.numberWithOptions(decimal: true),
+    ),
+  ),
+
+  // ── Whole-screen panels (tap the row to open the tab) ────────────────────────
+  SearchableSetting(
+    title: 'Kitchen Display',
+    tabName: 'Kitchen Display',
+    tabIndex: 6,
+    navigational: true,
+  ),
+  SearchableSetting(
+    title: 'Printer & Receipt Settings',
+    tabName: 'Print',
+    tabIndex: 8,
+    navigational: true,
+  ),
+  SearchableSetting(
+    title: 'Database & Backup',
+    tabName: 'Database',
+    tabIndex: 10,
+    navigational: true,
+  ),
+  SearchableSetting(
+    title: 'License',
+    tabName: 'License',
+    tabIndex: 11,
+    navigational: true,
+  ),
+  SearchableSetting(
+    title: 'About',
+    tabName: 'About',
+    tabIndex: 12,
+    navigational: true,
+  ),
+  SearchableSetting(
+    title: 'Countries',
+    tabName: 'Countries',
+    tabIndex: 13,
+    navigational: true,
+  ),
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
 // TAB IMPLEMENTATIONS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1445,19 +2720,19 @@ class _AccentColorPicker extends ConsumerWidget {
   const _AccentColorPicker();
 
   static const _colors = [
-    ('Blue',        Color(0xFF2196F3)),
-    ('Sky',         Color(0xFF03A9F4)),
-    ('Indigo',      Color(0xFF3F51B5)),
-    ('Green',       Color(0xFF4CAF50)),
-    ('Teal',        Color(0xFF009688)),
-    ('Emerald',     Color(0xFF10B981)),
-    ('Pink',        Color(0xFFE91E63)),
-    ('Rose',        Color(0xFFF43F5E)),
-    ('Purple',      Color(0xFF9C27B0)),
-    ('Violet',      Color(0xFF7C3AED)),
-    ('Orange',      Color(0xFFFF9800)),
-    ('Red',         Color(0xFFF44336)),
-    ('Amber',       Color(0xFFFFC107)),
+    ('Blue', Color(0xFF2196F3)),
+    ('Sky', Color(0xFF03A9F4)),
+    ('Indigo', Color(0xFF3F51B5)),
+    ('Green', Color(0xFF4CAF50)),
+    ('Teal', Color(0xFF009688)),
+    ('Emerald', Color(0xFF10B981)),
+    ('Pink', Color(0xFFE91E63)),
+    ('Rose', Color(0xFFF43F5E)),
+    ('Purple', Color(0xFF9C27B0)),
+    ('Violet', Color(0xFF7C3AED)),
+    ('Orange', Color(0xFFFF9800)),
+    ('Red', Color(0xFFF44336)),
+    ('Amber', Color(0xFFFFC107)),
     ('Deep Orange', Color(0xFFFF5722)),
   ];
 
@@ -1487,10 +2762,7 @@ class _AccentColorPicker extends ConsumerWidget {
         children: [
           Text(
             'Accent Color',
-            style: TextStyle(
-              fontSize: 14,
-              color: theme.colorScheme.onSurface,
-            ),
+            style: TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
           ),
           const SizedBox(height: 12),
           Wrap(
@@ -1498,8 +2770,8 @@ class _AccentColorPicker extends ConsumerWidget {
             runSpacing: 10,
             children: _colors.map<Widget>((entry) {
               final (name, color) = entry;
-              final isSelected = current != null &&
-                  color.toARGB32() == current.toARGB32();
+              final isSelected =
+                  current != null && color.toARGB32() == current.toARGB32();
               return GestureDetector(
                 onTap: () => ref
                     .read(appSettingsProvider.notifier)
@@ -1528,7 +2800,11 @@ class _AccentColorPicker extends ConsumerWidget {
                         ],
                       ),
                       child: isSelected
-                          ? const Icon(Icons.check, color: Colors.white, size: 20)
+                          ? const Icon(
+                              Icons.check,
+                              color: Colors.white,
+                              size: 20,
+                            )
                           : null,
                     ),
                     const SizedBox(height: 4),
@@ -1536,7 +2812,9 @@ class _AccentColorPicker extends ConsumerWidget {
                       name,
                       style: TextStyle(
                         fontSize: 10,
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.7,
+                        ),
                       ),
                     ),
                   ],
@@ -1558,35 +2836,83 @@ class _ThemeOpt {
   final IconData icon;
   final Color previewBg;
   final Color previewAccent;
-  const _ThemeOpt(this.key, this.label, this.icon, this.previewBg, this.previewAccent);
+  const _ThemeOpt(
+    this.key,
+    this.label,
+    this.icon,
+    this.previewBg,
+    this.previewAccent,
+  );
 }
 
 class _ThemeModePicker extends ConsumerWidget {
   const _ThemeModePicker();
 
   static final _options = <_ThemeOpt>[
-    _ThemeOpt('light',         'Light',         PhosphorIconsRegular.sun,             const Color(0xFFF5F7FA), const Color(0xFF2196F3)),
-    _ThemeOpt('dark',          'Dark',           PhosphorIconsRegular.moon,            const Color(0xFF1E2530), const Color(0xFF90CAF9)),
-    _ThemeOpt('dimmed',        'Dimmed',         PhosphorIconsRegular.moonStars,       const Color(0xFF15202B), const Color(0xFF64B5F6)),
-    _ThemeOpt('night',         'Night',          PhosphorIconsRegular.eye,             const Color(0xFF000000), const Color(0xFF82B1FF)),
-    _ThemeOpt('gray',          'Gray',           PhosphorIconsRegular.circleHalf,      const Color(0xFF1E1E1E), const Color(0xFFBDBDBD)),
-    _ThemeOpt('high_contrast', 'High Contrast',  PhosphorIconsRegular.circleHalfTilt,  const Color(0xFF000000), const Color(0xFFFFFFFF)),
+    _ThemeOpt(
+      'light',
+      'Light',
+      PhosphorIconsRegular.sun,
+      const Color(0xFFF5F7FA),
+      const Color(0xFF2196F3),
+    ),
+    _ThemeOpt(
+      'dark',
+      'Dark',
+      PhosphorIconsRegular.moon,
+      const Color(0xFF1E2530),
+      const Color(0xFF90CAF9),
+    ),
+    _ThemeOpt(
+      'dimmed',
+      'Dimmed',
+      PhosphorIconsRegular.moonStars,
+      const Color(0xFF15202B),
+      const Color(0xFF64B5F6),
+    ),
+    _ThemeOpt(
+      'night',
+      'Night',
+      PhosphorIconsRegular.eye,
+      const Color(0xFF000000),
+      const Color(0xFF82B1FF),
+    ),
+    _ThemeOpt(
+      'gray',
+      'Gray',
+      PhosphorIconsRegular.circleHalf,
+      const Color(0xFF1E1E1E),
+      const Color(0xFFBDBDBD),
+    ),
+    _ThemeOpt(
+      'high_contrast',
+      'High Contrast',
+      PhosphorIconsRegular.circleHalfTilt,
+      const Color(0xFF000000),
+      const Color(0xFFFFFFFF),
+    ),
   ];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appSettingsProvider);
-    final current  = settings[SettingKeys.themeMode] ?? 'dark';
-    final opt      = _options.firstWhere((o) => o.key == current, orElse: () => _options[1]);
-    final theme    = Theme.of(context);
-    final cs       = theme.colorScheme;
+    final current = settings[SettingKeys.themeMode] ?? 'dark';
+    final opt = _options.firstWhere(
+      (o) => o.key == current,
+      orElse: () => _options[1],
+    );
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Theme Mode', style: TextStyle(fontSize: 14, color: cs.onSurface)),
+          Text(
+            'Theme Mode',
+            style: TextStyle(fontSize: 14, color: cs.onSurface),
+          ),
           const SizedBox(height: 8),
           InkWell(
             onTap: () => _show(context, ref, current),
@@ -1602,11 +2928,21 @@ class _ThemeModePicker extends ConsumerWidget {
                 children: [
                   Icon(opt.icon, size: 17, color: cs.primary),
                   const SizedBox(width: 10),
-                  Text(opt.label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                  Text(
+                    opt.label,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                   const Spacer(),
                   _MiniPreview(bg: opt.previewBg, accent: opt.previewAccent),
                   const SizedBox(width: 10),
-                  Icon(PhosphorIconsRegular.caretDown, size: 14, color: cs.onSurfaceVariant),
+                  Icon(
+                    PhosphorIconsRegular.caretDown,
+                    size: 14,
+                    color: cs.onSurfaceVariant,
+                  ),
                 ],
               ),
             ),
@@ -1624,7 +2960,9 @@ class _ThemeModePicker extends ConsumerWidget {
         options: _options,
         current: current,
         onSelect: (key) {
-          ref.read(appSettingsProvider.notifier).set(SettingKeys.themeMode, key);
+          ref
+              .read(appSettingsProvider.notifier)
+              .set(SettingKeys.themeMode, key);
           Navigator.pop(context);
         },
       ),
@@ -1655,7 +2993,9 @@ class _MiniPreview extends StatelessWidget {
               color: bg == const Color(0xFFF5F7FA)
                   ? const Color(0xFFE0E0E0)
                   : Colors.black.withValues(alpha: 0.35),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(4),
+              ),
             ),
           ),
           Expanded(
@@ -1667,7 +3007,10 @@ class _MiniPreview extends StatelessWidget {
                   Container(
                     width: 6,
                     height: 6,
-                    decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
+                    decoration: BoxDecoration(
+                      color: accent,
+                      shape: BoxShape.circle,
+                    ),
                   ),
                   const SizedBox(width: 3),
                   Expanded(
@@ -1743,7 +3086,11 @@ class _ThemePickerDialog extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
               child: Row(
                 children: [
-                  Icon(PhosphorIconsRegular.palette, size: 14, color: Colors.white38),
+                  Icon(
+                    PhosphorIconsRegular.palette,
+                    size: 14,
+                    color: Colors.white38,
+                  ),
                   const SizedBox(width: 7),
                   const Text(
                     'CHOOSE THEME',
@@ -1762,7 +3109,10 @@ class _ThemePickerDialog extends StatelessWidget {
             ...options.map((opt) {
               final selected = opt.key == current;
               return _OptionTile(
-                  opt: opt, selected: selected, onTap: () => onSelect(opt.key));
+                opt: opt,
+                selected: selected,
+                onTap: () => onSelect(opt.key),
+              );
             }),
             const SizedBox(height: 4),
           ],
@@ -1776,14 +3126,20 @@ class _OptionTile extends StatelessWidget {
   final _ThemeOpt opt;
   final bool selected;
   final VoidCallback onTap;
-  const _OptionTile({required this.opt, required this.selected, required this.onTap});
+  const _OptionTile({
+    required this.opt,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
       child: Material(
-        color: selected ? Colors.white.withValues(alpha: 0.08) : Colors.transparent,
+        color: selected
+            ? Colors.white.withValues(alpha: 0.08)
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(9),
         child: InkWell(
           onTap: onTap,
@@ -1814,7 +3170,11 @@ class _OptionTile extends StatelessWidget {
                 SizedBox(
                   width: 16,
                   child: selected
-                      ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
+                      ? const Icon(
+                          Icons.check_rounded,
+                          size: 16,
+                          color: Colors.white,
+                        )
                       : null,
                 ),
               ],
@@ -1855,9 +3215,9 @@ class _DeviceCardState extends ConsumerState<_DeviceCard> {
         content: Text(
           _email != null
               ? 'This will unlink $_email from this terminal. '
-                  'You will need to sign in online to use the POS again.'
+                    'You will need to sign in online to use the POS again.'
               : 'This will unlink this terminal. '
-                  'You will need to sign in online to use the POS again.',
+                    'You will need to sign in online to use the POS again.',
         ),
         actions: [
           TextButton(
@@ -1898,7 +3258,11 @@ class _DeviceCardState extends ConsumerState<_DeviceCard> {
           contentPadding: const EdgeInsets.symmetric(horizontal: 20),
           leading: CircleAvatar(
             backgroundColor: cs.primaryContainer,
-            child: Icon(Icons.person_outline, color: cs.onPrimaryContainer, size: 20),
+            child: Icon(
+              Icons.person_outline,
+              color: cs.onPrimaryContainer,
+              size: 20,
+            ),
           ),
           title: Text(
             _email ?? 'Unknown',
@@ -1982,10 +3346,7 @@ class _GeneralTab extends ConsumerWidget {
         ),
         _SettingsCard(
           title: 'APPEARANCE',
-          children: const [
-            _ThemeModePicker(),
-            _AccentColorPicker(),
-          ],
+          children: const [_ThemeModePicker(), _AccentColorPicker()],
         ),
         _SettingsCard(
           title: 'APPLICATION STYLE',
@@ -2129,9 +3490,11 @@ class _OrderPaymentTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appSettingsProvider);
     final typeEnabled =
-        settings[SettingKeys.featureServiceTypeEnabled]?.toLowerCase() == 'true';
+        settings[SettingKeys.featureServiceTypeEnabled]?.toLowerCase() ==
+        'true';
     final statusEnabled =
-        settings[SettingKeys.featureServiceStatusEnabled]?.toLowerCase() == 'true';
+        settings[SettingKeys.featureServiceStatusEnabled]?.toLowerCase() ==
+        'true';
 
     return _TabScrollView(
       cards: [
@@ -2350,36 +3713,234 @@ class _OrderPaymentTab extends ConsumerWidget {
 
 // ── Products ──────────────────────────────────────────────────────────────────
 
-// Placeholder checkbox swatch — replaced once the Tax Provider is wired up.
-class _MockCheckbox extends StatelessWidget {
-  final String label;
-  const _MockCheckbox({required this.label});
+/// "Default tax rate" picker. Lists every tax from the local Drift cache
+/// (`allTaxesProvider`) as toggleable chips and persists the chosen IDs as a
+/// comma-separated string in [SettingKeys.defaultTaxRateIds]. The cart reads
+/// the same setting to auto-apply these taxes when a product is added without
+/// its own tax assignments — exactly what selecting taxes manually produces.
+class _DefaultTaxRatesSelector extends ConsumerWidget {
+  const _DefaultTaxRatesSelector();
+
+  Set<int> _selectedIds(String? raw) => (raw ?? '')
+      .split(',')
+      .map((e) => int.tryParse(e.trim()))
+      .whereType<int>()
+      .toSet();
+
+  Future<void> _toggle(WidgetRef ref, Set<int> current, int id, bool on) {
+    final next = {...current};
+    if (on) {
+      next.add(id);
+    } else {
+      next.remove(id);
+    }
+    final ordered = next.toList()..sort();
+    return ref
+        .read(appSettingsProvider.notifier)
+        .set(SettingKeys.defaultTaxRateIds, ordered.join(','));
+  }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 18,
-          height: 18,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(3),
-            border: Border.all(
-              color: theme.colorScheme.outline.withValues(alpha: 0.5),
-              width: 1.5,
+    final cs = theme.colorScheme;
+    final taxesAsync = ref.watch(allTaxesProvider);
+    final selected = _selectedIds(
+      ref.watch(appSettingsProvider)[SettingKeys.defaultTaxRateIds],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Default tax rate',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w500,
             ),
           ),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          const SizedBox(height: 2),
+          Text(
+            'Automatically applied to products added to the cart that have no '
+            'tax of their own.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: cs.onSurface.withValues(alpha: 0.5),
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 12),
+          taxesAsync.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+            error: (_, __) => Text(
+              'Could not load tax rates',
+              style: theme.textTheme.bodySmall?.copyWith(color: cs.error),
+            ),
+            data: (taxes) {
+              final enabled = taxes.where((t) => t.isEnabled).toList();
+              if (enabled.isEmpty) {
+                return Text(
+                  'No tax rates defined yet. Add them under Tax Rates.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: cs.onSurface.withValues(alpha: 0.6),
+                    fontStyle: FontStyle.italic,
+                  ),
+                );
+              }
+              return Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                children: [
+                  for (final tax in enabled)
+                    FilterChip(
+                      label: Text(
+                        '${tax.name} '
+                        '(${_formatRate(tax.rate, tax.isFixed)})',
+                      ),
+                      selected: selected.contains(tax.id),
+                      onSelected: (on) => _toggle(ref, selected, tax.id, on),
+                      showCheckmark: true,
+                      selectedColor: cs.primaryContainer,
+                      checkmarkColor: cs.onPrimaryContainer,
+                      backgroundColor: cs.surfaceContainerHighest,
+                      side: BorderSide(
+                        color: selected.contains(tax.id)
+                            ? cs.primary
+                            : cs.outline.withValues(alpha: 0.3),
+                      ),
+                      labelStyle: TextStyle(
+                        color: selected.contains(tax.id)
+                            ? cs.onPrimaryContainer
+                            : cs.onSurface,
+                        fontWeight: selected.contains(tax.id)
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _formatRate(double rate, bool isFixed) {
+    final n = rate == rate.roundToDouble()
+        ? rate.toStringAsFixed(0)
+        : rate.toString();
+    return isFixed ? n : '$n%';
+  }
+}
+
+/// Picks the warehouse the POS uses by default for stock checks / sourcing.
+/// Saves the chosen id to `SettingKeys.defaultWarehouseId` (an app property)
+/// and immediately repoints `selectedWarehouseProvider` so the menu's
+/// availability checks switch over without a restart.
+class _DefaultWarehouseDropdown extends ConsumerWidget {
+  const _DefaultWarehouseDropdown();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final whAsync = ref.watch(allWarehousesProvider);
+    final currentId = int.tryParse(
+      ref.watch(appSettingsProvider)[SettingKeys.defaultWarehouseId] ?? '',
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Default warehouse',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 240,
+                child: whAsync.when(
+                  loading: () => const Align(
+                    alignment: Alignment.centerRight,
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                  error: (_, __) => Text(
+                    'Could not load warehouses',
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
+                  data: (list) {
+                    final validId = list.any((w) => w.id == currentId)
+                        ? currentId
+                        : null;
+                    return DropdownButtonFormField<int>(
+                      isExpanded: true,
+                      initialValue: validId,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                      hint: const Text('Select…'),
+                      items: list
+                          .map(
+                            (w) => DropdownMenuItem<int>(
+                              value: w.id,
+                              child: Text(
+                                w.name,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (id) {
+                        if (id == null) return;
+                        ref
+                            .read(appSettingsProvider.notifier)
+                            .set(SettingKeys.defaultWarehouseId, id.toString());
+                        final w = list.where((x) => x.id == id).firstOrNull;
+                        if (w != null) {
+                          ref.read(selectedWarehouseProvider.notifier).state =
+                              w;
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Used to check product stock availability in the POS menu.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2390,7 +3951,6 @@ class _ProductsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appSettingsProvider);
-    final theme = Theme.of(context);
     final autoUpdateCost =
         settings[SettingKeys.autoUpdateCostPrice]?.toLowerCase() == 'true';
 
@@ -2423,42 +3983,14 @@ class _ProductsTab extends ConsumerWidget {
             ),
           ],
         ),
+        const _SettingsCard(
+          title: 'INVENTORY',
+          children: [_DefaultWarehouseDropdown()],
+        ),
         _SettingsCard(
           title: 'PRODUCT DEFAULTS',
           children: [
-            // TODO: Wire up to Tax Provider to generate checkboxes dynamically
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Default tax rate',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Wrap(
-                    spacing: 20,
-                    runSpacing: 8,
-                    children: [
-                      _MockCheckbox(label: 'Standard (10%)'),
-                      _MockCheckbox(label: 'Reduced (5%)'),
-                      _MockCheckbox(label: 'Zero (0%)'),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Tax rates will be loaded from the backend',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            const _DefaultTaxRatesSelector(),
             const Divider(height: 1, indent: 20, endIndent: 20),
             const _SettingTextField(
               settingKey: SettingKeys.defaultMeasurementUnit,
@@ -2645,9 +4177,10 @@ class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
     super.initState();
     // Re-start the server if it was already enabled (e.g. after settings tab reopen)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final on = ref.read(appSettingsProvider)[
-              SettingKeys.customerDisplayWebEnabled]
-          ?.toLowerCase() ==
+      final on =
+          ref
+              .read(appSettingsProvider)[SettingKeys.customerDisplayWebEnabled]
+              ?.toLowerCase() ==
           'true';
       if (on && mounted) _startWeb();
     });
@@ -2677,9 +4210,11 @@ class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
     // Pre-load the Lottie animation so /lottie.json can be served to browsers.
     try {
       final data = await rootBundle.load(
-          'assets/animations/success_animation.json');
+        'assets/animations/success_animation.json',
+      );
       CustomerDisplayWebServer.instance.setLottieJson(
-          utf8.decode(data.buffer.asUint8List()));
+        utf8.decode(data.buffer.asUint8List()),
+      );
     } catch (_) {}
     if (!mounted) return;
     setState(() {
@@ -2691,22 +4226,27 @@ class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
   Future<void> _stopWeb() async {
     await CustomerDisplayWebServer.instance.stop();
     if (!mounted) return;
-    setState(() { _webRunning = false; _webUrl = ''; });
+    setState(() {
+      _webRunning = false;
+      _webUrl = '';
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final enabled = ref.watch(appSettingsProvider)[
-            SettingKeys.customerDisplayEnabled]
-        ?.toLowerCase() ==
+    final enabled =
+        ref
+            .watch(appSettingsProvider)[SettingKeys.customerDisplayEnabled]
+            ?.toLowerCase() ==
         'true';
 
     // _webRunning is local state, but the server is a singleton that outlives
     // this widget.  Derive from actual server state so the URL/QR section is
     // always visible when the server is running, even if _webRunning is stale.
-    final serverRunning = _webRunning || CustomerDisplayWebServer.instance.isRunning;
-    final displayUrl    = (_webUrl.isNotEmpty
+    final serverRunning =
+        _webRunning || CustomerDisplayWebServer.instance.isRunning;
+    final displayUrl = (_webUrl.isNotEmpty
         ? _webUrl
         : CustomerDisplayWebServer.instance.url);
 
@@ -2731,7 +4271,9 @@ class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
                     // COM port row + toggle link
                     Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 10),
+                        horizontal: 20,
+                        vertical: 10,
+                      ),
                       child: Row(
                         children: [
                           Expanded(
@@ -2739,22 +4281,32 @@ class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
                               settingKey: SettingKeys.customerDisplayPort,
                               label: 'COM port',
                               options: const [
-                                'COM1', 'COM2', 'COM3', 'COM4', 'COM5',
-                                'COM6', 'COM7', 'COM8', 'COM9', 'COM10',
+                                'COM1',
+                                'COM2',
+                                'COM3',
+                                'COM4',
+                                'COM5',
+                                'COM6',
+                                'COM7',
+                                'COM8',
+                                'COM9',
+                                'COM10',
                               ],
                             ),
                           ),
                           const SizedBox(width: 12),
                           TextButton(
                             onPressed: () => setState(
-                                () => _showPortSettings = !_showPortSettings),
+                              () => _showPortSettings = !_showPortSettings,
+                            ),
                             child: Text(
                               _showPortSettings
                                   ? 'Hide port settings'
                                   : 'Show port settings',
                               style: TextStyle(
-                                  color: theme.colorScheme.primary,
-                                  fontSize: 12),
+                                color: theme.colorScheme.primary,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
                         ],
@@ -2777,30 +4329,31 @@ class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
                         child: Column(
                           children: [
                             const _SettingDropdown(
-                              settingKey:
-                                  SettingKeys.customerDisplayBaudRate,
+                              settingKey: SettingKeys.customerDisplayBaudRate,
                               label: 'Bits per second',
                               options: [
-                                '1200', '2400', '4800', '9600',
-                                '19200', '38400', '57600', '115200',
+                                '1200',
+                                '2400',
+                                '4800',
+                                '9600',
+                                '19200',
+                                '38400',
+                                '57600',
+                                '115200',
                               ],
                             ),
                             const _SettingDropdown(
-                              settingKey:
-                                  SettingKeys.customerDisplayDataBits,
+                              settingKey: SettingKeys.customerDisplayDataBits,
                               label: 'Data bits',
                               options: ['5', '6', '7', '8'],
                             ),
                             const _SettingDropdown(
                               settingKey: SettingKeys.customerDisplayParity,
                               label: 'Parity',
-                              options: [
-                                'None', 'Even', 'Odd', 'Mark', 'Space',
-                              ],
+                              options: ['None', 'Even', 'Odd', 'Mark', 'Space'],
                             ),
                             const _SettingDropdown(
-                              settingKey:
-                                  SettingKeys.customerDisplayStopBits,
+                              settingKey: SettingKeys.customerDisplayStopBits,
                               label: 'Stop bits',
                               options: ['1', '1.5', '2'],
                             ),
@@ -2819,8 +4372,9 @@ class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
                                   child: Text(
                                     'Restore defaults',
                                     style: TextStyle(
-                                        color: theme.colorScheme.primary,
-                                        fontSize: 12),
+                                      color: theme.colorScheme.primary,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -2896,10 +4450,10 @@ class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
                   // Push a fresh idle broadcast so _lastState has company
                   // name + logo before the native screen connects and reads it.
                   final settings = ref.read(appSettingsProvider);
-                  final company  = ref.read(selectedCompanyProvider);
+                  final company = ref.read(selectedCompanyProvider);
                   CustomerDisplayWebServer.instance.broadcast({
-                    'type':        'idle',
-                    'company':     {
+                    'type': 'idle',
+                    'company': {
                       'name': company?.name ?? '',
                       'logo': company?.logo,
                     },
@@ -2938,15 +4492,20 @@ class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
                 child: Row(
                   children: [
-                    Icon(Icons.monitor, size: 18,
-                        color: theme.colorScheme.primary),
+                    Icon(
+                      Icons.monitor,
+                      size: 18,
+                      color: theme.colorScheme.primary,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Same machine / second monitor',
-                              style: theme.textTheme.labelMedium),
+                          Text(
+                            'Same machine / second monitor',
+                            style: theme.textTheme.labelMedium,
+                          ),
                           SelectableText(
                             'http://localhost:${CustomerDisplayWebServer.port}',
                             style: TextStyle(
@@ -2963,7 +4522,8 @@ class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
                       tooltip: 'Open in browser (drag to second monitor)',
                       onPressed: () => launchUrl(
                         Uri.parse(
-                            'http://localhost:${CustomerDisplayWebServer.port}'),
+                          'http://localhost:${CustomerDisplayWebServer.port}',
+                        ),
                       ),
                     ),
                   ],
@@ -2975,15 +4535,20 @@ class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
                 child: Row(
                   children: [
-                    Icon(Icons.wifi, size: 18,
-                        color: theme.colorScheme.primary),
+                    Icon(
+                      Icons.wifi,
+                      size: 18,
+                      color: theme.colorScheme.primary,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Other device on same network',
-                              style: theme.textTheme.labelMedium),
+                          Text(
+                            'Other device on same network',
+                            style: theme.textTheme.labelMedium,
+                          ),
                           SelectableText(
                             displayUrl,
                             style: TextStyle(
@@ -3050,6 +4615,126 @@ class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
   }
 }
 
+// ── Printer-group editor dialog (name + category checkboxes) ──────────────────
+class _PrinterGroupDialog extends StatefulWidget {
+  final PrinterGroup? existing;
+  final List<ProductGroup> productGroups;
+
+  const _PrinterGroupDialog({
+    required this.existing,
+    required this.productGroups,
+  });
+
+  @override
+  State<_PrinterGroupDialog> createState() => _PrinterGroupDialogState();
+}
+
+class _PrinterGroupDialogState extends State<_PrinterGroupDialog> {
+  late final TextEditingController _name;
+  late final Set<int> _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: widget.existing?.name ?? '');
+    _selected = {...?widget.existing?.productGroupIds};
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Enter a group name.')));
+      return;
+    }
+    Navigator.pop(
+      context,
+      PrinterGroup(
+        id: widget.existing?.id ?? 0,
+        name: name,
+        productGroupIds: _selected.toList()..sort(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+
+    return AlertDialog(
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _name,
+              autofocus: true,
+              style: theme.textTheme.titleLarge,
+              decoration: const InputDecoration(
+                hintText: 'Name',
+                border: UnderlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text('Categories', style: theme.textTheme.titleMedium),
+            Text(
+              'Categories printed on this printer group',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  // "No category" sentinel + every product group.
+                  _row(PrinterGroup.noCategoryId, 'No category'),
+                  ...widget.productGroups.map((g) => _row(g.id, g.name)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('CANCEL'),
+        ),
+        TextButton(onPressed: _save, child: const Text('SAVE')),
+      ],
+    );
+  }
+
+  Widget _row(int id, String label) {
+    return CheckboxListTile(
+      dense: true,
+      controlAffinity: ListTileControlAffinity.leading,
+      contentPadding: EdgeInsets.zero,
+      value: _selected.contains(id),
+      title: Text(label),
+      onChanged: (v) => setState(() {
+        if (v == true) {
+          _selected.add(id);
+        } else {
+          _selected.remove(id);
+        }
+      }),
+    );
+  }
+}
+
 // ── Kitchen Display ───────────────────────────────────────────────────────────
 class _KitchenDisplayTab extends ConsumerStatefulWidget {
   const _KitchenDisplayTab();
@@ -3062,33 +4747,144 @@ class _KitchenDisplayTabState extends ConsumerState<_KitchenDisplayTab> {
   final _ipController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
-  List<String> _parseIps(String? raw) =>
-      (raw ?? '').split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+  List<String> _parseIps(String? raw) => (raw ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
 
   void _addIp() {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     final ip = _ipController.text.trim();
-    final existing = _parseIps(ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps]);
+    final existing = _parseIps(
+      ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
+    );
     if (existing.contains(ip)) return;
     final updated = [...existing, ip].join(',');
-    ref.read(appSettingsProvider.notifier).set(SettingKeys.kitchenDisplayIps, updated);
+    ref
+        .read(appSettingsProvider.notifier)
+        .set(SettingKeys.kitchenDisplayIps, updated);
     _ipController.clear();
+    // Auto-pair: the moment an IP is added, send the handshake so the KDS
+    // binds and leaves its onboarding screen without any extra step.
+    _pairIp(ip);
   }
 
   void _removeIp(String ip) {
-    final existing = _parseIps(ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps]);
+    final existing = _parseIps(
+      ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
+    );
     final updated = existing.where((e) => e != ip).join(',');
-    ref.read(appSettingsProvider.notifier).set(SettingKeys.kitchenDisplayIps, updated);
+    ref
+        .read(appSettingsProvider.notifier)
+        .set(SettingKeys.kitchenDisplayIps, updated);
+    // Tell the tablet to drop the binding and return to its pairing screen.
+    ref.read(kitchenSyncProvider).unpair(ip);
   }
 
-  void _testIp(String ip) {
-    KitchenPushService.notify([ip]);
+  void _pairIp(String ip) {
+    // Defer the network work off the current frame: a setting `set()` may have
+    // just mutated appSettingsProvider, and reading providers synchronously in
+    // the same frame trips Riverpod's "only one task can be scheduled" guard.
+    _afterFrame(() => ref.read(kitchenSyncProvider).pair(ip));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Ping sent to $ip — check the KDS screen for a refresh.'),
+        content: Text(
+          'Pairing request sent to $ip — the KDS should switch to '
+          'the kitchen view.',
+        ),
         duration: const Duration(seconds: 3),
       ),
     );
+  }
+
+  /// Runs [action] after the current frame, swallowing errors — used for the
+  /// fire-and-forget KDS network calls so they never collide with a provider
+  /// mutation in the same synchronous frame, and never surface as a "failed to
+  /// save" snackbar.
+  void _afterFrame(void Function() action) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        action();
+      } catch (_) {
+        /* best-effort LAN push */
+      }
+    });
+  }
+
+  void _schedulePush() =>
+      _afterFrame(() => ref.read(kitchenSyncProvider).push());
+
+  // ── Printer groups (stations) ──────────────────────────────────────────────
+
+  List<PrinterGroup> _printerGroups() => PrinterGroup.listFromJson(
+    ref.read(appSettingsProvider)[SettingKeys.kitchenPrinterGroups],
+  );
+
+  void _savePrinterGroups(List<PrinterGroup> groups) => ref
+      .read(appSettingsProvider.notifier)
+      .set(SettingKeys.kitchenPrinterGroups, PrinterGroup.listToJson(groups));
+
+  Future<void> _editPrinterGroup({PrinterGroup? existing}) async {
+    final productGroups = ref.read(allProductGroupsProvider).value ?? const [];
+    final result = await showDialog<PrinterGroup>(
+      context: context,
+      builder: (_) =>
+          _PrinterGroupDialog(existing: existing, productGroups: productGroups),
+    );
+    if (result == null) return;
+    final list = [..._printerGroups()]; // growable copy — safe to append
+    if (existing == null) {
+      list.add(result.copyWith(id: PrinterGroup.nextId(list)));
+    } else {
+      final idx = list.indexWhere((g) => g.id == existing.id);
+      if (idx >= 0) list[idx] = result;
+    }
+    _savePrinterGroups(list);
+    // New/edited routing takes effect on the next push.
+    _schedulePush();
+  }
+
+  void _deletePrinterGroup(PrinterGroup group) {
+    _savePrinterGroups(
+      _printerGroups().where((g) => g.id != group.id).toList(),
+    );
+    // Strip the deleted group from every display's assignment.
+    final map = parseDisplayGroups(
+      ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayGroups],
+    );
+    var changed = false;
+    for (final ip in map.keys.toList()) {
+      if (map[ip]!.contains(group.id)) {
+        map[ip] = map[ip]!.where((id) => id != group.id).toList();
+        changed = true;
+      }
+    }
+    if (changed) {
+      ref
+          .read(appSettingsProvider.notifier)
+          .set(SettingKeys.kitchenDisplayGroups, encodeDisplayGroups(map));
+    }
+    _schedulePush();
+  }
+
+  void _toggleDisplayGroup(String ip, int groupId, bool on) {
+    final map = parseDisplayGroups(
+      ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayGroups],
+    );
+    final current = [...(map[ip] ?? const <int>[])];
+    if (on) {
+      if (!current.contains(groupId)) current.add(groupId);
+    } else {
+      current.remove(groupId);
+    }
+    map[ip] = current;
+    ref
+        .read(appSettingsProvider.notifier)
+        .set(SettingKeys.kitchenDisplayGroups, encodeDisplayGroups(map));
+    // Re-route so the display reflects its new categories (deferred a frame).
+    _schedulePush();
   }
 
   @override
@@ -3101,50 +4897,192 @@ class _KitchenDisplayTabState extends ConsumerState<_KitchenDisplayTab> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final ips = _parseIps(ref.watch(appSettingsProvider)[SettingKeys.kitchenDisplayIps]);
+    final settings = ref.watch(appSettingsProvider);
+    final ips = _parseIps(settings[SettingKeys.kitchenDisplayIps]);
+    final printerGroups = PrinterGroup.listFromJson(
+      settings[SettingKeys.kitchenPrinterGroups],
+    );
+    final displayGroups = parseDisplayGroups(
+      settings[SettingKeys.kitchenDisplayGroups],
+    );
+    // Keep the product-group stream alive + loaded while this tab is open, so
+    // the printer-group dialog has the real categories ready (it's autoDispose
+    // and would otherwise read null and show only "No category").
+    ref.watch(allProductGroupsProvider);
 
     return _TabScrollView(
       cards: [
+        // ── Printer groups (stations) ──────────────────────────────────────
+        _SettingsCard(
+          title: 'PRINTER GROUPS',
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                'Group product categories into stations (e.g. Kitchen, Barman). '
+                'Assign a group to a display below and that display only shows '
+                'the items in those categories.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const Divider(height: 1),
+            if (printerGroups.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                child: Text(
+                  'No printer groups yet.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ...printerGroups.map((g) {
+              final n = g.productGroupIds.length;
+              return ListTile(
+                leading: Icon(Icons.print, color: cs.primary),
+                title: Text(g.name, style: theme.textTheme.bodyMedium),
+                subtitle: Text('$n categor${n == 1 ? 'y' : 'ies'}'),
+                onTap: () => _editPrinterGroup(existing: g),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(
+                        Icons.edit_outlined,
+                        color: cs.secondary,
+                        size: 20,
+                      ),
+                      tooltip: 'Edit',
+                      onPressed: () => _editPrinterGroup(existing: g),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        Icons.delete_outline,
+                        color: cs.error,
+                        size: 20,
+                      ),
+                      tooltip: 'Delete',
+                      onPressed: () => _deletePrinterGroup(g),
+                    ),
+                  ],
+                ),
+              );
+            }),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: () => _editPrinterGroup(),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add Printer Group'),
+                ),
+              ),
+            ),
+          ],
+        ),
         _SettingsCard(
           title: 'KITCHEN DISPLAY TABLETS',
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Text(
-                'Each Kitchen Display tablet runs an HTTP server on port ${KitchenPushService.kdsPort}. '
-                'The POS app will ping every IP below after any order change so the KDS refreshes instantly.',
-                style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                'Each Kitchen Display tablet listens on port $kKdsPort. Adding its '
+                'IP pairs it with this POS and pushes orders directly over the '
+                'local network — the KDS works fully offline, no internet needed.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: cs.onSurfaceVariant,
+                ),
               ),
             ),
             const Divider(height: 1),
             // ── existing IPs ──
             if (ips.isEmpty)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
                 child: Text(
                   'No kitchen displays configured.',
-                  style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
                 ),
               ),
-            ...ips.map((ip) => ListTile(
-                  leading: Icon(Icons.tablet_android, color: cs.primary),
-                  title: Text(ip, style: theme.textTheme.bodyMedium),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: Icon(Icons.wifi_tethering, color: cs.secondary, size: 20),
-                        tooltip: 'Test ping',
-                        onPressed: () => _testIp(ip),
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.delete_outline, color: cs.error, size: 20),
-                        tooltip: 'Remove',
-                        onPressed: () => _removeIp(ip),
-                      ),
-                    ],
+            ...ips.map((ip) {
+              final assigned = displayGroups[ip] ?? const <int>[];
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ListTile(
+                    leading: Icon(Icons.tablet_android, color: cs.primary),
+                    title: Text(ip, style: theme.textTheme.bodyMedium),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: Icon(Icons.link, color: cs.secondary, size: 20),
+                          tooltip: 'Re-pair',
+                          onPressed: () => _pairIp(ip),
+                        ),
+                        IconButton(
+                          icon: Icon(
+                            Icons.delete_outline,
+                            color: cs.error,
+                            size: 20,
+                          ),
+                          tooltip: 'Remove',
+                          onPressed: () => _removeIp(ip),
+                        ),
+                      ],
+                    ),
                   ),
-                )),
+                  // Per-display routing: pick which printer groups this tablet
+                  // receives. None selected ⇒ it receives every item.
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(72, 0, 16, 12),
+                    child: printerGroups.isEmpty
+                        ? Text(
+                            'Receives all items. Create printer groups above to '
+                            'route by category.',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: cs.onSurfaceVariant,
+                            ),
+                          )
+                        : Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            children: [
+                              for (final g in printerGroups)
+                                FilterChip(
+                                  label: Text(g.name),
+                                  selected: assigned.contains(g.id),
+                                  onSelected: (v) =>
+                                      _toggleDisplayGroup(ip, g.id, v),
+                                ),
+                              if (assigned.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Text(
+                                    'No group selected → receives all items.',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: cs.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                  ),
+                ],
+              );
+            }),
             const Divider(height: 1),
             // ── add new IP ──
             Padding(
@@ -3163,12 +5101,17 @@ class _KitchenDisplayTabState extends ConsumerState<_KitchenDisplayTab> {
                           isDense: true,
                           prefixIcon: const Icon(Icons.lan_outlined, size: 18),
                         ),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         validator: (v) {
-                          if (v == null || v.trim().isEmpty) return 'Enter an IP address';
+                          if (v == null || v.trim().isEmpty)
+                            return 'Enter an IP address';
                           final parts = v.trim().split('.');
-                          if (parts.length != 4) return 'Invalid IP (e.g. 192.168.1.100)';
-                          if (parts.any((p) => int.tryParse(p) == null)) return 'Invalid IP';
+                          if (parts.length != 4)
+                            return 'Invalid IP (e.g. 192.168.1.100)';
+                          if (parts.any((p) => int.tryParse(p) == null))
+                            return 'Invalid IP';
                           return null;
                         },
                         onFieldSubmitted: (_) => _addIp(),
@@ -3290,8 +5233,9 @@ class _PrintTab extends StatelessWidget {
                           width: 64,
                           height: 64,
                           decoration: BoxDecoration(
-                            color: theme.colorScheme.primary
-                                .withValues(alpha: 0.1),
+                            color: theme.colorScheme.primary.withValues(
+                              alpha: 0.1,
+                            ),
                             borderRadius: BorderRadius.circular(18),
                           ),
                           child: Icon(
@@ -3341,8 +5285,7 @@ class _PrintTab extends StatelessWidget {
                         _FeatureBullet(
                           icon: Icons.receipt_long_outlined,
                           label: 'Customize Receipt',
-                          subtitle:
-                              'Logo, branding, toggles, customer details',
+                          subtitle: 'Logo, branding, toggles, customer details',
                           theme: theme,
                         ),
                         _FeatureBullet(
@@ -3515,9 +5458,9 @@ class _DatabaseTabState extends ConsumerState<_DatabaseTab> {
         dialogTitle: 'Select Backup Folder',
       );
       if (picked == null || !mounted) return;
-      await ref.read(appSettingsProvider.notifier).set(
-            SettingKeys.dbBackupPath, picked,
-          );
+      await ref
+          .read(appSettingsProvider.notifier)
+          .set(SettingKeys.dbBackupPath, picked);
       backupDir = picked;
     }
 
@@ -3563,9 +5506,9 @@ class _DatabaseTabState extends ConsumerState<_DatabaseTab> {
         dialogTitle: 'Select Backup Folder',
       );
       if (picked == null || !mounted) return;
-      await ref.read(appSettingsProvider.notifier).set(
-            SettingKeys.dbBackupPath, picked,
-          );
+      await ref
+          .read(appSettingsProvider.notifier)
+          .set(SettingKeys.dbBackupPath, picked);
       dir = picked;
     }
     BackupService.openDirectory(dir);
@@ -3579,9 +5522,43 @@ class _DatabaseTabState extends ConsumerState<_DatabaseTab> {
         settings[SettingKeys.dbAutoBackup]?.toLowerCase() == 'true';
     final autoDelete =
         settings[SettingKeys.dbBackupAutoDelete]?.toLowerCase() == 'true';
+    final autoSyncEnabled =
+        settings[SettingKeys.autoSyncEnabled]?.toLowerCase() == 'true';
 
     return _TabScrollView(
       cards: [
+        // ── Auto sync ─────────────────────────────────────────────────────────
+        _SettingsCard(
+          title: 'AUTO SYNC',
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
+              child: Text(
+                'Push your local changes and pull fresh data automatically in '
+                'the background.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.autoSyncEnabled,
+              label: 'Enable auto-sync',
+            ),
+            if (autoSyncEnabled)
+              const _SettingDropdown(
+                settingKey: SettingKeys.autoSyncMode,
+                label: 'When to sync',
+                options: ['After every save', 'Every 1 hour'],
+              ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.autoSyncShowNotification,
+              label: 'Show sync notification',
+              subtitle: 'Display a toast each time a sync completes',
+            ),
+          ],
+        ),
+
         // ── Backup now ────────────────────────────────────────────────────────
         _SettingsCard(
           title: 'DATABASE',
@@ -3620,8 +5597,10 @@ class _DatabaseTabState extends ConsumerState<_DatabaseTab> {
                   style: TextStyle(color: theme.colorScheme.primary),
                 ),
                 style: TextButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   alignment: Alignment.centerLeft,
                 ),
               ),
@@ -3723,7 +5702,9 @@ class _BackupLocationFieldState extends ConsumerState<_BackupLocationField> {
   void initState() {
     super.initState();
     _ctrl = TextEditingController(
-      text: ref.read(appSettingsProvider.notifier).get(SettingKeys.dbBackupPath),
+      text: ref
+          .read(appSettingsProvider.notifier)
+          .get(SettingKeys.dbBackupPath),
     );
   }
 
@@ -3891,20 +5872,21 @@ class _AboutStats {
   }
 }
 
-final _aboutStatsProvider =
-    FutureProvider.autoDispose<_AboutStats>((ref) async {
+final _aboutStatsProvider = FutureProvider.autoDispose<_AboutStats>((
+  ref,
+) async {
   final db = ref.watch(appDatabaseProvider);
   final companyId = ref.watch(selectedCompanyProvider)?.id ?? 0;
 
-  final products = await (db.select(db.productsTable)
-        ..where((t) => t.companyId.equals(companyId)))
-      .get();
-  final customers = await (db.select(db.customersTable)
-        ..where((t) => t.companyId.equals(companyId)))
-      .get();
-  final users = await (db.select(db.usersTable)
-        ..where((t) => t.companyId.equals(companyId)))
-      .get();
+  final products = await (db.select(
+    db.productsTable,
+  )..where((t) => t.companyId.equals(companyId))).get();
+  final customers = await (db.select(
+    db.customersTable,
+  )..where((t) => t.companyId.equals(companyId))).get();
+  final users = await (db.select(
+    db.usersTable,
+  )..where((t) => t.companyId.equals(companyId))).get();
 
   // Most recent lastSyncedAt across all entities
   final syncRows = await db.select(db.syncMetaTable).get();
@@ -3954,7 +5936,7 @@ class _AboutTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(appSettingsProvider);
-    final company  = ref.watch(selectedCompanyProvider);
+    final company = ref.watch(selectedCompanyProvider);
     final statsAsync = ref.watch(_aboutStatsProvider);
     final theme = Theme.of(context);
 
@@ -4023,10 +6005,10 @@ class _AboutTab extends ConsumerWidget {
           _SettingsCard(
             title: 'COMPANY',
             children: [
-              _InfoRow(label: 'Name',   value: company?.name       ?? '–'),
-              _InfoRow(label: 'Tax No', value: company?.taxNumber  ?? '–'),
-              _InfoRow(label: 'Phone',  value: company?.phoneNumber ?? '–'),
-              _InfoRow(label: 'Address',value: company?.address    ?? '–'),
+              _InfoRow(label: 'Name', value: company?.name ?? '–'),
+              _InfoRow(label: 'Tax No', value: company?.taxNumber ?? '–'),
+              _InfoRow(label: 'Phone', value: company?.phoneNumber ?? '–'),
+              _InfoRow(label: 'Address', value: company?.address ?? '–'),
             ],
           ),
 
@@ -4043,20 +6025,20 @@ class _AboutTab extends ConsumerWidget {
             ),
             error: (e, _) => _SettingsCard(
               title: 'DATABASE',
-              children: [
-                _InfoRow(label: 'Error', value: e.toString()),
-              ],
+              children: [_InfoRow(label: 'Error', value: e.toString())],
             ),
             data: (s) => _SettingsCard(
               title: 'DATABASE',
               children: [
-                _InfoRow(label: 'Products',  value: '${s.productCount}'),
+                _InfoRow(label: 'Products', value: '${s.productCount}'),
                 _InfoRow(label: 'Customers', value: '${s.customerCount}'),
-                _InfoRow(label: 'Users',     value: '${s.userCount}'),
-                _InfoRow(label: 'DB Size',   value: s.dbSizeFormatted),
+                _InfoRow(label: 'Users', value: '${s.userCount}'),
+                _InfoRow(label: 'DB Size', value: s.dbSizeFormatted),
                 _InfoRow(
                   label: 'Last Sync',
-                  value: s.lastSync != null ? _fmtAboutDt(s.lastSync!) : 'Never',
+                  value: s.lastSync != null
+                      ? _fmtAboutDt(s.lastSync!)
+                      : 'Never',
                 ),
               ],
             ),
@@ -4324,7 +6306,11 @@ class _CountriesTabState extends ConsumerState<_CountriesTab> {
         queryParameters: {'companyId': company.id},
       );
       final list = (res.data as List).map((e) => Country.fromJson(e)).toList();
-      if (mounted) setState(() { _countries = list; _selected = null; });
+      if (mounted)
+        setState(() {
+          _countries = list;
+          _selected = null;
+        });
     } catch (_) {
       if (mounted) setState(() => _countries = []);
     } finally {
@@ -4380,7 +6366,10 @@ class _CountriesTabState extends ConsumerState<_CountriesTab> {
     } on DioException catch (e) {
       if (!mounted) return;
       final data = e.response?.data;
-      final msg = (data is Map ? data['message'] : null) ?? data?.toString() ?? "Delete failed";
+      final msg =
+          (data is Map ? data['message'] : null) ??
+          data?.toString() ??
+          "Delete failed";
       showAppSnackbar(context, ref, msg, isError: true);
     }
   }
@@ -4390,7 +6379,8 @@ class _CountriesTabState extends ConsumerState<_CountriesTab> {
     if (company == null) return;
     await showDialog(
       context: context,
-      builder: (_) => _CountryFormDialog(companyId: company.id, country: country),
+      builder: (_) =>
+          _CountryFormDialog(companyId: company.id, country: country),
     );
     _load();
   }
@@ -4403,7 +6393,10 @@ class _CountriesTabState extends ConsumerState<_CountriesTab> {
 
     if (company == null) {
       return Center(
-        child: Text("No company selected.", style: TextStyle(color: cs.onSurfaceVariant)),
+        child: Text(
+          "No company selected.",
+          style: TextStyle(color: cs.onSurfaceVariant),
+        ),
       );
     }
 
@@ -4433,93 +6426,127 @@ class _CountriesTabState extends ConsumerState<_CountriesTab> {
           child: _loading
               ? Center(child: CircularProgressIndicator(color: cs.primary))
               : _countries.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.public, size: 64,
-                              color: cs.onSurfaceVariant.withValues(alpha: 0.4)),
-                          const SizedBox(height: 16),
-                          Text("No countries yet.",
-                              style: TextStyle(color: cs.onSurfaceVariant, fontSize: 16)),
-                          const SizedBox(height: 24),
-                          FilledButton.icon(
-                            icon: const Icon(Icons.add),
-                            label: const Text("Add Country"),
-                            onPressed: () => _openForm(),
-                          ),
-                        ],
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.public,
+                        size: 64,
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.4),
                       ),
-                    )
-                  : SingleChildScrollView(
-                      child: LayoutBuilder(
-                        builder: (context, constraints) => SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(minWidth: constraints.maxWidth),
-                            child: DataTable(
-                              headingRowColor:
-                                  WidgetStateProperty.all(cs.surfaceContainerHighest),
-                              dataRowMaxHeight: 52,
-                              dataRowMinHeight: 52,
-                              columnSpacing: 32,
-                              showCheckboxColumn: false,
-                              columns: [
-                                DataColumn(
-                                  label: Text("Name",
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: cs.onSurfaceVariant)),
+                      const SizedBox(height: 16),
+                      Text(
+                        "No countries yet.",
+                        style: TextStyle(
+                          color: cs.onSurfaceVariant,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      FilledButton.icon(
+                        icon: const Icon(Icons.add),
+                        label: const Text("Add Country"),
+                        onPressed: () => _openForm(),
+                      ),
+                    ],
+                  ),
+                )
+              : SingleChildScrollView(
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minWidth: constraints.maxWidth,
+                        ),
+                        child: DataTable(
+                          headingRowColor: WidgetStateProperty.all(
+                            cs.surfaceContainerHighest,
+                          ),
+                          dataRowMaxHeight: 52,
+                          dataRowMinHeight: 52,
+                          columnSpacing: 32,
+                          showCheckboxColumn: false,
+                          columns: [
+                            DataColumn(
+                              label: Text(
+                                "Name",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: cs.onSurfaceVariant,
                                 ),
-                                DataColumn(
-                                  label: Text("Code",
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: cs.onSurfaceVariant)),
+                              ),
+                            ),
+                            DataColumn(
+                              label: Text(
+                                "Code",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: cs.onSurfaceVariant,
                                 ),
-                                DataColumn(
-                                  label: Text("Actions",
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          color: cs.onSurfaceVariant)),
+                              ),
+                            ),
+                            DataColumn(
+                              label: Text(
+                                "Actions",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: cs.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ],
+                          rows: _countries.map((c) {
+                            final isSelected = _selected?.id == c.id;
+                            return DataRow(
+                              selected: isSelected,
+                              onSelectChanged: (_) => setState(
+                                () => _selected = isSelected ? null : c,
+                              ),
+                              cells: [
+                                DataCell(
+                                  Text(
+                                    c.name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                DataCell(Text(c.code ?? '–')),
+                                DataCell(
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.edit,
+                                          color: cs.primary,
+                                          size: 20,
+                                        ),
+                                        tooltip: "Edit",
+                                        onPressed: () => _openForm(country: c),
+                                      ),
+                                      IconButton(
+                                        icon: Icon(
+                                          Icons.delete_outline,
+                                          color: cs.error,
+                                          size: 20,
+                                        ),
+                                        tooltip: "Delete",
+                                        onPressed: () => _delete(c),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ],
-                              rows: _countries.map((c) {
-                                final isSelected = _selected?.id == c.id;
-                                return DataRow(
-                                  selected: isSelected,
-                                  onSelectChanged: (_) => setState(
-                                      () => _selected = isSelected ? null : c),
-                                  cells: [
-                                    DataCell(Text(c.name,
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.w500))),
-                                    DataCell(Text(c.code ?? '–')),
-                                    DataCell(Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        IconButton(
-                                          icon: Icon(Icons.edit,
-                                              color: cs.primary, size: 20),
-                                          tooltip: "Edit",
-                                          onPressed: () => _openForm(country: c),
-                                        ),
-                                        IconButton(
-                                          icon: Icon(Icons.delete_outline,
-                                              color: cs.error, size: 20),
-                                          tooltip: "Delete",
-                                          onPressed: () => _delete(c),
-                                        ),
-                                      ],
-                                    )),
-                                  ],
-                                );
-                              }).toList(),
-                            ),
-                          ),
+                            );
+                          }).toList(),
                         ),
                       ),
                     ),
+                  ),
+                ),
         ),
       ],
     );
@@ -4559,7 +6586,10 @@ class _CountryFormDialogState extends ConsumerState<_CountryFormDialog> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() { _saving = true; _error = null; });
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
       final dio = createDio();
       final body = {
@@ -4614,7 +6644,10 @@ class _CountryFormDialogState extends ConsumerState<_CountryFormDialog> {
                     color: cs.errorContainer,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Text(_error!, style: TextStyle(color: cs.onErrorContainer)),
+                  child: Text(
+                    _error!,
+                    style: TextStyle(color: cs.onErrorContainer),
+                  ),
                 ),
                 const SizedBox(height: 12),
               ],

@@ -72,17 +72,20 @@ class _ManagementLayoutState extends State<ManagementLayout> {
       child: SafeArea(
         child: Column(
           children: [
-            // Static title header — no back navigation, no tap interaction
+            // Static title header — no back navigation, no tap interaction.
+            // Padding mirrors NavSidebarHeader so both shells share the same
+            // header rhythm. Colours read from adaptive nav tokens so the title
+            // stays legible in Light Mode (charcoal) and Dark Mode (near-white).
             Container(
-              padding: const EdgeInsets.fromLTRB(16, 16, 8, 16),
+              padding: const EdgeInsets.fromLTRB(16, 24, 8, 20),
               alignment: Alignment.centerLeft,
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       "Management Portal",
                       style: TextStyle(
-                        color: Colors.white,
+                        color: context.navText,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
@@ -90,7 +93,7 @@ class _ManagementLayoutState extends State<ManagementLayout> {
                   ),
                   if (isDesktop)
                     IconButton(
-                      icon: const Icon(Icons.menu_open, color: Colors.white70),
+                      icon: Icon(Icons.menu_open, color: context.navMuted),
                       tooltip: "Hide Sidebar",
                       onPressed: () =>
                           setState(() => _isSidebarVisible = false),

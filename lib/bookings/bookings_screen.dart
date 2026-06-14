@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/api/api_client.dart';
@@ -11,6 +13,7 @@ import 'package:pos_app/floor_plan/floor_plan_screen.dart';
 import 'package:pos_app/floor_plan/floor_plan_table.dart';
 import 'package:pos_app/menu/menu_screen.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
+import 'package:pos_app/sync/sync_provider.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/document/document_editor_screen.dart';
 import 'package:pos_app/document/document_model.dart';
@@ -91,11 +94,38 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
   bool _alertsShown = false;
   final _calendarScrollController = ScrollController();
   bool _calendarScrolled = false;
+  Timer? _nowTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Background refresh on open: pull the latest bookings from the server into
+    // the local Drift cache. The screen renders immediately from the cache; the
+    // stream re-emits if the pull brings new rows. Offline, this no-ops and the
+    // existing cache is shown.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshBookings());
+    // Drives the "current time" indicator line — rebuild every 30s so it slides
+    // down as the clock advances. Cheap: build() just re-reads the cached stream.
+    _nowTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
 
   @override
   void dispose() {
+    _nowTimer?.cancel();
     _calendarScrollController.dispose();
     super.dispose();
+  }
+
+  /// Pulls bookings from the server into the local Drift cache. Fire-and-forget
+  /// — the Drift-backed [allBookingsProvider] stream re-emits once the rows
+  /// land, so there's no manual invalidate. Failures (offline) are swallowed;
+  /// the local cache stays on screen.
+  void _refreshBookings() {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    if (companyId == null) return;
+    ref.read(syncManagerProvider).pullBookings(companyId).catchError((_) {});
   }
 
   void _maybeShowAlerts(List<Booking> bookings) {
@@ -343,7 +373,7 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
         prefilledStaff: prefilledStaff,
         prefilledTime: prefilledTime,
         defaultDurationMinutes: defaultDurationMinutes,
-        onSaved: () => ref.invalidate(allBookingsProvider),
+        onSaved: _refreshBookings,
       ),
     );
   }
@@ -362,7 +392,7 @@ class _BookingsScreenState extends ConsumerState<BookingsScreen> {
         staff: staff,
         tables: tables,
         resourceMode: resourceMode,
-        onUpdated: () => ref.invalidate(allBookingsProvider),
+        onUpdated: _refreshBookings,
       ),
     );
   }
@@ -418,6 +448,16 @@ class _CalendarView extends StatelessWidget {
         : const ['Bookings'];
     final totalCols = colLabels.length;
 
+    // "Current time" indicator — only on today, only within the visible
+    // 08:00–24:00 window. `nowOffset` is its vertical position inside the
+    // calendar body (same coordinate space as booking chips).
+    final now = DateTime.now();
+    final showNow =
+        isSameDay(now, selectedDate) && now.hour >= _dayStart && now.hour < _dayEnd;
+    final nowOffset =
+        ((now.hour - _dayStart) * 60 + now.minute) / 30 * _slotHeight;
+    final nowColor = theme.colorScheme.error;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableWidth = constraints.maxWidth - _timeColWidth;
@@ -439,24 +479,52 @@ class _CalendarView extends StatelessWidget {
               // ── Time Labels column ────────────────────────────────────────
               SizedBox(
                 width: _timeColWidth,
-                child: Column(
+                child: Stack(
+                  clipBehavior: Clip.none,
                   children: [
-                    SizedBox(height: _headerRowHeight),
-                    for (int i = 0; i < _totalSlots; i++)
-                      SizedBox(
-                        height: _slotHeight,
-                        child: Align(
-                          alignment: Alignment.topRight,
-                          child: Padding(
-                            padding: const EdgeInsets.only(right: 8, top: 4),
-                            child: Text(
-                              _slotLabel(i),
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: theme.colorScheme.onSurface.withValues(
-                                  alpha: 0.5,
+                    Column(
+                      children: [
+                        SizedBox(height: _headerRowHeight),
+                        for (int i = 0; i < _totalSlots; i++)
+                          SizedBox(
+                            height: _slotHeight,
+                            child: Align(
+                              alignment: Alignment.topRight,
+                              child: Padding(
+                                padding: const EdgeInsets.only(right: 8, top: 4),
+                                child: Text(
+                                  _slotLabel(i),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.5),
+                                  ),
                                 ),
                               ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    // Current-time pill, aligned to the indicator line.
+                    if (showNow)
+                      Positioned(
+                        top: _headerRowHeight + nowOffset - 9,
+                        right: 4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: nowColor,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            _fmtTime(TimeOfDay.fromDateTime(now)),
+                            style: TextStyle(
+                              color: theme.colorScheme.onError,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                         ),
@@ -568,6 +636,34 @@ class _CalendarView extends StatelessWidget {
                                 effectiveColWidth,
                                 effectiveGridWidth,
                               ),
+
+                              // Current-time indicator line (drawn on top).
+                              if (showNow)
+                                Positioned(
+                                  top: nowOffset - 5,
+                                  left: 0,
+                                  right: 0,
+                                  child: IgnorePointer(
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 10,
+                                          height: 10,
+                                          decoration: BoxDecoration(
+                                            color: nowColor,
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: Container(
+                                            height: 2,
+                                            color: nowColor,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
                         ),

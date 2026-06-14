@@ -48,11 +48,14 @@ final allDocumentsProvider = FutureProvider.autoDispose<List<Document>>((ref) as
   final rows = await db.getDocuments(companyId: company.id);
 
   return rows.map((row) {
+    final pendingCreate =
+        row.syncStatus == 'pending' || row.syncStatus == 'pending_create';
     final displayNumber = row.number?.isNotEmpty == true
         ? row.number!
-        : (row.syncStatus == 'pending' ? '(Pending sync)' : '—');
+        : (pendingCreate ? '(Pending sync)' : '—');
     return Document(
       id:               row.serverId ?? 0,
+      localId:          row.localId,
       number:           displayNumber,
       userId:           row.userId,
       userName:         userMap[row.userId],
@@ -64,19 +67,36 @@ final allDocumentsProvider = FutureProvider.autoDispose<List<Document>>((ref) as
       warehouseId:      row.warehouseId,
       orderNumber:      row.orderNumber,
       date:             row.date.toIso8601String(),
+      stockDate:        row.stockDate?.toIso8601String(),
+      dueDate:          row.dueDate?.toIso8601String(),
       total:            row.total,
       discount:         row.discount,
       discountType:     row.discountType,
       paidStatus:       row.paidStatus,
+      discountApplyRule: row.discountApplyRule,
       serviceType:      row.serviceType,
+      internalNote:     row.internalNote,
+      note:             row.note,
+      referenceDocumentNumber: row.referenceDocumentNumber,
     );
   }).toList();
 });
 
-final allDocumentTypesProvider = FutureProvider.autoDispose<List<DocumentType>>((ref) async {
-  final dio = createDio();
-  final response = await dio.get('/DocumentType/GetAll');
-  return (response.data as List).map((j) => DocumentType.fromJson(j)).toList();
+/// Document types, streamed from the local Drift cache so the editor's type
+/// picker (and offline document creation) work without a network connection.
+/// Seeded by SyncManager.pullDocumentTypes.
+final allDocumentTypesProvider =
+    StreamProvider.autoDispose<List<DocumentType>>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return db.watchDocumentTypes().map((rows) => rows
+      .map((r) => DocumentType(
+            id: r.id,
+            name: r.name,
+            code: r.code,
+            documentCategoryId: r.documentCategoryId,
+            warehouseId: r.warehouseId,
+          ))
+      .toList());
 });
 
 final documentVisibleColumnsProvider = StateProvider<Map<String, bool>>((ref) => {
@@ -828,26 +848,31 @@ class _DocumentTable extends ConsumerWidget {
     );
 
     if (confirm == true && context.mounted) {
-      await _delete(context, ref, d.id, companyId);
+      await _delete(context, ref, d, companyId);
       onRefresh();
     }
   }
 
   Future<void> _delete(
-      BuildContext context, WidgetRef ref, int id, int companyId) async {
+      BuildContext context, WidgetRef ref, Document d, int companyId) async {
     final db = ref.read(appDatabaseProvider);
     try {
-      if (id > 0) {
-        // Synced document — delete on the server first.
-        final dio = createDio();
-        await dio.delete(
+      // Offline-first: resolve the local row (by localId, else by serverId) and
+      // soft-delete/hard-delete it locally so it disappears immediately. The
+      // sync queue issues /Document/Delete on the next sync.
+      var localId = d.localId;
+      if (localId == null && d.id > 0) {
+        localId = (await db.getDocumentByServerId(d.id))?.localId;
+      }
+      if (localId != null) {
+        await db.deleteDocumentLocal(localId);
+        ref.read(syncStateProvider.notifier).sync().catchError((_) {});
+      } else if (d.id > 0) {
+        // No local row — fall back to a direct server delete.
+        await createDio().delete(
           '/Document/Delete',
-          queryParameters: {'id': id, 'companyId': companyId},
+          queryParameters: {'id': d.id, 'companyId': companyId},
         );
-        // Remove the local row by serverId so it disappears immediately.
-        await (db.delete(db.documentsTable)
-              ..where((t) => t.serverId.equals(id)))
-            .go();
       }
       if (!context.mounted) return;
       showAppSnackbar(context, ref, 'Document deleted');

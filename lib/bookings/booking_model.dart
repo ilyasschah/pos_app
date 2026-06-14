@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:pos_app/database/app_database.dart';
+
 class Booking {
   final int id;
   final int? customerId;
@@ -44,6 +48,26 @@ class Booking {
       guestCount: json['guestCount'] ?? 1,
       status: json['status'] ?? 0,
       note: json['note'],
+    );
+  }
+
+  factory Booking.fromDrift(BookingsTableData row) {
+    final ids = (jsonDecode(row.tableIdsJson) as List<dynamic>)
+        .map((e) => (e as num).toInt())
+        .toList();
+    return Booking(
+      id: row.id,
+      customerId: row.customerId,
+      userId: row.userId,
+      reservationName: row.reservationName,
+      tableIds: ids,
+      documentId: row.documentId,
+      posOrderId: row.posOrderId,
+      startTime: row.startTime,
+      endTime: row.endTime,
+      guestCount: row.guestCount,
+      status: row.status,
+      note: row.note,
     );
   }
 }

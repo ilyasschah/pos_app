@@ -58,6 +58,7 @@ class NavSidebarHeader extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final company = ref.watch(selectedCompanyProvider);
+    final cs      = Theme.of(context).colorScheme;
     final accent  = context.navAccent;
 
     ImageProvider? logoProvider;
@@ -66,6 +67,7 @@ class NavSidebarHeader extends ConsumerWidget {
         logoProvider = MemoryImage(base64Decode(company.logo!));
       } catch (_) {}
     }
+    final hasLogo = logoProvider != null;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 24, 8, 20),
@@ -75,25 +77,29 @@ class NavSidebarHeader extends ConsumerWidget {
           Container(
             width: 44,
             height: 44,
+            // Inset the asset so a transparent brand PNG breathes inside its
+            // frame instead of touching the rounded edges.
+            padding: hasLogo ? const EdgeInsets.all(6) : EdgeInsets.zero,
+            alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: accent,
+              // A real logo sits on a neutral adaptive card frame (clean in both
+              // light + dark) rather than a harsh accent block; the lettermark
+              // fallback keeps the branded accent fill.
+              color: hasLogo ? cs.surfaceContainerLow : accent,
               borderRadius: BorderRadius.circular(10),
-              image: logoProvider != null
-                  ? DecorationImage(image: logoProvider, fit: BoxFit.cover)
-                  : null,
             ),
-            child: logoProvider == null
-                ? Center(
-                    child: Text(
-                      name.isNotEmpty ? name[0].toUpperCase() : 'C',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                      ),
+            child: logoProvider != null
+                // contain (never cover) so logos are shown whole, never cropped
+                // or stretched, whatever aspect ratio the user uploads.
+                ? Image(image: logoProvider, fit: BoxFit.contain)
+                : Text(
+                    name.isNotEmpty ? name[0].toUpperCase() : 'C',
+                    style: TextStyle(
+                      color: cs.onPrimary,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
                     ),
-                  )
-                : null,
+                  ),
           ),
           const SizedBox(width: 12),
           Expanded(

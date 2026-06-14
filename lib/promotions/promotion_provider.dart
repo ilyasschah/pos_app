@@ -46,52 +46,52 @@ final activePromotionsProvider =
   // sourced from Drift instead of an awaited Future.
   final promotionsAsync = ref.watch(allPromotionsProvider);
   final promotions = promotionsAsync.value ?? const [];
-
   final now = DateTime.now();
-  final currentWeekday = now.weekday;
-  final dayBitmask = 1 << (currentWeekday - 1);
-  final currentTimeString =
-      "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}";
-
-  final active = promotions.where((p) {
-    if (!p.isEnabled) return false;
-
-    if (p.startDate != null) {
-      final localStart = p.startDate!.toLocal();
-      final start = DateTime(localStart.year, localStart.month, localStart.day);
-      if (now.isBefore(start)) return false;
-    }
-    if (p.endDate != null) {
-      final localEnd = p.endDate!.toLocal();
-      final end = DateTime(
-        localEnd.year,
-        localEnd.month,
-        localEnd.day,
-        23,
-        59,
-        59,
-      );
-      if (now.isAfter(end)) return false;
-    }
-
-    if (p.startTime != null && p.startTime!.isNotEmpty) {
-      final safeStart =
-          p.startTime!.length == 5 ? "${p.startTime}:00" : p.startTime!;
-      if (currentTimeString.compareTo(safeStart) < 0) return false;
-    }
-    if (p.endTime != null && p.endTime!.isNotEmpty) {
-      final safeEnd =
-          p.endTime!.length == 5 ? "${p.endTime}:00" : p.endTime!;
-      if (currentTimeString.compareTo(safeEnd) > 0) return false;
-    }
-    if (p.daysOfWeek > 0 && (p.daysOfWeek & dayBitmask) == 0) {
-      return false;
-    }
-    return true;
-  }).toList();
-
+  final active = promotions.where((p) => isPromotionActiveNow(p, now)).toList();
   return Stream.value(active);
 });
+
+/// Single source of truth for "is this promotion live right now" — used by both
+/// the menu (to apply discounts / show the star) and the promotions list (to
+/// show an accurate Active/Inactive badge). Checks enabled + date range + day
+/// of week + time-of-day window.
+bool isPromotionActiveNow(PromotionDto p, [DateTime? at]) {
+  if (!p.isEnabled) return false;
+  final now = at ?? DateTime.now();
+
+  if (p.startDate != null) {
+    final s = p.startDate!.toLocal();
+    if (now.isBefore(DateTime(s.year, s.month, s.day))) return false;
+  }
+  if (p.endDate != null) {
+    final e = p.endDate!.toLocal();
+    if (now.isAfter(DateTime(e.year, e.month, e.day, 23, 59, 59))) return false;
+  }
+
+  // Day-of-week bitmask (Mon=bit0 … Sun=bit6). 0 means "every day".
+  final dayBitmask = 1 << (now.weekday - 1);
+  if (p.daysOfWeek > 0 && (p.daysOfWeek & dayBitmask) == 0) return false;
+
+  // Only enforce a time-of-day window when both ends are set AND differ. A
+  // zero-width window (start == end, e.g. "20:20"–"20:20") is a data-entry
+  // artifact that would otherwise make the promo active for a single second —
+  // treat it as "all day".
+  final hasTimeWindow = p.startTime != null &&
+      p.startTime!.isNotEmpty &&
+      p.endTime != null &&
+      p.endTime!.isNotEmpty &&
+      p.startTime != p.endTime;
+  if (hasTimeWindow) {
+    final currentTimeString =
+        "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}";
+    final safeStart =
+        p.startTime!.length == 5 ? "${p.startTime}:00" : p.startTime!;
+    final safeEnd = p.endTime!.length == 5 ? "${p.endTime}:00" : p.endTime!;
+    if (currentTimeString.compareTo(safeStart) < 0) return false;
+    if (currentTimeString.compareTo(safeEnd) > 0) return false;
+  }
+  return true;
+}
 
 int getActivePromotionCountForProduct(
     List<PromotionDto> activePromotions, int productId) {

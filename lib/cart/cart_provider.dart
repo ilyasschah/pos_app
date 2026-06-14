@@ -19,6 +19,8 @@ import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 import 'package:pos_app/kitchen/kitchen_push_service.dart';
 import 'package:pos_app/product/product_model.dart'; // Added to use Product.fromDrift
+import 'package:pos_app/tax/tax_model.dart';
+import 'package:pos_app/tax/tax_provider.dart';
 
 final dailyOrderNumberProvider = StateProvider<int>((ref) => 1);
 
@@ -114,12 +116,53 @@ class CartState {
 }
 
 class CartNotifier extends Notifier<CartState> {
+  /// Warm, in-memory snapshot of the company's taxes. Kept current by the
+  /// `ref.listen` in [build] so [_resolveDefaultTaxes] can map default tax-rate
+  /// IDs → [MenuTax] synchronously when an item is added to the cart.
+  List<Tax> _taxesCache = const [];
+
   @override
-  CartState build() => CartState();
+  CartState build() {
+    // Listening (rather than reading) keeps the autoDispose taxes stream warm
+    // for the whole lifetime of the (non-autoDispose) cart provider.
+    ref.listen<AsyncValue<List<Tax>>>(allTaxesProvider, (_, next) {
+      final list = next.value;
+      if (list != null) _taxesCache = list;
+    }, fireImmediately: true);
+    return CartState();
+  }
+
+  /// Resolves the "default tax rate" Products setting into concrete [MenuTax]
+  /// objects. Applied to a freshly-added item that carries no taxes of its own,
+  /// mirroring what selecting taxes manually in the menu would produce.
+  List<MenuTax> _resolveDefaultTaxes() {
+    final raw =
+        ref.read(appSettingsProvider)[SettingKeys.defaultTaxRateIds] ?? '';
+    if (raw.trim().isEmpty) return const [];
+
+    final ids = raw
+        .split(',')
+        .map((e) => int.tryParse(e.trim()))
+        .whereType<int>()
+        .toSet();
+    if (ids.isEmpty) return const [];
+
+    return _taxesCache
+        .where((t) => ids.contains(t.id) && t.isEnabled)
+        .map(
+          (t) => MenuTax(
+            id: t.id,
+            name: t.name,
+            rate: t.rate,
+            isFixed: t.isFixed,
+            isTaxOnTotal: t.isTaxOnTotal,
+          ),
+        )
+        .toList();
+  }
 
   void _notifyKitchen() {
-    final raw = ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps];
-    KitchenPushService.notifyFromSetting(raw);
+    ref.read(kitchenSyncProvider).push();
   }
 
   int get effectiveWarehouseId {
@@ -540,6 +583,10 @@ class CartNotifier extends Notifier<CartState> {
       if (quantity > product.stockQuantity) {
         throw Exception("Not enough stock!");
       }
+      // Fall back to the configured default tax rates when the product brings
+      // none of its own, so taxes are applied automatically on add.
+      final appliedTaxes =
+          product.taxes.isNotEmpty ? product.taxes : _resolveDefaultTaxes();
       items.add(
         CartItem(
           cartItemId: newCartItemId,
@@ -549,7 +596,7 @@ class CartNotifier extends Notifier<CartState> {
           cost: product.cost,
           quantity: quantity,
           productName: product.name,
-          appliedTaxes: product.taxes,
+          appliedTaxes: appliedTaxes,
           comment: comment,
           measurementUnit: measurementUnit ?? product.measurementUnit,
           isService: product.isService,
@@ -828,6 +875,10 @@ class CartNotifier extends Notifier<CartState> {
         ref.read(dailyOrderNumberProvider.notifier).state =
             ref.read(dailyOrderNumberProvider) + 1;
       }
+      // Push the fresh snapshot to the paired Kitchen Displays now that the
+      // order (or its edit) is in Drift — this is what makes a saved/updated
+      // order appear on the KDS without any manual refresh.
+      _notifyKitchen();
     } finally {
       state = state.copyWith(isLoading: false);
     }

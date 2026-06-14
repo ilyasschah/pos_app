@@ -219,9 +219,7 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                   // Kitchen push is best-effort — wrapped so an offline KDS
                   // can't block table selection.
                   try {
-                    KitchenPushService.notifyFromSetting(
-                      ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
-                    );
+                    ref.read(kitchenSyncProvider).push();
                   } catch (_) {/* kitchen push is non-critical */}
                   if (mounted) {
                     ref

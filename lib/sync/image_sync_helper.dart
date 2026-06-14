@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/painting.dart' show FileImage;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -54,6 +55,10 @@ class ImageSyncHelper {
       final dir = await _ensureImagesDir(folder);
       final file = File(p.join(dir.path, '$productId.jpg'));
       await file.writeAsBytes(bytes, flush: true);
+      // The file content just changed under a reused path. Flutter's ImageCache
+      // keys FileImage by path, so evict the stale entry — otherwise the UI
+      // keeps showing the previous (old) image after a sync overwrite.
+      await FileImage(file).evict();
       return file.path;
     } catch (e) {
       debugPrint('Failed to save image for ID $productId: $e');
@@ -66,6 +71,7 @@ class ImageSyncHelper {
     try {
       final dir = await _ensureImagesDir(folder);
       final file = File(p.join(dir.path, '$productId.jpg'));
+      await FileImage(file).evict();
       if (await file.exists()) await file.delete();
     } catch (e) {
       // best-effort cleanup; surface to logs but don't throw.

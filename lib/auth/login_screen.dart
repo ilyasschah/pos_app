@@ -153,7 +153,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         ),
         actions: [
           // TIME CLOCK button — only when SelectBusinessDayOnStart == 'true'
-          if (ref.watch(appSettingsProvider)[SettingKeys.selectBusinessDayOnStart]
+          if (ref
+                  .watch(
+                    appSettingsProvider,
+                  )[SettingKeys.selectBusinessDayOnStart]
                   ?.toLowerCase() ==
               'true')
             Padding(
@@ -164,16 +167,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 style: OutlinedButton.styleFrom(
                   foregroundColor: cs.primary,
                   side: BorderSide(color: cs.primary),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   textStyle: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 12),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
                 ),
                 onPressed: () => Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => const TimeClockScreen(),
-                  ),
+                  MaterialPageRoute(builder: (_) => const TimeClockScreen()),
                 ),
               ),
             ),
@@ -236,11 +241,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     return GridView.builder(
                       gridDelegate:
                           const SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: 200,
-                        childAspectRatio: 1.0,
-                        crossAxisSpacing: 20,
-                        mainAxisSpacing: 20,
-                      ),
+                            maxCrossAxisExtent: 200,
+                            childAspectRatio: 1.0,
+                            crossAxisSpacing: 20,
+                            mainAxisSpacing: 20,
+                          ),
                       itemCount: users.length,
                       itemBuilder: (context, index) =>
                           _buildUserCard(context, users[index], index),
@@ -329,7 +334,9 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
   Future<void> _setNewPin() async {
     setState(() => _isLoading = true);
     try {
-      await ref.read(authServiceProvider).setDevicePin(
+      await ref
+          .read(authServiceProvider)
+          .setDevicePin(
             userId: widget.user.id,
             companyId: widget.user.companyId,
             pin: _pin,
@@ -368,8 +375,10 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
       await ref.read(syncManagerProvider).sync(widget.user.companyId);
     } catch (e) {
       if (mounted) {
-        _showError('Sync failed — running on cached data. '
-            '${friendlyErrorMessage(e)}');
+        _showError(
+          'Sync failed — running on cached data. '
+          '${friendlyErrorMessage(e)}',
+        );
       }
     }
 
@@ -398,127 +407,171 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
     final title = _isSyncing
         ? "Syncing master data…"
         : !widget.user.hasPinForThisDevice
-            ? (_isConfirming ? "Confirm New PIN" : "Create 4-Digit PIN")
-            : "Enter PIN";
+        ? (_isConfirming ? "Confirm New PIN" : "Create 4-Digit PIN")
+        : "Enter PIN";
 
-    return Container(
-      height: 560,
-      decoration: BoxDecoration(
-        color: cs.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Drag handle
-          Container(
-            width: 40,
-            height: 4,
-            margin: const EdgeInsets.only(bottom: 20),
-            decoration: BoxDecoration(
-              color: cs.outlineVariant,
-              borderRadius: BorderRadius.circular(2),
-            ),
+    // Responsive scale: shrink the whole pad on smaller screens (8"/10"
+    // tablets, short landscape) so it never feels oversized or overflows.
+    // Derived from the screen's shortest side against a 600px reference.
+    final screen = MediaQuery.sizeOf(context);
+    final scale = (screen.shortestSide / 600).clamp(0.7, 1.0).toDouble();
+    double s(double v) => v * scale;
+
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: s(360)),
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: cs.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
-
-          CircleAvatar(
-            radius: 32,
-            backgroundColor: avatarBg,
-            child: Icon(
-              PhosphorIcons.user(PhosphorIconsStyle.fill),
-              size: 32,
-              color: avatarFg,
-            ),
-          ),
-          const Gap(12),
-          Text(
-            widget.user.displayName,
-            style: GoogleFonts.inter(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-              color: cs.onSurface,
-            ),
-          ),
-          const Gap(4),
-          Text(title, style: TextStyle(color: cs.primary, fontSize: 15)),
-          const Gap(28),
-
-          // PIN dots
-          if (_isLoading)
-            const CircularProgressIndicator()
-          else
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(4, (index) {
-                return AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  margin: const EdgeInsets.symmetric(horizontal: 8),
-                  width: 16,
-                  height: 16,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: index < _pin.length
-                        ? cs.primary
-                        : cs.surfaceContainerHighest,
-                  ),
-                );
-              }),
-            ),
-
-          const Gap(32),
-
-          // Number grid
-          SizedBox(
-            width: 290,
-            child: GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                childAspectRatio: 1.5,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-              ),
-              itemCount: 12,
-              itemBuilder: (context, index) {
-                // Empty slot below "7 8 9"
-                if (index == 9) return const SizedBox.shrink();
-
-                // Backspace
-                if (index == 11) {
-                  return FilledButton.tonal(
-                    onPressed: _onBackspace,
-                    style: FilledButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      padding: EdgeInsets.zero,
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(s(24), s(12), s(24), s(16)),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Drag handle
+                  Container(
+                    width: s(40),
+                    height: s(4),
+                    margin: EdgeInsets.only(bottom: s(20)),
+                    decoration: BoxDecoration(
+                      color: cs.outlineVariant,
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                    child: Icon(PhosphorIcons.backspace(), size: 24),
-                  );
-                }
-
-                final number = index == 10 ? "0" : "${index + 1}";
-                return FilledButton.tonal(
-                  onPressed: () => _onKeyPress(number),
-                  style: FilledButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    padding: EdgeInsets.zero,
                   ),
-                  child: Text(
-                    number,
+
+                  CircleAvatar(
+                    radius: s(32),
+                    backgroundColor: avatarBg,
+                    child: Icon(
+                      PhosphorIcons.user(PhosphorIconsStyle.fill),
+                      size: s(32),
+                      color: avatarFg,
+                    ),
+                  ),
+                  Gap(s(12)),
+                  Text(
+                    widget.user.displayName,
                     style: GoogleFonts.inter(
-                      fontSize: 26,
-                      fontWeight: FontWeight.w600,
-                      color: cs.onSecondaryContainer,
+                      fontSize: s(20),
+                      fontWeight: FontWeight.bold,
+                      color: cs.onSurface,
                     ),
                   ),
-                );
-              },
+                  Gap(s(4)),
+                  Text(
+                    title,
+                    style: TextStyle(color: cs.primary, fontSize: s(15)),
+                  ),
+                  Gap(s(28)),
+
+                  // PIN slots — fixed-size boxes so the row never shifts or resizes
+                  SizedBox(
+                    width: s(280),
+                    height: s(64),
+                    child: _isLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(4, (index) {
+                              final filled = index < _pin.length;
+                              return Container(
+                                width: s(56),
+                                height: s(64),
+                                margin: EdgeInsets.symmetric(horizontal: s(6)),
+                                decoration: BoxDecoration(
+                                  color: cs.surfaceContainerHighest,
+                                  borderRadius: BorderRadius.circular(s(14)),
+                                  border: Border.all(
+                                    color: filled
+                                        ? cs.primary
+                                        : cs.outlineVariant,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: Center(
+                                  child: Container(
+                                    width: s(24),
+                                    height: s(24),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: filled
+                                          ? cs.primary
+                                          : cs.onSurfaceVariant.withValues(
+                                              alpha: 0.2,
+                                            ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                          ),
+                  ),
+
+                  Gap(s(32)),
+
+                  // Number grid — fills the comfortable padded width
+                  SizedBox(
+                    width: double.infinity,
+                    child: GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        childAspectRatio: 1.5,
+                        crossAxisSpacing: s(10),
+                        mainAxisSpacing: s(10),
+                      ),
+                      itemCount: 12,
+                      itemBuilder: (context, index) {
+                        // Empty slot below "7 8 9"
+                        if (index == 9) return const SizedBox.shrink();
+
+                        // Backspace
+                        if (index == 11) {
+                          return FilledButton.tonal(
+                            onPressed: _onBackspace,
+                            style: FilledButton.styleFrom(
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: EdgeInsets.zero,
+                            ),
+                            child: Icon(PhosphorIcons.backspace(), size: s(24)),
+                          );
+                        }
+
+                        final number = index == 10 ? "0" : "${index + 1}";
+                        return FilledButton.tonal(
+                          onPressed: () => _onKeyPress(number),
+                          style: FilledButton.styleFrom(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: EdgeInsets.zero,
+                          ),
+                          child: Text(
+                            number,
+                            style: GoogleFonts.inter(
+                              fontSize: s(26),
+                              fontWeight: FontWeight.w600,
+                              color: cs.onSecondaryContainer,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          const Gap(16),
-        ],
+        ),
       ),
     );
   }

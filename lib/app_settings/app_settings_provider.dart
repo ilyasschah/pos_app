@@ -154,33 +154,30 @@ class AppSettingsNotifier extends Notifier<Map<String, String>> {
         } catch (_) {/* deferred to next sync */}
       }
     } on DioException catch (e) {
-      // No response → offline. Offline-first: KEEP the optimistic value and
-      // the Drift row (this is what makes the setting survive a restart). It
-      // will reconcile with the server on the next sync.
-      if (e.response == null) return;
+      // Two cases where we KEEP the local value (offline-first):
+      //   • No response → offline. The Drift row (syncStatus 'pending') and the
+      //     optimistic value survive; pushPendingAppProperties retries later.
+      //   • A brand-new key the server rejected. Destroying a setting the user
+      //     just created (e.g. a printer group) because the server hiccuped is
+      //     data loss — keep it local + pending and let the sync engine retry.
+      //     The local row already carries the correct value, so when
+      //     pushPendingAppProperties succeeds it swaps in the real server id.
+      if (e.response == null || !hasServerRow) return;
 
-      // Got a response → the server actually REJECTED the change. Revert.
+      // A genuine edit to an EXISTING server row was rejected — the server copy
+      // is authoritative, so roll back to it.
       _pendingOverrides.remove(key);
-      final prev = hasServerRow ? existing.value : (kSettingDefaults[key] ?? '');
-      state = {...state, key: prev};
-
-      if (hasServerRow) {
-        await db.into(db.appPropertiesTable).insertOnConflictUpdate(
-              AppPropertiesTableCompanion(
-                id: Value(existing.id),
-                companyId: Value(company.id),
-                name: Value(key),
-                value: Value(existing.value),
-                lastModified: Value(DateTime.now().toUtc()),
-                syncStatus: const Value('synced'),
-              ),
-            );
-      } else {
-        // Drop the temp row we optimistically wrote for this brand-new key.
-        await (db.delete(db.appPropertiesTable)
-              ..where((t) => t.id.equals(rowId)))
-            .go();
-      }
+      state = {...state, key: existing.value};
+      await db.into(db.appPropertiesTable).insertOnConflictUpdate(
+            AppPropertiesTableCompanion(
+              id: Value(existing.id),
+              companyId: Value(company.id),
+              name: Value(key),
+              value: Value(existing.value),
+              lastModified: Value(DateTime.now().toUtc()),
+              syncStatus: const Value('synced'),
+            ),
+          );
     }
   }
 

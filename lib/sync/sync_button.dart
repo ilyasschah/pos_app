@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/navigation/nav_widgets.dart';
 import 'package:pos_app/sync/pending_count_provider.dart';
 import 'package:pos_app/sync/sync_notifier.dart';
@@ -31,7 +33,13 @@ class SyncButton extends ConsumerWidget {
           isError: true,
         );
       } else {
-        showAppSnackbar(context, ref, 'Sync complete');
+        // Success toast is opt-in — the AUTO SYNC "Show sync notification"
+        // setting controls it so background syncs don't spam the screen.
+        final showToast = ref
+                .read(appSettingsProvider)[SettingKeys.autoSyncShowNotification]
+                ?.toLowerCase() ==
+            'true';
+        if (showToast) showAppSnackbar(context, ref, 'Sync complete');
       }
     });
 

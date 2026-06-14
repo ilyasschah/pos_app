@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/auth/auth_provider.dart';
@@ -10,6 +11,7 @@ import 'package:pos_app/reports/z_report_model.dart';
 import 'package:pos_app/reports/z_report_provider.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
+import 'package:pos_app/sync/sync_notifier.dart';
 
 class EndOfDayScreen extends ConsumerStatefulWidget {
   const EndOfDayScreen({super.key});
@@ -38,55 +40,97 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
     setState(() => _isGenerating = true);
 
     try {
-      // OFFLINE WRITE (Phase 7): queue a Z-report request locally. The sync
-      // engine pushes /ZReports/Generate when network is available — the
-      // server then aggregates its own data (NOT the local snapshot) into
-      // the authoritative Z-report.
-      //
-      // sync() orders things so pending orders + cash movements push BEFORE
-      // Z-reports, so the server has every transaction it needs to aggregate
-      // by the time Generate runs.
-      //
-      // The full receipt dialog needs server data (number, breakdowns) and
-      // doesn't have it offline — we surface a "queued" snackbar instead;
-      // the real Z-report will appear in the reports list after sync.
+      // OFFLINE-FIRST: aggregate the Z-report from local Drift right now so the
+      // cashier sees the result + print button instantly — no server wait. The
+      // sync engine still pushes /ZReports/Generate later; the server's
+      // authoritative number backfills into history on the next pull.
       final db = ref.read(appDatabaseProvider);
       final now = DateTime.now().toUtc();
+
+      // Tender breakdown from unreported payments (read BEFORE we flag them).
+      final payments = await ref.read(unreportedPaymentsProvider.future);
+      final byType = <int, ({String name, double amount})>{};
+      double totalSales = 0;
+      for (final p in payments) {
+        totalSales += p.amount;
+        final cur = byType[p.paymentTypeId];
+        byType[p.paymentTypeId] = (
+          name: p.paymentTypeName ?? 'Unknown',
+          amount: (cur?.amount ?? 0) + p.amount,
+        );
+      }
+
+      // Cash in/out from the active (unfinalized) drawer movements.
+      final cashRows = await db.getActiveStartingCash(companyId);
+      double totalCashIn = 0, totalCashOut = 0;
+      for (final c in cashRows) {
+        if (c.type == 'in') {
+          totalCashIn += c.amount;
+        } else if (c.type == 'out') {
+          totalCashOut += c.amount;
+        }
+      }
+
+      final breakdownJson = jsonEncode(byType.entries
+          .map((e) => {
+                'paymentTypeId': e.key,
+                'paymentTypeName': e.value.name,
+                'totalAmount': e.value.amount,
+              })
+          .toList());
+
       await db.insertOfflineZReport(
         ZReportsTableCompanion.insert(
           localId: '', // helper fills a UUID when blank
           companyId: companyId,
           userId: currentUser.id,
-          // Totals/breakdown stay zero — the server computes them at push
-          // time. Local computation is a future enhancement.
-          totalSales: 0,
-          totalCashIn: 0,
-          totalCashOut: 0,
-          paymentBreakdownJson: '{}',
+          totalSales: totalSales,
+          totalCashIn: totalCashIn,
+          totalCashOut: totalCashOut,
+          paymentBreakdownJson: breakdownJson,
           closedAt: now,
         ),
       );
 
-      // Optimistic local finalization: immediately archive the active cash
-      // movements so they vanish from the Cash In/Out view without waiting for
-      // the server roundtrip. The next pull swaps the -1 placeholder for the
-      // server's real Z-report number.
+      // Optimistic local finalization: flag the just-reported payments and the
+      // active cash movements so they drop out of the "current shift" view
+      // immediately. The next pull swaps the -1 placeholder for the server's
+      // real Z-report number.
+      await db.assignUnreportedPaymentsToZReport(companyId);
       await db.optimisticallyFinalizeActiveStartingCash(companyId);
 
-      // Refresh both tabs in case the sync ran inline (rare on this path,
-      // but harmless if it didn't).
       ref.invalidate(unreportedPaymentsProvider);
       ref.invalidate(allZReportsProvider);
+      // Best-effort push so the server-authoritative Z-report syncs when online.
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
 
+      // Show the freshly-computed report (result + print button) instantly.
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Register closed. Z-Report queued — it will appear after sync.',
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
+        _showReceiptDialog(ZReportModel(
+          id: 0,
+          companyId: companyId,
+          number: 0, // server assigns the real number on sync
+          dateCreated: now,
+          fromDocumentId: 0,
+          toDocumentId: 0,
+          totalSales: totalSales,
+          totalReturns: 0,
+          discountsGranted: 0,
+          taxableTotal: 0,
+          totalTax: 0,
+          grandTotal: totalSales,
+          totalCashIn: totalCashIn,
+          totalCashOut: totalCashOut,
+          paymentSummaries: byType.entries
+              .map((e) => ZReportPaymentSummaryModel(
+                    id: 0,
+                    zReportId: 0,
+                    paymentTypeId: e.key,
+                    paymentTypeName: e.value.name,
+                    totalAmount: e.value.amount,
+                  ))
+              .toList(),
+        ));
       }
     } catch (e) {
       if (mounted) {

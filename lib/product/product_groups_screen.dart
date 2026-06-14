@@ -459,18 +459,27 @@ class _TreeNodeTileState extends State<_TreeNodeTile> {
                         : null,
                   ),
                   const SizedBox(width: 4),
-                  // Group icon
-                  group.imageBytes != null
+                  // Group icon — Drift groups keep the icon on disk
+                  // (imageFile); base64 imageBytes only exists for API-sourced.
+                  group.imageFile != null
                       ? ClipRRect(
                           borderRadius: BorderRadius.circular(4),
-                          child: Image.memory(group.imageBytes!,
+                          child: Image.file(group.imageFile!,
                               width: 24, height: 24, fit: BoxFit.cover),
                         )
-                      : Icon(
-                          hasChildren ? Icons.folder : Icons.folder_outlined,
-                          size: 22,
-                          color: groupColor,
-                        ),
+                      : group.imageBytes != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: Image.memory(group.imageBytes!,
+                                  width: 24, height: 24, fit: BoxFit.cover),
+                            )
+                          : Icon(
+                              hasChildren
+                                  ? Icons.folder
+                                  : Icons.folder_outlined,
+                              size: 22,
+                              color: groupColor,
+                            ),
                   const SizedBox(width: 10),
                   // Name
                   Expanded(
@@ -598,7 +607,20 @@ class _GroupEditorPanelState extends ConsumerState<_GroupEditorPanel>
     _selectedHexColor = g.color;
     _rankCtrl.text = g.rank.toString();
     _selectedParentId = g.parentGroupId;
+    // Drift-sourced groups keep the icon on disk (localImagePath), not as a
+    // base64 `image`. Load it into the preview so the existing icon shows — and
+    // so saving other fields re-sends it instead of wiping the server image.
     _selectedImageBase64 = g.image;
+    if ((g.image == null || g.image!.isEmpty) &&
+        g.localImagePath != null &&
+        g.localImagePath!.isNotEmpty) {
+      try {
+        final f = File(g.localImagePath!);
+        if (f.existsSync()) {
+          _selectedImageBase64 = base64Encode(f.readAsBytesSync());
+        }
+      } catch (_) {}
+    }
   }
 
   @override
@@ -681,6 +703,9 @@ class _GroupEditorPanelState extends ConsumerState<_GroupEditorPanel>
         if (!folder.existsSync()) folder.createSync(recursive: true);
         final file = File('${folder.path}/${tempId}_image.png');
         await file.writeAsBytes(base64Decode(imageBase64));
+        // Evict any stale cached decode for this reused path so the new icon
+        // shows immediately (Flutter caches FileImage by path).
+        await FileImage(file).evict();
         localImagePath = file.path;
       } catch (_) {}
     }

@@ -1,3 +1,5 @@
+import 'package:pos_app/database/app_database.dart';
+
 class Warehouse {
   final int id;
   final String name;
@@ -10,4 +12,7 @@ class Warehouse {
       name: json['name'] ?? '',
     );
   }
+
+  factory Warehouse.fromDrift(WarehousesTableData row) =>
+      Warehouse(id: row.id, name: row.name);
 }

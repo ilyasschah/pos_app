@@ -40,13 +40,22 @@ class PromotionsListScreen extends ConsumerWidget {
         title: const Text('Promotions'),
         // Suppress the auto back-arrow — ManagementLayout controls navigation.
         automaticallyImplyLeading: false,
+        // Inside ManagementLayout: a menu icon (when the sidebar is hidden).
+        // Pushed standalone (e.g. from the POS "Active Promotions" banner):
+        // a back arrow so the user isn't stranded with no way out.
         leading: onMenuPressed != null
             ? IconButton(
                 icon: const Icon(Icons.menu),
                 tooltip: 'Show navigation',
                 onPressed: onMenuPressed,
               )
-            : null,
+            : (Navigator.of(context).canPop()
+                ? IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    tooltip: 'Back',
+                    onPressed: () => Navigator.of(context).maybePop(),
+                  )
+                : null),
       ),
       body: Padding(
         padding: const EdgeInsets.all(24),
@@ -160,24 +169,38 @@ class PromotionsListScreen extends ConsumerWidget {
                                         ),
                                         Expanded(
                                           flex: 2,
-                                          child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                                            decoration: ShapeDecoration(
-                                              color: promotion.isEnabled
-                                                  ? Colors.green.withValues(alpha: 0.15)
-                                                  : Colors.red.withValues(alpha: 0.15),
-                                              shape: const StadiumBorder(),
-                                            ),
-                                            child: Text(
-                                              promotion.isEnabled ? "Active" : "Disabled",
-                                              textAlign: TextAlign.center,
-                                              style: TextStyle(
-                                                color: promotion.isEnabled ? Colors.green : Colors.red,
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 12,
+                                          child: Builder(builder: (_) {
+                                            // Real status: Disabled (off),
+                                            // Active (live now), or Inactive
+                                            // (enabled but outside its date /
+                                            // day / time window).
+                                            final (label, color) =
+                                                !promotion.isEnabled
+                                                    ? ("Disabled", Colors.red)
+                                                    : isPromotionActiveNow(
+                                                            promotion)
+                                                        ? ("Active", Colors.green)
+                                                        : ("Inactive",
+                                                            Colors.orange);
+                                            return Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                  horizontal: 12, vertical: 5),
+                                              decoration: ShapeDecoration(
+                                                color: color.withValues(
+                                                    alpha: 0.15),
+                                                shape: const StadiumBorder(),
                                               ),
-                                            ),
-                                          ),
+                                              child: Text(
+                                                label,
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                  color: color,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            );
+                                          }),
                                         ),
                                         Expanded(flex: 2, child: Text(_formatDaysOfWeek(promotion.daysOfWeek))),
                                         Expanded(flex: 2, child: Text(_formatDate(promotion.startDate))),

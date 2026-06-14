@@ -1,52 +1,45 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pos_app/api/api_client.dart';
+
 import 'package:pos_app/company/company_provider.dart';
-import 'package:pos_app/stock/stock_model.dart';
+import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 
-/// Returns productId → { warehouseId → quantity } for every warehouse in the
-/// company. Used both for the per-warehouse out-of-stock guard and to suggest
-/// fallback warehouses where a product is still available. Falls back to an
-/// empty map on any error so callers never crash.
+/// productId → { warehouseId → quantity } for every warehouse in the company,
+/// streamed from the local Drift `stocks` table so the POS menu's availability
+/// checks work fully offline. `SyncManager.pullStocks` keeps the table fresh.
 final stockByWarehouseProvider =
-    FutureProvider<Map<int, Map<int, double>>>((ref) async {
+    StreamProvider<Map<int, Map<int, double>>>((ref) {
+  final db = ref.watch(appDatabaseProvider);
   final company = ref.watch(selectedCompanyProvider);
-  if (company == null) return {};
+  if (company == null) return Stream.value(const {});
 
-  try {
-    final dio = createDio();
-    final response = await dio.get(
-      '/Stocks/GetAllStocks',
-      queryParameters: {'companyId': company.id},
-    );
-    final stocks = (response.data as List)
-        .map((j) => StockItem.fromJson(j))
-        .toList();
+  final query =
+      db.select(db.stocksTable)..where((t) => t.companyId.equals(company.id));
 
-    final Map<int, Map<int, double>> map = {};
-    for (final stock in stocks) {
-      final byWh = map.putIfAbsent(stock.productId, () => {});
-      byWh[stock.warehouseId] = (byWh[stock.warehouseId] ?? 0) + stock.quantity;
+  return query.watch().map((rows) {
+    final map = <int, Map<int, double>>{};
+    for (final s in rows) {
+      final byWh = map.putIfAbsent(s.productId, () => {});
+      byWh[s.warehouseId] = (byWh[s.warehouseId] ?? 0) + s.quantity;
     }
     return map;
-  } catch (_) {
-    return {};
-  }
+  });
 });
 
-/// Returns a map of productId → stock quantity for the currently selected
-/// warehouse. Derived from [stockByWarehouseProvider] so both share one fetch.
-final stockQuantitiesProvider = FutureProvider<Map<int, double>>((ref) async {
-  final byWarehouse = await ref.watch(stockByWarehouseProvider.future);
-  final selectedWarehouse = ref.watch(selectedWarehouseProvider);
+/// productId → stock quantity for the currently selected warehouse, derived
+/// from [stockByWarehouseProvider]. When no warehouse is selected it sums every
+/// warehouse (matches the previous behaviour).
+final stockQuantitiesProvider = StreamProvider<Map<int, double>>((ref) {
+  final selected = ref.watch(selectedWarehouseProvider);
+  final byWarehouse = ref.watch(stockByWarehouseProvider).value ?? const {};
 
-  final Map<int, double> map = {};
+  final map = <int, double>{};
   byWarehouse.forEach((productId, byWh) {
     byWh.forEach((warehouseId, quantity) {
-      if (selectedWarehouse == null || warehouseId == selectedWarehouse.id) {
+      if (selected == null || warehouseId == selected.id) {
         map[productId] = (map[productId] ?? 0) + quantity;
       }
     });
   });
-  return map;
+  return Stream.value(map);
 });

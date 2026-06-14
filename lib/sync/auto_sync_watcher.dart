@@ -3,71 +3,105 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/sync/sync_notifier.dart';
 
-/// Global "any local write → sync" trigger. Subscribes to Drift's table-change
-/// stream and, a short debounce after the last write, kicks a bidirectional
-/// `sync()` (push pending → pull fresh). This realises the offline-first rule:
-/// every operation is saved locally first, then the change propagates.
+/// Global background sync trigger, configured by the AUTO SYNC settings:
+///   • Enabled            (App.AutoSync.Enabled)
+///   • Mode               (App.AutoSync.Mode = 'After every save' | 'Every 1 hour')
+///   • Show notification  (App.AutoSync.ShowNotification) — gated in SyncButton.
 ///
-/// Loop safety (critical): a sync's own pull writes to many tables. We IGNORE
-/// every change that arrives while [syncStateProvider] is loading, so the sync
-/// can never re-arm itself. Writes are only ever debounced when no sync is in
-/// flight — meaning the pull-writes during a sync set no timer, and nothing
-/// fires after the sync completes. A user operation performed mid-sync isn't
-/// given its own follow-up, but its row is already saved `pending` locally and
-/// ships on the next trigger (any later write, reconnect, or the sync button).
+/// "After every save": a short debounce after any local write, then push+pull.
+/// "Every 1 hour": a periodic timer; individual writes don't trigger a sync.
 ///
-/// Kept alive by reading [autoSyncWatcherProvider] from MainLayout, alongside
-/// the connectivity watcher.
+/// Loop safety (critical): a sync's own pull writes to many tables, and Drift
+/// delivers those table-change notifications asynchronously — sometimes AFTER
+/// `syncStateProvider` has already flipped out of loading. So an `isLoading`
+/// check alone is NOT enough. We use an explicit [_suppress] flag that stays on
+/// for the whole sync PLUS a short grace window afterwards, during which all
+/// table changes are ignored. That absorbs the trailing pull notifications and
+/// makes a self-retriggering loop impossible.
+///
+/// Settings are read at trigger time (not watched) so the watcher never rebuilds
+/// — important, because a sync pulling app_properties would otherwise rebuild it
+/// mid-sync and drop the suppression flag.
+///
+/// Kept alive by reading [autoSyncWatcherProvider] from MainLayout.
 class AutoSyncWatcher extends Notifier<void> {
   StreamSubscription<void>? _sub;
   Timer? _debounce;
+  Timer? _hourly;
+  Timer? _suppressTimer;
 
-  /// Batches a burst of writes (a checkout writes order + items + payments +
-  /// document) into a single sync.
+  /// True while a sync is running and for [_grace] after it finishes — every
+  /// table change seen in this window is ignored (it's the sync's own writes).
+  bool _suppress = false;
+
   static const _debounceDelay = Duration(seconds: 3);
+  static const _grace = Duration(seconds: 3);
+  static const _interval = Duration(hours: 1);
 
   @override
   void build() {
     final db = ref.watch(appDatabaseProvider);
-    // `tableUpdates()` (no query) emits on any table write.
+    // Always listen; whether a change actually triggers a sync is decided at
+    // trigger time from the live settings.
     _sub = db.tableUpdates().listen((_) => _onTablesChanged());
+    _hourly = Timer.periodic(_interval, (_) => _onHourly());
     ref.onDispose(() {
       _sub?.cancel();
-      _sub = null;
       _debounce?.cancel();
-      _debounce = null;
+      _hourly?.cancel();
+      _suppressTimer?.cancel();
     });
   }
 
+  bool get _enabled =>
+      ref.read(appSettingsProvider)[SettingKeys.autoSyncEnabled]
+          ?.toLowerCase() ==
+      'true';
+
+  bool get _hourlyMode =>
+      (ref.read(appSettingsProvider)[SettingKeys.autoSyncMode] ?? '') ==
+      'Every 1 hour';
+
   void _onTablesChanged() {
-    // Ignore writes made by a sync that's already running (its own pulls) —
-    // this is what prevents an infinite sync loop.
-    if (ref.read(syncStateProvider).isLoading) return;
+    if (_suppress || ref.read(syncStateProvider).isLoading) return;
+    if (!_enabled || _hourlyMode) return; // only "after every save" reacts
     _debounce?.cancel();
-    _debounce = Timer(_debounceDelay, _maybeSync);
+    _debounce = Timer(_debounceDelay, _runSync);
   }
 
-  Future<void> _maybeSync() async {
+  void _onHourly() {
+    if (_suppress || ref.read(syncStateProvider).isLoading) return;
+    if (!_enabled || !_hourlyMode) return;
+    _runSync();
+  }
+
+  Future<void> _runSync() async {
     if (ref.read(syncStateProvider).isLoading) return;
     if (ref.read(selectedCompanyProvider)?.id == null) return;
 
     // Only attempt when online — otherwise every offline write would queue a
-    // failing sync and spam the sync-error snackbar. Offline data stays
-    // `pending` and ships when the connectivity watcher fires on reconnect.
+    // failing sync. Offline data stays `pending` and ships when the
+    // ConnectivityWatcher fires on reconnect.
     final conn = await Connectivity().checkConnectivity();
     final online = conn.any((r) => r != ConnectivityResult.none);
     if (!online) return;
+    if (ref.read(syncStateProvider).isLoading) return; // re-check post-await
 
-    // Re-check after the async gap — a manual/button sync may have started.
-    if (ref.read(syncStateProvider).isLoading) return;
-
-    // Fire-and-forget; the notifier owns state transitions (isLoading is the
-    // mutex that keeps this and the button/connectivity syncs from overlapping).
-    unawaited(ref.read(syncStateProvider.notifier).sync());
+    // Suppress for the whole run + a grace window so the pull's trailing
+    // table-change notifications can't re-arm us.
+    _suppress = true;
+    _suppressTimer?.cancel();
+    try {
+      await ref.read(syncStateProvider.notifier).sync();
+    } finally {
+      _suppressTimer = Timer(_grace, () => _suppress = false);
+    }
   }
 }
 

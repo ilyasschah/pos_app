@@ -53,6 +53,16 @@ class SyncManager {
     await pushPendingPromotionOps(companyId);
     await pushPendingOpenOrders(companyId);
     await pushPendingOrders(companyId);
+    // Manual document editor: create/update/delete headers + their line items.
+    // Runs before paid-status/payments so a locally-created document already
+    // carries its server id when those are pushed.
+    await pushPendingDocuments(companyId);
+    await pushPendingDocumentItems(companyId);
+    // Paid-status + standalone payment edits made in the document editor. Run
+    // after pushPendingOrders so locally-created documents already carry their
+    // server id before their payments are pushed.
+    await pushPendingPaidStatus(companyId);
+    await pushPendingPayments(companyId);
     await pushPendingVoids(companyId);
     await pushPendingCashMovements(companyId);
     await pushPendingZReports(companyId);
@@ -63,6 +73,19 @@ class SyncManager {
     await pushPendingShifts(companyId);
     await pushPendingTimeClockEntries(companyId);
     await pushPendingAppProperties(companyId);
+    // Warehouse + stock ordering matters:
+    //  1. create/update warehouses first (a stock "move" may target a brand-new
+    //     warehouse that must exist on the server),
+    //  2. then push the stock revoke/move ops (empties a warehouse),
+    //  3. then delete warehouses (the backend FK rejects deleting one that
+    //     still holds stock).
+    await pushPendingWarehouseOps(companyId, deletePhase: false);
+    await pushPendingStockOps(companyId);
+    // Offline stock + stock-control edits made on the Stock screen.
+    await pushPendingStocks(companyId);
+    await pushPendingStockControls(companyId);
+    await pushPendingProductTaxes(companyId);
+    await pushPendingWarehouseOps(companyId, deletePhase: true);
     await pullMasterData(companyId);
     await pullDocuments(companyId);
   }
@@ -158,8 +181,228 @@ class SyncManager {
     await pullSecurityKeys(companyId);
     await pullCompany(companyId);
     await pullStocks(companyId);
+    await pullWarehouses(companyId);
     await pullLoyaltyCards(companyId);
     await pullStartingCash(companyId);
+    await pullBookings(companyId);
+    await pullDocumentTypes(companyId);
+    await pullDocumentCategories(companyId);
+    await pullVoidReasons(companyId);
+    await pullStockControls(companyId);
+    await pullProductTaxes(companyId);
+    await pullBarcodes(companyId);
+  }
+
+  // ==========================================================================
+  // PRODUCT TAXES — offline-first bulk pull + per-assignment push.
+  // ==========================================================================
+  Future<void> pullProductTaxes(int companyId) async {
+    final res = await dio.get<List<dynamic>>(
+      '/ProductTaxes/GetAll',
+      queryParameters: {'companyId': companyId},
+    );
+    final rows = res.data;
+    if (rows == null) return;
+
+    final serverPairs = <String>{};
+    for (final j in rows.cast<Map<String, dynamic>>()) {
+      final productId = (j['productId'] as num?)?.toInt() ?? 0;
+      final taxId = (j['taxId'] as num?)?.toInt() ?? 0;
+      serverPairs.add('$productId:$taxId');
+      await db.upsertSyncedProductTax(ProductTaxesTableCompanion(
+        productId: Value(productId),
+        taxId: Value(taxId),
+        companyId: Value(companyId),
+        syncStatus: const Value('synced'),
+      ));
+    }
+
+    // Drop synced assignments removed on the server; keep local pending edits.
+    for (final r in await db.getProductTaxesBySyncStatus(companyId, 'synced')) {
+      if (!serverPairs.contains('${r.productId}:${r.taxId}')) {
+        await db.hardDeleteProductTax(r.productId, r.taxId);
+      }
+    }
+  }
+
+  Future<void> pushPendingProductTaxes(int companyId) async {
+    for (final r
+        in await db.getProductTaxesBySyncStatus(companyId, 'pending_create')) {
+      try {
+        await dio.post<dynamic>(
+          '/ProductTaxes/Add',
+          queryParameters: {'companyId': companyId},
+          data: {'productId': r.productId, 'taxId': r.taxId},
+        );
+        await db.markProductTaxSynced(r.productId, r.taxId);
+      } catch (e) {
+        debugPrint('pushPendingProductTaxes (add) ${r.productId} failed — $e');
+      }
+    }
+    for (final r
+        in await db.getProductTaxesBySyncStatus(companyId, 'pending_delete')) {
+      try {
+        await dio.delete<dynamic>(
+          '/ProductTaxes/Delete',
+          queryParameters: {
+            'productId': r.productId,
+            'taxId': r.taxId,
+            'companyId': companyId,
+          },
+        );
+        await db.hardDeleteProductTax(r.productId, r.taxId);
+      } catch (e) {
+        debugPrint('pushPendingProductTaxes (delete) ${r.productId} failed — $e');
+      }
+    }
+  }
+
+  // ==========================================================================
+  // BARCODES — bulk pull so the product editor reads them offline without a
+  // per-open /Barcodes/GetByProductId fetch. Local pending edits are preserved;
+  // pushes are handled by pushPendingBarcodeOps.
+  // ==========================================================================
+  Future<void> pullBarcodes(int companyId) async {
+    final res = await dio.get<List<dynamic>>(
+      '/Barcodes/GetAllBarCodeProductName',
+      queryParameters: {'companyId': companyId},
+    );
+    final rows = res.data;
+    if (rows == null) return;
+
+    await db.transaction(() async {
+      // Replace the synced cache; keep pending_create / pending_delete.
+      await (db.delete(db.barcodesTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..where((t) => t.syncStatus.equals('synced')))
+          .go();
+      for (final b in rows.cast<Map<String, dynamic>>()) {
+        await db.into(db.barcodesTable).insert(BarcodesTableCompanion(
+              localId: Value(const Uuid().v4()),
+              serverId: Value((b['id'] as num?)?.toInt() ?? 0),
+              productId: Value((b['productId'] as num?)?.toInt() ?? 0),
+              companyId: Value(companyId),
+              value: Value(b['value'] as String? ?? ''),
+              syncStatus: const Value('synced'),
+            ));
+      }
+    });
+  }
+
+  Future<void> pullVoidReasons(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/VoidReasons/GetAll',
+          queryParameters: {'companyId': companyId});
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => VoidReasonsTableCompanion(
+                id: Value((j['id'] as num?)?.toInt() ?? 0),
+                companyId: Value(companyId),
+                name: Value((j['name'] as String?) ?? ''),
+                rank: Value((j['rank'] as num?)?.toInt() ?? 0),
+                lastModified: Value(DateTime.now().toUtc()),
+              ))
+          .toList();
+      await db.replaceVoidReasons(companyId, rows);
+    } catch (e) {
+      debugPrint('pullVoidReasons failed: $e — local cache preserved.');
+    }
+  }
+
+  // ==========================================================================
+  // PULL — Document types + categories (full replace). Small, rarely-changing
+  // master data that the document editor's type picker needs offline.
+  // ==========================================================================
+  Future<void> pullDocumentTypes(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/DocumentType/GetAll');
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => DocumentTypesTableCompanion(
+                id: Value((j['id'] as num?)?.toInt() ?? 0),
+                name: Value((j['name'] as String?) ?? ''),
+                code: Value(j['code'] as String?),
+                documentCategoryId:
+                    Value((j['documentCategoryId'] as num?)?.toInt()),
+                warehouseId: Value((j['warehouseId'] as num?)?.toInt()),
+                lastModified: Value(DateTime.now().toUtc()),
+              ))
+          .toList();
+      if (rows.isNotEmpty) await db.upsertDocumentTypes(rows);
+    } catch (e) {
+      debugPrint('pullDocumentTypes failed: $e — local cache preserved.');
+    }
+  }
+
+  Future<void> pullDocumentCategories(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/DocumentCategory/GetAll',
+          queryParameters: {'companyId': companyId});
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => DocumentCategoriesTableCompanion(
+                id: Value((j['id'] as num?)?.toInt() ?? 0),
+                companyId: Value(companyId),
+                name: Value((j['name'] as String?) ?? ''),
+                lastModified: Value(DateTime.now().toUtc()),
+              ))
+          .toList();
+      if (rows.isNotEmpty) await db.upsertDocumentCategories(rows);
+    } catch (e) {
+      debugPrint('pullDocumentCategories failed: $e — local cache preserved.');
+    }
+  }
+
+  // ==========================================================================
+  // BOOKINGS — full-replace pull.
+  //
+  // Unlike the delta pulls above, bookings are wiped and re-inserted for the
+  // company on every sync. Two reasons: the calendar must reflect server-side
+  // deletes (a `modifiedAfter` delta never reports a removed row), and the
+  // dataset is small (a day/week of reservations). The wipe + re-insert run in
+  // a single transaction so the Drift watch stream emits exactly once, with no
+  // empty-list flicker in between.
+  // ==========================================================================
+  Future<void> pullBookings(int companyId) async {
+    final res = await dio.get<List<dynamic>>(
+      '/Bookings/GetAll',
+      queryParameters: {'companyId': companyId},
+    );
+    final rows = res.data ?? const [];
+
+    await db.transaction(() async {
+      await (db.delete(db.bookingsTable)
+            ..where((t) => t.companyId.equals(companyId)))
+          .go();
+      await db.batch((batch) {
+        for (final json in rows.cast<Map<String, dynamic>>()) {
+          final tableIds = (json['tableIds'] as List<dynamic>?)
+                  ?.map((e) => (e as num).toInt())
+                  .toList() ??
+              const <int>[];
+          batch.insert(
+            db.bookingsTable,
+            BookingsTableCompanion(
+              id: Value(json['id'] as int),
+              companyId: Value(json['companyId'] as int? ?? companyId),
+              customerId: Value(json['customerId'] as int?),
+              userId: Value(json['userId'] as int?),
+              reservationName: Value(json['reservationName'] as String? ?? ''),
+              tableIdsJson: Value(jsonEncode(tableIds)),
+              documentId: Value(json['documentId'] as int?),
+              posOrderId: Value(json['posOrderId'] as int?),
+              startTime: Value(DateTime.parse(json['startTime'] as String)),
+              endTime: Value(DateTime.parse(json['endTime'] as String)),
+              guestCount: Value(json['guestCount'] as int? ?? 1),
+              status: Value(json['status'] as int? ?? 0),
+              note: Value(json['note'] as String?),
+              lastModified: Value(_parseLastModified(json['lastModified'])),
+            ),
+            mode: InsertMode.insertOrReplace,
+          );
+        }
+      });
+    });
   }
 
   Future<void> pushPendingOrders(int companyId) async {
@@ -570,7 +813,9 @@ class SyncManager {
             if (realId == null)
               throw Exception('Server returned no id for product create');
 
-            // Replace the temp row: delete by temp id, insert with real id.
+            // Replace the temp row: delete by temp id, insert with real id, and
+            // cascade the id swap to product-keyed tables (taxes, stock rules,
+            // barcodes, stocks) so their pending pushes use the real id.
             await db.transaction(() async {
               await (db.delete(
                 db.productsTable,
@@ -603,6 +848,7 @@ class SyncManager {
                       lastModified: Value(DateTime.now().toUtc()),
                     ),
                   );
+              await db.remapProductId(p.id, realId);
             });
 
           // ── UPDATE ──────────────────────────────────────────────────────
@@ -1620,24 +1866,398 @@ class SyncManager {
       queryParameters: {'companyId': companyId},
     );
     final rows = res.data;
-    if (rows == null || rows.isEmpty) return;
+    if (rows == null) return;
 
     final now = DateTime.now().toUtc();
-    final companions = rows.map((r) {
-      final m = r as Map<String, dynamic>;
-      return StocksTableCompanion(
-        id: Value(m['id'] as int),
+    final serverIds = <int>{};
+
+    for (final m in rows.cast<Map<String, dynamic>>()) {
+      final id = m['id'] as int;
+      serverIds.add(id);
+      // Don't clobber a row that has unsynced local edits.
+      final existing = await (db.select(db.stocksTable)
+            ..where((t) => t.id.equals(id)))
+          .getSingleOrNull();
+      if (existing != null && existing.syncStatus != 'synced') continue;
+      await db.into(db.stocksTable).insertOnConflictUpdate(StocksTableCompanion(
+        id: Value(id),
         productId: Value(m['productId'] as int),
         warehouseId: Value(m['warehouseId'] as int),
-        companyId: Value(m['companyId'] as int),
+        companyId: Value(m['companyId'] as int? ?? companyId),
         quantity: Value(((m['quantity'] ?? 0) as num).toDouble()),
         lastModified: Value(now),
-      );
-    }).toList();
+        syncStatus: const Value('synced'),
+      ));
+    }
 
-    await db.batch((b) {
-      b.insertAllOnConflictUpdate(db.stocksTable, companions);
-    });
+    // Drop synced server rows deleted elsewhere; keep local pending/temp rows.
+    final localSynced = await (db.select(db.stocksTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.syncStatus.equals('synced'))
+          ..where((t) => t.id.isBiggerThanValue(0)))
+        .get();
+    for (final s in localSynced) {
+      if (!serverIds.contains(s.id)) {
+        await (db.delete(db.stocksTable)..where((t) => t.id.equals(s.id))).go();
+      }
+    }
+  }
+
+  // ==========================================================================
+  // PUSH — offline stock CRUD (add / update / delete quantities).
+  // ==========================================================================
+  Future<void> pushPendingStocks(int companyId) async {
+    for (final s in await db.getStocksBySyncStatus(companyId, 'pending_create')) {
+      try {
+        final res = await dio.post<dynamic>(
+          '/Stocks/Add',
+          queryParameters: {'companyId': companyId},
+          data: {
+            'productId': s.productId,
+            'warehouseId': s.warehouseId,
+            'quantity': s.quantity,
+          },
+        );
+        final newId = _parseDocServerId(res.data);
+        if (newId != null) {
+          await db.replaceStockTempId(s.id, newId);
+        } else {
+          // Server didn't echo an id — drop the temp row; pullStocks re-adds
+          // the authoritative one.
+          await db.hardDeleteStock(s.id);
+        }
+      } catch (e) {
+        debugPrint('pushPendingStocks (add) ${s.id} failed — $e');
+      }
+    }
+
+    for (final s in await db.getStocksBySyncStatus(companyId, 'pending_update')) {
+      if (s.id < 0) continue;
+      try {
+        await dio.patch<dynamic>(
+          '/Stocks/Update',
+          queryParameters: {'companyId': companyId},
+          data: {
+            'id': s.id,
+            'newProductId': s.productId,
+            'newWarehouseId': s.warehouseId,
+            'newQuantity': s.quantity,
+          },
+        );
+        await db.markStockSynced(s.id);
+      } catch (e) {
+        debugPrint('pushPendingStocks (update) ${s.id} failed — $e');
+      }
+    }
+
+    for (final s in await db.getStocksBySyncStatus(companyId, 'pending_delete')) {
+      try {
+        if (s.id > 0) {
+          await dio.delete<dynamic>(
+            '/Stocks/Delete',
+            queryParameters: {'id': s.id, 'companyId': companyId},
+          );
+        }
+        await db.hardDeleteStock(s.id);
+      } catch (e) {
+        debugPrint('pushPendingStocks (delete) ${s.id} failed — $e');
+      }
+    }
+  }
+
+  // ==========================================================================
+  // STOCK CONTROLS — offline-first pull + CRUD push.
+  // ==========================================================================
+  Future<void> pullStockControls(int companyId) async {
+    final res = await dio.get<List<dynamic>>(
+      '/StockControls/GetAll',
+      queryParameters: {'companyId': companyId},
+    );
+    final rows = res.data;
+    if (rows == null) return;
+
+    final now = DateTime.now().toUtc();
+    final serverProductIds = <int>{};
+    for (final j in rows.cast<Map<String, dynamic>>()) {
+      final productId = (j['productId'] as num?)?.toInt() ?? 0;
+      serverProductIds.add(productId);
+      await db.upsertSyncedStockControl(StockControlsTableCompanion(
+        productId: Value(productId),
+        companyId: Value(companyId),
+        serverId: Value((j['id'] as num?)?.toInt()),
+        reorderPoint: Value((j['reorderPoint'] as num?)?.toDouble() ?? 0),
+        preferredQuantity: Value((j['preferredQuantity'] as num?)?.toDouble() ?? 0),
+        isLowStockWarningEnabled:
+            Value(j['isLowStockWarningEnabled'] as bool? ?? true),
+        lowStockWarningQuantity:
+            Value((j['lowStockWarningQuantity'] as num?)?.toDouble() ?? 0),
+        lastModified: Value(now),
+        syncStatus: const Value('synced'),
+      ));
+    }
+
+    // Drop synced rules deleted elsewhere; keep local pending edits.
+    for (final sc in await db.getStockControlsBySyncStatus(companyId, 'synced')) {
+      if (!serverProductIds.contains(sc.productId)) {
+        await db.hardDeleteStockControl(sc.productId);
+      }
+    }
+  }
+
+  Future<void> pushPendingStockControls(int companyId) async {
+    for (final sc
+        in await db.getStockControlsBySyncStatus(companyId, 'pending_create')) {
+      try {
+        await dio.post<dynamic>(
+          '/StockControls/Add',
+          queryParameters: {'companyId': companyId},
+          data: {
+            'productId': sc.productId,
+            'reorderPoint': sc.reorderPoint,
+            'preferredQuantity': sc.preferredQuantity,
+            'isLowStockWarningEnabled': sc.isLowStockWarningEnabled,
+            'lowStockWarningQuantity': sc.lowStockWarningQuantity,
+            if (sc.customerId != null) 'customerId': sc.customerId,
+          },
+        );
+        // Add doesn't echo the id — fetch it so future edits/deletes can target
+        // the server row.
+        int? newId;
+        try {
+          final g = await dio.get<dynamic>(
+            '/StockControls/GetByProductId',
+            queryParameters: {'productId': sc.productId, 'companyId': companyId},
+          );
+          if (g.data is Map) newId = (g.data['id'] as num?)?.toInt();
+        } catch (_) {}
+        await db.markStockControlSynced(sc.productId, newId);
+      } catch (e) {
+        debugPrint('pushPendingStockControls (add) ${sc.productId} failed — $e');
+      }
+    }
+
+    for (final sc
+        in await db.getStockControlsBySyncStatus(companyId, 'pending_update')) {
+      if (sc.serverId == null) continue;
+      try {
+        await dio.patch<dynamic>(
+          '/StockControls/Update',
+          queryParameters: {'companyId': companyId},
+          data: {
+            'id': sc.serverId,
+            'reorderPoint': sc.reorderPoint,
+            'preferredQuantity': sc.preferredQuantity,
+            'isLowStockWarningEnabled': sc.isLowStockWarningEnabled,
+            'lowStockWarningQuantity': sc.lowStockWarningQuantity,
+            if (sc.customerId != null) 'customerId': sc.customerId,
+          },
+        );
+        await db.markStockControlSynced(sc.productId, sc.serverId);
+      } catch (e) {
+        debugPrint(
+            'pushPendingStockControls (update) ${sc.productId} failed — $e');
+      }
+    }
+
+    for (final sc
+        in await db.getStockControlsBySyncStatus(companyId, 'pending_delete')) {
+      try {
+        if (sc.serverId != null) {
+          await dio.delete<dynamic>(
+            '/StockControls/Delete',
+            queryParameters: {'id': sc.serverId, 'companyId': companyId},
+          );
+        }
+        await db.hardDeleteStockControl(sc.productId);
+      } catch (e) {
+        debugPrint(
+            'pushPendingStockControls (delete) ${sc.productId} failed — $e');
+      }
+    }
+  }
+
+  // ==========================================================================
+  // WAREHOUSES — offline-first pull + CRUD push.
+  // ==========================================================================
+
+  Future<void> pullWarehouses(int companyId) async {
+    final res = await dio.get<List<dynamic>>(
+      '/Warehouses/GetAll',
+      queryParameters: {'companyId': companyId},
+    );
+    final rows = res.data ?? const [];
+    final now = DateTime.now().toUtc();
+    final serverIds = <int>{};
+
+    for (final j in rows.cast<Map<String, dynamic>>()) {
+      final id = j['id'] as int;
+      serverIds.add(id);
+      // Don't clobber a row that has unsynced local edits.
+      final existing = await (db.select(db.warehousesTable)
+            ..where((t) => t.id.equals(id)))
+          .getSingleOrNull();
+      if (existing != null && existing.syncStatus != 'synced') continue;
+      await db.into(db.warehousesTable).insertOnConflictUpdate(
+            WarehousesTableCompanion(
+              id: Value(id),
+              companyId: Value(j['companyId'] as int? ?? companyId),
+              name: Value(j['name'] as String? ?? ''),
+              lastModified: Value(now),
+              syncStatus: const Value('synced'),
+            ),
+          );
+    }
+
+    // Drop synced server rows that no longer exist on the server (deleted on
+    // another device). Local pending rows (negative ids / non-'synced') are
+    // preserved so an offline edit is never lost.
+    final localSynced = await (db.select(db.warehousesTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.syncStatus.equals('synced'))
+          ..where((t) => t.id.isBiggerThanValue(0)))
+        .get();
+    for (final w in localSynced) {
+      if (!serverIds.contains(w.id)) {
+        await (db.delete(db.warehousesTable)..where((t) => t.id.equals(w.id)))
+            .go();
+      }
+    }
+  }
+
+  /// Pushes locally-queued warehouse CRUD. Split into two phases by
+  /// [deletePhase] so the caller can sequence creates/updates BEFORE the stock
+  /// ops and deletes AFTER them (see `sync`).
+  Future<void> pushPendingWarehouseOps(int companyId,
+      {required bool deletePhase}) async {
+    final statuses = deletePhase
+        ? ['pending_delete']
+        : ['pending_create', 'pending_update'];
+    final pending = await (db.select(db.warehousesTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.syncStatus.isIn(statuses)))
+        .get();
+
+    for (final w in pending) {
+      try {
+        switch (w.syncStatus) {
+          case 'pending_create':
+            final res = await dio.post<dynamic>(
+              '/Warehouses/Add',
+              queryParameters: {'companyId': companyId},
+              data: {'name': w.name},
+            );
+            final data = res.data;
+            final realId = data is Map
+                ? ((data['id'] ?? data['Id']) as num?)?.toInt()
+                : null;
+            if (realId == null) {
+              throw Exception('Server returned no id for warehouse create');
+            }
+            await db.transaction(() async {
+              await (db.delete(db.warehousesTable)
+                    ..where((t) => t.id.equals(w.id)))
+                  .go();
+              await db.into(db.warehousesTable).insertOnConflictUpdate(
+                    WarehousesTableCompanion(
+                      id: Value(realId),
+                      companyId: Value(w.companyId),
+                      name: Value(w.name),
+                      lastModified: Value(DateTime.now().toUtc()),
+                      syncStatus: const Value('synced'),
+                    ),
+                  );
+              // Repoint any queued stock "move" that targeted the temp id.
+              await (db.update(db.pendingStockOpsTable)
+                    ..where((t) => t.targetWarehouseId.equals(w.id)))
+                  .write(PendingStockOpsTableCompanion(
+                      targetWarehouseId: Value(realId)));
+            });
+
+          case 'pending_update':
+            await dio.patch<dynamic>(
+              '/Warehouses/Update',
+              queryParameters: {'companyId': companyId},
+              data: {'id': w.id, 'name': w.name},
+            );
+            await (db.update(db.warehousesTable)
+                  ..where((t) => t.id.equals(w.id)))
+                .write(const WarehousesTableCompanion(
+              syncStatus: Value('synced'),
+              syncError: Value(null),
+            ));
+
+          case 'pending_delete':
+            if (w.id > 0) {
+              await dio.delete<dynamic>(
+                '/Warehouses/Delete',
+                queryParameters: {'id': w.id, 'companyId': companyId},
+              );
+            }
+            await (db.delete(db.warehousesTable)
+                  ..where((t) => t.id.equals(w.id)))
+                .go();
+        }
+      } catch (e) {
+        debugPrint(
+            'pushPendingWarehouseOps: ${w.id} (${w.syncStatus}) failed — $e');
+        try {
+          await (db.update(db.warehousesTable)
+                ..where((t) => t.id.equals(w.id)))
+              .write(WarehousesTableCompanion(syncError: Value(e.toString())));
+        } catch (_) {}
+      }
+    }
+  }
+
+  /// Drains the stock revoke/move queue created when a warehouse with stock is
+  /// deleted offline. Runs AFTER warehouse creates (so a move target exists)
+  /// and BEFORE warehouse deletes (so the warehouse is empty first).
+  Future<void> pushPendingStockOps(int companyId) async {
+    final ops = await (db.select(db.pendingStockOpsTable)
+          ..where((t) => t.companyId.equals(companyId)))
+        .get();
+
+    for (final op in ops) {
+      // A move whose target is still a temp (negative) id can't be pushed yet —
+      // its warehouse create hasn't synced. Leave it for the next cycle.
+      if (op.operation == 'move' &&
+          (op.targetWarehouseId == null || op.targetWarehouseId! < 0)) {
+        continue;
+      }
+      try {
+        if (op.operation == 'delete') {
+          await dio.delete<dynamic>(
+            '/Stocks/Delete',
+            queryParameters: {'id': op.stockId, 'companyId': companyId},
+          );
+        } else {
+          await dio.patch<dynamic>(
+            '/Stocks/Update',
+            queryParameters: {'companyId': companyId},
+            data: {
+              'id': op.stockId,
+              'newQuantity': op.quantity ?? 0,
+              'newWarehouseId': op.targetWarehouseId,
+              'newProductId': op.productId,
+            },
+          );
+        }
+        await (db.delete(db.pendingStockOpsTable)
+              ..where((t) => t.id.equals(op.id)))
+            .go();
+      } on DioException catch (e) {
+        // Already gone on the server — drop the op so it doesn't block deletes.
+        if (e.response?.statusCode == 404) {
+          await (db.delete(db.pendingStockOpsTable)
+                ..where((t) => t.id.equals(op.id)))
+              .go();
+        } else {
+          debugPrint('pushPendingStockOps: ${op.id} failed — $e');
+        }
+      } catch (e) {
+        debugPrint('pushPendingStockOps: ${op.id} failed — $e');
+      }
+    }
   }
 
   // ==========================================================================
@@ -1711,6 +2331,324 @@ class SyncManager {
   }
 
   // ==========================================================================
+  // PUSH — Manual document editor headers (create / update / delete).
+  // pending_create → POST /Document/Add (stamps the server id + links),
+  // pending_update → PATCH /Document/Update, pending_delete → DELETE then
+  // remove the local row. Line items are pushed separately so the document
+  // always has a server id first.
+  // ==========================================================================
+  Future<void> pushPendingDocuments(int companyId) async {
+    // ── Deletes ────────────────────────────────────────────────────────────
+    for (final doc in await db.getDocumentsBySyncStatus(companyId, 'pending_delete')) {
+      try {
+        if (doc.serverId != null) {
+          await dio.delete<dynamic>(
+            '/Document/Delete',
+            queryParameters: {'id': doc.serverId, 'companyId': companyId},
+          );
+        }
+        await (db.delete(db.documentsTable)
+              ..where((t) => t.localId.equals(doc.localId)))
+            .go();
+      } catch (e) {
+        debugPrint('pushPendingDocuments (delete) ${doc.localId} failed — $e');
+      }
+    }
+
+    // ── Creates ────────────────────────────────────────────────────────────
+    for (final doc in await db.getDocumentsBySyncStatus(companyId, 'pending_create')) {
+      try {
+        final res = await dio.post<dynamic>(
+          '/Document/Add',
+          queryParameters: {'companyId': companyId},
+          data: _documentAddJson(doc),
+        );
+        final serverId = _parseDocServerId(res.data);
+        if (serverId == null) continue; // retry next sync
+        await db.linkDocumentToServer(doc.localId, serverId);
+      } catch (e) {
+        debugPrint('pushPendingDocuments (create) ${doc.localId} failed — $e');
+      }
+    }
+
+    // ── Header updates ─────────────────────────────────────────────────────
+    for (final doc in await db.getDocumentsBySyncStatus(companyId, 'pending_update')) {
+      if (doc.serverId == null) continue;
+      try {
+        await dio.patch<dynamic>(
+          '/Document/Update',
+          queryParameters: {'companyId': companyId},
+          data: _documentUpdateJson(doc),
+        );
+        await (db.update(db.documentsTable)
+              ..where((t) => t.localId.equals(doc.localId)))
+            .write(const DocumentsTableCompanion(syncStatus: Value('synced')));
+      } catch (e) {
+        debugPrint('pushPendingDocuments (update) ${doc.localId} failed — $e');
+      }
+    }
+  }
+
+  Map<String, dynamic> _documentAddJson(DocumentsTableData d) => {
+        'number': d.number,
+        'userId': d.userId,
+        'customerId': d.customerId,
+        'orderNumber': d.orderNumber,
+        'date': d.date.toIso8601String(),
+        'stockDate': (d.stockDate ?? d.date).toIso8601String(),
+        'dueDate': (d.dueDate ?? d.date).toIso8601String(),
+        'total': d.total,
+        'isClockedOut': true,
+        'documentTypeId': d.documentTypeId,
+        'warehouseId': d.warehouseId,
+        'internalNote': d.internalNote ?? '',
+        'note': d.note ?? '',
+        'referenceDocumentNumber': d.referenceDocumentNumber ?? '',
+        'discount': d.discount,
+        'discountType': d.discountType,
+        'paidStatus': d.paidStatus,
+        'discountApplyRule': d.discountApplyRule,
+        'serviceType': d.serviceType,
+      };
+
+  Map<String, dynamic> _documentUpdateJson(DocumentsTableData d) => {
+        'id': d.serverId,
+        'number': d.number,
+        'customerId': d.customerId,
+        'userId': d.userId,
+        'date': d.date.toIso8601String(),
+        'stockDate': (d.stockDate ?? d.date).toIso8601String(),
+        'dueDate': (d.dueDate ?? d.date).toIso8601String(),
+        'documentTypeId': d.documentTypeId,
+        'warehouseId': d.warehouseId,
+        'internalNote': d.internalNote ?? '',
+        'note': d.note ?? '',
+        'referenceDocumentNumber': d.referenceDocumentNumber ?? '',
+        'discount': d.discount,
+        'discountType': d.discountType,
+        'discountApplyRule': d.discountApplyRule,
+        'total': d.total,
+        'paidStatus': d.paidStatus,
+      };
+
+  int? _parseDocServerId(dynamic body) {
+    final data = body is Map && body.containsKey('data') ? body['data'] : body;
+    if (data is Map) {
+      return int.tryParse(
+          data['id']?.toString() ?? data['Id']?.toString() ?? '');
+    }
+    if (data is num) return data.toInt();
+    return null;
+  }
+
+  // ==========================================================================
+  // PUSH — Manual document line items (create / update / delete). Items are
+  // keyed to their parent by document localId; a create is skipped until its
+  // document has a server id. Tax + expiration attachments ride along on create.
+  // ==========================================================================
+  Future<void> pushPendingDocumentItems(int companyId) async {
+    // ── Creates ────────────────────────────────────────────────────────────
+    for (final it in await db.getDocumentItemsBySyncStatus('pending_create')) {
+      final doc = await db.getDocumentByLocalId(it.documentId);
+      final docServerId = doc?.serverId;
+      if (docServerId == null) continue;
+      try {
+        final res = await dio.post<dynamic>(
+          '/DocumentItems/Add',
+          queryParameters: {'companyId': companyId},
+          data: {
+            'documentId': docServerId,
+            'productId': it.productId,
+            'quantity': it.quantity,
+            'expectedQuantity': it.quantity,
+            'priceBeforeTax': it.priceBeforeTax,
+            'price': it.unitPrice,
+            'discount': it.discount,
+            'discountType': it.discountType,
+            'discountApplyRule': true,
+          },
+        );
+        final itemServerId = _parseDocServerId(res.data);
+        if (itemServerId != null && it.taxId != null) {
+          await dio.post<dynamic>(
+            '/DocumentItemTaxes/Add',
+            queryParameters: {'companyId': companyId},
+            data: {'documentItemId': itemServerId, 'taxId': it.taxId},
+          );
+        }
+        if (itemServerId != null && it.expirationDate != null) {
+          await dio.post<dynamic>(
+            '/DocumentItemExpirationDates/Add',
+            queryParameters: {'companyId': companyId},
+            data: {
+              'documentItemId': itemServerId,
+              'expirationDate': it.expirationDate!.toIso8601String(),
+            },
+          );
+        }
+        await db.markDocumentItemSynced(it.localId, itemServerId);
+      } catch (e) {
+        debugPrint('pushPendingDocumentItems (create) ${it.localId} failed — $e');
+      }
+    }
+
+    // ── Updates ────────────────────────────────────────────────────────────
+    for (final it in await db.getDocumentItemsBySyncStatus('pending_update')) {
+      if (it.serverId == null) continue;
+      final doc = await db.getDocumentByLocalId(it.documentId);
+      final docServerId = doc?.serverId;
+      if (docServerId == null) continue;
+      try {
+        await dio.patch<dynamic>(
+          '/DocumentItems/Update',
+          queryParameters: {'companyId': companyId},
+          data: {
+            'id': it.serverId,
+            'documentId': docServerId,
+            'productId': it.productId,
+            'quantity': it.quantity,
+            'expectedQuantity': it.quantity,
+            'priceBeforeTax': it.priceBeforeTax,
+            'price': it.unitPrice,
+            'discount': it.discount,
+            'discountType': it.discountType,
+            'productCost': 0,
+            'discountApplyRule': true,
+          },
+        );
+        if (it.expirationDate != null) {
+          // Best-effort upsert of the expiration date.
+          try {
+            await dio.post<dynamic>(
+              '/DocumentItemExpirationDates/Add',
+              queryParameters: {'companyId': companyId},
+              data: {
+                'documentItemId': it.serverId,
+                'expirationDate': it.expirationDate!.toIso8601String(),
+              },
+            );
+          } catch (_) {}
+        }
+        await db.markDocumentItemSynced(it.localId, it.serverId);
+      } catch (e) {
+        debugPrint('pushPendingDocumentItems (update) ${it.localId} failed — $e');
+      }
+    }
+
+    // ── Deletes ────────────────────────────────────────────────────────────
+    for (final it in await db.getDocumentItemsBySyncStatus('pending_delete')) {
+      try {
+        if (it.serverId != null) {
+          await dio.delete<dynamic>(
+            '/DocumentItems/Delete',
+            queryParameters: {'id': it.serverId, 'companyId': companyId},
+          );
+        }
+        await db.hardDeleteDocumentItem(it.localId);
+      } catch (e) {
+        debugPrint('pushPendingDocumentItems (delete) ${it.localId} failed — $e');
+      }
+    }
+  }
+
+  // ==========================================================================
+  // PUSH — Paid-status toggles made offline in the document editor.
+  // documents.paid_status_dirty rows (with a server id) are PATCHed to
+  // /Document/Update; the flag is cleared on success and retried otherwise.
+  // ==========================================================================
+  Future<void> pushPendingPaidStatus(int companyId) async {
+    final dirty = await db.getPaidStatusDirtyDocuments(companyId);
+    for (final doc in dirty) {
+      try {
+        await dio.patch<dynamic>(
+          '/Document/Update',
+          queryParameters: {'companyId': companyId},
+          data: {'id': doc.serverId, 'paidStatus': doc.paidStatus},
+        );
+        await db.clearPaidStatusDirty(doc.localId);
+      } catch (e) {
+        debugPrint('pushPendingPaidStatus ${doc.localId} failed — $e');
+      }
+    }
+  }
+
+  // ==========================================================================
+  // PUSH — Standalone payment CRUD made offline in the document editor.
+  //   pending_create → POST /Payments/Add  (stamps the returned server id)
+  //   pending_update → PATCH /Payments/Update
+  //   pending_delete → DELETE /Payments/Delete then hard-delete the local row
+  // A create whose parent document isn't on the server yet is skipped until it
+  // is (its document syncs first via pushPendingOrders / linkDocumentToServer).
+  // ==========================================================================
+  Future<void> pushPendingPayments(int companyId) async {
+    // ── Creates ────────────────────────────────────────────────────────────
+    for (final p in await db.getPaymentsBySyncStatus('pending_create')) {
+      final doc = await db.getDocumentByLocalId(p.documentId);
+      final docServerId = doc?.serverId;
+      if (docServerId == null) continue; // wait for the document to sync first
+      try {
+        final res = await dio.post<dynamic>(
+          '/Payments/Add',
+          queryParameters: {'companyId': companyId},
+          data: {
+            'documentId': docServerId,
+            'paymentTypeId': p.paymentTypeId,
+            'amount': p.amount,
+            'userId': p.userId,
+          },
+        );
+        await db.markPaymentSynced(p.localId, _parsePaymentServerId(res.data));
+      } catch (e) {
+        debugPrint('pushPendingPayments (create) ${p.localId} failed — $e');
+      }
+    }
+
+    // ── Updates ────────────────────────────────────────────────────────────
+    for (final p in await db.getPaymentsBySyncStatus('pending_update')) {
+      if (p.serverId == null) continue;
+      try {
+        await dio.patch<dynamic>(
+          '/Payments/Update',
+          queryParameters: {'companyId': companyId},
+          data: {
+            'id': p.serverId,
+            'amount': p.amount,
+            'date': p.date.toIso8601String(),
+          },
+        );
+        await db.markPaymentSynced(p.localId, p.serverId);
+      } catch (e) {
+        debugPrint('pushPendingPayments (update) ${p.localId} failed — $e');
+      }
+    }
+
+    // ── Deletes ────────────────────────────────────────────────────────────
+    for (final p in await db.getPaymentsBySyncStatus('pending_delete')) {
+      try {
+        if (p.serverId != null) {
+          await dio.delete<dynamic>(
+            '/Payments/Delete',
+            queryParameters: {'id': p.serverId, 'companyId': companyId},
+          );
+        }
+        await db.hardDeletePayment(p.localId);
+      } catch (e) {
+        debugPrint('pushPendingPayments (delete) ${p.localId} failed — $e');
+      }
+    }
+  }
+
+  int? _parsePaymentServerId(dynamic body) {
+    final data = body is Map && body.containsKey('data') ? body['data'] : body;
+    if (data is Map) {
+      return int.tryParse(
+          data['id']?.toString() ?? data['Id']?.toString() ?? '');
+    }
+    if (data is num) return data.toInt();
+    return null;
+  }
+
+  // ==========================================================================
   // PULL — Documents from /Document/GetSalesHistory
   // ==========================================================================
 
@@ -1769,7 +2707,9 @@ class SyncManager {
         final rawItems =
             ((d['items'] as List?) ?? const []).cast<Map<String, dynamic>>();
 
-        // Build item rows for a given document localId.
+        // Build item rows for a given document localId. The server item id is
+        // captured (when present) so the offline editor can later edit/delete
+        // these server-originated items and have the change pushed.
         List<DocumentItemsTableCompanion> buildItems(String docLocalId) =>
             rawItems
                 .map((m) => DocumentItemsTableCompanion.insert(
@@ -1779,6 +2719,9 @@ class SyncManager {
                       quantity: ((m['quantity'] as num?) ?? 0).toDouble(),
                       unitPrice: ((m['unitPrice'] as num?) ?? 0).toDouble(),
                       total: ((m['total'] as num?) ?? 0).toDouble(),
+                      serverId: Value((m['id'] as num?)?.toInt()),
+                      priceBeforeTax: Value(
+                          ((m['priceBeforeTax'] as num?) ?? 0).toDouble()),
                       discount:
                           Value(((m['discount'] as num?) ?? 0).toDouble()),
                       discountType:
@@ -1795,6 +2738,17 @@ class SyncManager {
                 .getSingleOrNull();
 
         if (existing != null) {
+          // Never clobber a document with unsynced local edits — the pusher
+          // owns it until it reaches the server. Reconciling it here would
+          // drop a pending header/total/delete change.
+          const manualPending = {
+            'pending_create',
+            'pending_update',
+            'pending_delete',
+          };
+          if (manualPending.contains(existing.syncStatus)) {
+            continue;
+          }
           if (existing.number != number || existing.syncStatus != 'synced') {
             await (db.update(
               db.documentsTable,

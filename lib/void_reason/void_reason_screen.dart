@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/database/database_provider.dart';
+import 'package:pos_app/sync/sync_notifier.dart';
 
 // ── Models ────────────────────────────────────────────────────────────────────
 
@@ -22,12 +24,16 @@ class VoidReasonModel {
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 
-final voidReasonsProvider = FutureProvider.autoDispose<List<VoidReasonModel>>((ref) async {
+/// Offline-first: streams void reasons from the local Drift cache. Seeded by
+/// SyncManager.pullVoidReasons; admin edits trigger a sync to refresh it.
+final voidReasonsProvider =
+    StreamProvider.autoDispose<List<VoidReasonModel>>((ref) {
   final companyId = ref.watch(selectedCompanyProvider)?.id;
-  final dio = createDio();
-  final res = await dio.get('/VoidReasons/GetAll',
-      queryParameters: companyId != null ? {'companyId': companyId} : null);
-  return (res.data as List).map((j) => VoidReasonModel.fromJson(j as Map<String, dynamic>)).toList();
+  if (companyId == null) return Stream.value(const <VoidReasonModel>[]);
+  final db = ref.watch(appDatabaseProvider);
+  return db.watchVoidReasons(companyId).map((rows) => rows
+      .map((r) => VoidReasonModel(id: r.id, name: r.name, rank: r.rank))
+      .toList());
 });
 
 // ── Screen ────────────────────────────────────────────────────────────────────
@@ -99,7 +105,8 @@ class _VoidReasonsScreenState extends ConsumerState<VoidReasonsScreen> {
         await dio.put('/VoidReasons/Update/$_selectedId',
             queryParameters: {'name': name, 'rank': rank});
       }
-      ref.invalidate(voidReasonsProvider);
+      // Refresh the local cache from the server so the Drift-backed list updates.
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       _clearSelection();
     } on DioException catch (e) {
       setState(() => _error = e.response?.data?.toString() ?? 'Save failed.');
@@ -129,7 +136,7 @@ class _VoidReasonsScreenState extends ConsumerState<VoidReasonsScreen> {
     try {
       final dio = createDio();
       await dio.delete('/VoidReasons/Delete/$id');
-      ref.invalidate(voidReasonsProvider);
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       if (_selectedId == id) _clearSelection();
     } on DioException catch (e) {
       if (mounted) {

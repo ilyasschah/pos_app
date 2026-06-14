@@ -1007,7 +1007,6 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
 
   bool _isLoading = false;
   String? _errorMessage;
-  bool _barcodesPulled = false;
 
   bool get _isEditing =>
       widget.existingProduct != null && !widget.isPostCreation;
@@ -1109,55 +1108,18 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   }
 
   Future<void> _fetchAssignedTax(int productId) async {
-    final companyId = ref.read(selectedCompanyProvider)?.id;
-    if (companyId == null) return;
+    if (ref.read(selectedCompanyProvider)?.id == null) return;
     try {
-      final dio = createDio();
-      final res = await dio.get('/ProductTaxes/GetByProductId',
-          queryParameters: {'productId': productId, 'companyId': companyId});
-      final List taxes = res.data;
+      // Offline-first: read the assigned tax from the local Drift cache
+      // (seeded by SyncManager.pullProductTaxes).
+      final taxes = await ref.read(appDatabaseProvider).getProductTaxes(productId);
       if (taxes.isNotEmpty && mounted) {
         setState(() {
-          _selectedTaxId = taxes.first['taxId'];
+          _selectedTaxId = taxes.first.taxId;
           _originalTaxId = _selectedTaxId;
         });
       }
     } catch (_) {}
-  }
-
-  /// Pulls the latest barcodes for this product from the server and upserts
-  /// them into the local Drift table. Called once when the Barcodes tab opens.
-  /// Silently no-ops when offline — the StreamProvider will show local data.
-  Future<void> _pullBarcodesFromServer(int productId, int companyId) async {
-    final db = ref.read(appDatabaseProvider);
-    try {
-      final dio = createDio();
-      final res = await dio.get('/Barcodes/GetByProductId',
-          queryParameters: {'productId': productId, 'companyId': companyId});
-      final serverList = (res.data as List).cast<Map<String, dynamic>>();
-
-      await db.transaction(() async {
-        // Drop stale synced cache; preserve any pending_create / pending_delete.
-        await (db.delete(db.barcodesTable)
-              ..where((t) => t.productId.equals(productId))
-              ..where((t) => t.companyId.equals(companyId))
-              ..where((t) => t.syncStatus.equals('synced')))
-            .go();
-
-        for (final b in serverList) {
-          await db.into(db.barcodesTable).insert(BarcodesTableCompanion(
-            localId: Value(const Uuid().v4()),
-            serverId: Value(b['id'] as int? ?? 0),
-            productId: Value(productId),
-            companyId: Value(companyId),
-            value: Value(b['value'] as String? ?? ''),
-            syncStatus: const Value('synced'),
-          ));
-        }
-      });
-    } catch (_) {
-      // Offline or error — StreamProvider already shows local Drift data.
-    }
   }
 
   @override
@@ -1230,6 +1192,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
             if (!await dir.exists()) await dir.create(recursive: true);
             final file = File(imgpath.join(dir.path, 'tmp_$tempId.jpg'));
             await file.writeAsBytes(bytes, flush: true);
+            await FileImage(file).evict();
             localImgPath = file.path;
           } catch (_) { /* best-effort */ }
         }
@@ -1353,6 +1316,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
             if (!await dir.exists()) await dir.create(recursive: true);
             final file = File(imgpath.join(dir.path, '$savedProductId.jpg'));
             await file.writeAsBytes(bytes, flush: true);
+            await FileImage(file).evict();
             localImgPath = file.path;
           } catch (_) { /* best-effort */ }
         }
@@ -1408,18 +1372,15 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
         }
       }
 
-      // Handle Taxes (Applies to both Edit and Phase 2 Creation)
-      if (_originalTaxId != null && _originalTaxId != _selectedTaxId) {
-        await dio.delete('/ProductTaxes/Delete', queryParameters: {
-          'productId': savedProductId,
-          'taxId': _originalTaxId,
-          'companyId': companyId
-        });
-      }
-      if (_selectedTaxId != null && _selectedTaxId != _originalTaxId) {
-        await dio.post('/ProductTaxes/Add',
-            queryParameters: {'companyId': companyId},
-            data: {'productId': savedProductId, 'taxId': _selectedTaxId});
+      // Handle Taxes (offline-first): write the assignment change to local
+      // Drift; SyncManager pushes /ProductTaxes/Add+Delete on the next sync.
+      if (_selectedTaxId != _originalTaxId) {
+        await ref.read(appDatabaseProvider).setProductTaxLocal(
+              companyId: companyId,
+              productId: savedProductId,
+              oldTaxId: _originalTaxId,
+              newTaxId: _selectedTaxId,
+            );
       }
 
       if (mounted) {
@@ -2020,12 +1981,8 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
     final productId = widget.existingProduct!.id;
     final companyId = ref.read(selectedCompanyProvider)?.id;
 
-    // Seed local Drift cache from server the first time this tab is shown.
-    if (!_barcodesPulled && productId > 0 && companyId != null) {
-      _barcodesPulled = true;
-      _pullBarcodesFromServer(productId, companyId);
-    }
-
+    // Barcodes are seeded in bulk by SyncManager.pullBarcodes and read straight
+    // from Drift here — no per-open /Barcodes/GetByProductId fetch.
     final asyncBarcodes = ref.watch(barcodesByProductIdProvider(productId));
 
     return Padding(
@@ -2327,7 +2284,6 @@ class _StockControlRulesEditorState
     extends ConsumerState<_StockControlRulesEditor> {
   final _formKey = GlobalKey<FormState>();
   bool _isInitialized = false;
-  int? _existingId;
   int? _selectedSupplierId;
 
   late final TextEditingController _reorderPointCtrl;
@@ -2359,31 +2315,24 @@ class _StockControlRulesEditorState
     setState(() => _isLoading = true);
 
     try {
-      final dio = createDio();
-      final payload = {
-        'reorderPoint': double.tryParse(_reorderPointCtrl.text) ?? 0,
-        'preferredQuantity': double.tryParse(_preferredQtyCtrl.text) ?? 0,
-        'lowStockWarningQuantity':
-            double.tryParse(_lowStockWarningQtyCtrl.text) ?? 0,
-        'isLowStockWarningEnabled': _isWarningEnabled,
-        'customerId':
-            _selectedSupplierId, // Will automatically send null if unselected!
-      };
-
-      if (_existingId != null) {
-        payload['id'] = _existingId;
-        await dio.patch('/StockControls/Update',
-            queryParameters: {'companyId': companyId}, data: payload);
-      } else {
-        payload['productId'] = widget.productId;
-        await dio.post('/StockControls/Add',
-            queryParameters: {'companyId': companyId}, data: payload);
-      }
+      // Offline-first: upsert the rule in local Drift (keyed by product);
+      // SyncManager pushes /StockControls/Add or /Update on the next sync.
+      await ref.read(appDatabaseProvider).saveStockControlLocal(
+            companyId: companyId,
+            productId: widget.productId,
+            reorderPoint: double.tryParse(_reorderPointCtrl.text) ?? 0,
+            preferredQuantity: double.tryParse(_preferredQtyCtrl.text) ?? 0,
+            isLowStockWarningEnabled: _isWarningEnabled,
+            lowStockWarningQuantity:
+                double.tryParse(_lowStockWarningQtyCtrl.text) ?? 0,
+            customerId: _selectedSupplierId,
+          );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text("Stock rules saved successfully!"),
             backgroundColor: Colors.green));
+        ref.read(syncStateProvider.notifier).sync().catchError((_) {});
         ref.invalidate(stockControlByProductIdProvider(widget.productId));
       }
     } catch (e) {
@@ -2412,7 +2361,6 @@ class _StockControlRulesEditorState
           // Populate controllers once when data arrives
           if (!_isInitialized) {
             if (rules != null) {
-              _existingId = rules.id;
               _selectedSupplierId = rules.customerId;
               _reorderPointCtrl.text = rules.reorderPoint.toString();
               _preferredQtyCtrl.text = rules.preferredQuantity.toString();

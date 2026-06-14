@@ -9,6 +9,15 @@ class PaymentModel {
   final String? userName;
   final int? zReportId;
 
+  /// Drift local UUID PK — present only for payments read from the offline-first
+  /// local store. Null for payments parsed straight from an API payload.
+  final String? localId;
+
+  /// Offline-first sync state: 'synced' | 'pending_create' | 'pending_update' |
+  /// 'pending_delete' (or the legacy checkout 'pending'). Used by the editor to
+  /// decide how an edit/delete is queued.
+  final String syncStatus;
+
   PaymentModel({
     required this.id,
     required this.documentId,
@@ -19,6 +28,8 @@ class PaymentModel {
     required this.userId,
     this.userName,
     this.zReportId,
+    this.localId,
+    this.syncStatus = 'synced',
   });
 
   factory PaymentModel.fromJson(Map<String, dynamic> json) {

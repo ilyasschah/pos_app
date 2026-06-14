@@ -27,9 +27,9 @@ import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/api/promotion_models.dart';
-import 'package:pos_app/promotions/promotions_list_screen.dart';
 import 'package:pos_app/bookings/bookings_provider.dart';
 import 'package:pos_app/sync/sync_notifier.dart';
+import 'package:pos_app/sync/sync_provider.dart';
 import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table.dart';
 import 'package:pos_app/auth/user_model.dart';
@@ -76,12 +76,76 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
         if (!hasActiveOrder) {
           syncLatestOrderNumber(ref, company.id);
         }
+        // Refresh the local stock + warehouse cache so the menu's offline-first
+        // availability checks reflect changes made elsewhere (e.g. the Stock
+        // screen, which still edits via the API). Best-effort — offline, the
+        // existing Drift cache is used.
+        final sm = ref.read(syncManagerProvider);
+        sm.pullStocks(company.id).catchError((_) {});
+        sm.pullWarehouses(company.id).catchError((_) {});
       }
       final promos = ref.read(activePromotionsProvider).value;
       if (promos != null && mounted) {
         setState(() => _activePromos = promos);
       }
     });
+  }
+
+  /// Small popup listing the currently-active promotions and the products each
+  /// one applies to — reads from in-memory `_activePromos` + the local product
+  /// cache, so it's instant and offline.
+  void _showActivePromosPopup(BuildContext context) {
+    final products = ref.read(allProductsListProvider).value ?? const [];
+    final nameById = {for (final p in products) p.id: p.name};
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return AlertDialog(
+          title: Row(
+            children: const [
+              Icon(Icons.star, color: Colors.amber),
+              SizedBox(width: 8),
+              Text('Active Promotions'),
+            ],
+          ),
+          content: SizedBox(
+            width: 380,
+            child: _activePromos.isEmpty
+                ? const Text('No active promotions right now.')
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: _activePromos.map((promo) {
+                      final productNames = promo.items
+                          .map((i) => nameById[i.productId])
+                          .whereType<String>()
+                          .toList();
+                      final subtitle = productNames.isEmpty
+                          ? 'No specific products assigned'
+                          : productNames.join(', ');
+                      return ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.local_offer,
+                            color: theme.colorScheme.primary),
+                        title: Text(promo.name),
+                        subtitle: Text(subtitle,
+                            maxLines: 2, overflow: TextOverflow.ellipsis),
+                      );
+                    }).toList(),
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -142,9 +206,9 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
       }
     });
 
-    ref.listen<AsyncValue<List<PromotionDto>>>(activePromotionsProvider, (_, next) {
-      if (mounted) setState(() => _activePromos = next.value ?? []);
-    });
+    // Watch (not just listen) so the "active promotions" banner reflects the
+    // already-resolved value on first build, not only on later changes.
+    _activePromos = ref.watch(activePromotionsProvider).value ?? const [];
 
     return Scaffold(
       appBar: AppBar(
@@ -172,6 +236,32 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
               )
             : null,
         actions: [
+          // --- Kitchen-ready notification ---
+          // Persistent badge: appears when the KDS marks one or more orders
+          // ready. Tapping it jumps to the Open Orders tab.
+          Builder(
+            builder: (context) {
+              final readyCount =
+                  ref.watch(readyOrdersCountProvider).value ?? 0;
+              if (readyCount == 0) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: IconButton(
+                  tooltip: '$readyCount order(s) ready',
+                  onPressed: () =>
+                      ref.read(mainNavigationIndexProvider.notifier).state = 1,
+                  icon: Badge.count(
+                    count: readyCount,
+                    child: Icon(
+                      Icons.notifications_active,
+                      size: 26,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
           // --- Order Controls ---
           SizedBox(
             height: 46,
@@ -361,9 +451,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                                 'customerId': cart.selectedCustomer?.id,
                                 'warehouseId': cart.activeWarehouseId ?? 1,
                               });
-                              KitchenPushService.notifyFromSetting(
-                                ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
-                              );
+                              ref.read(kitchenSyncProvider).push();
 
                               if (!context.mounted) return;
 
@@ -631,14 +719,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
               padding: const EdgeInsets.only(right: 8.0),
               child: InkWell(
                 borderRadius: BorderRadius.circular(8),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const PromotionsListScreen(),
-                    ),
-                  );
-                },
+                onTap: () => _showActivePromosPopup(context),
                 child: Container(
                   margin: const EdgeInsets.symmetric(vertical: 8),
                   padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -733,9 +814,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                             ref.read(selectedWarehouseProvider)?.id ??
                             1,
                       );
-                      KitchenPushService.notifyFromSetting(
-                        ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
-                      );
+                      ref.read(kitchenSyncProvider).push();
                     } catch (_) {}
                   }
                   ref.read(cartProvider.notifier).clearCart();
@@ -1117,12 +1196,13 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
     ref.listen(searchQueryProvider, (_, __) {
       if (mounted) setState(() => _currentPage = 0);
     });
-    ref.listen<AsyncValue<List<PromotionDto>>>(activePromotionsProvider, (_, next) {
-      if (mounted) setState(() => _activePromos = next.value ?? []);
-    });
-    ref.listen<AsyncValue<Map<int, double>>>(stockQuantitiesProvider, (_, next) {
-      if (mounted) setState(() => _stockMap = next.value ?? const {});
-    });
+    // Watch (don't just listen): ref.listen never delivers the provider's
+    // already-resolved value, so when promotions/stock were loaded before this
+    // grid mounted (the parent keeps them alive), the listener never fired and
+    // the promo star / stock badge never appeared. Reading the current value
+    // here seeds them on first build and refreshes on every change.
+    _activePromos = ref.watch(activePromotionsProvider).value ?? const [];
+    _stockMap = ref.watch(stockQuantitiesProvider).value ?? const {};
 
     final asyncGroups = ref.watch(allProductGroupsProvider);
     final asyncProducts = ref.watch(allProductsListProvider);
@@ -2005,9 +2085,7 @@ class _CartSectionState extends ConsumerState<CartSection> {
         }
       }
 
-      KitchenPushService.notifyFromSetting(
-        ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
-      );
+      ref.read(kitchenSyncProvider).push();
       ref.read(cartProvider.notifier).clearCart();
 
       if (!context.mounted) return;
@@ -3143,9 +3221,7 @@ class _TransferDialogState extends ConsumerState<_TransferDialog> {
               1,
         };
         await ApiClient().updatePosOrder(companyId, updateRequest);
-        KitchenPushService.notifyFromSetting(
-          ref.read(appSettingsProvider)[SettingKeys.kitchenDisplayIps],
-        );
+        ref.read(kitchenSyncProvider).push();
 
         final oldTableId = widget.cartState.floorPlanTableId;
         final newTable = _selectedRoom;
@@ -3530,14 +3606,13 @@ class _VoidReasonDialogState extends ConsumerState<_VoidReasonDialog> {
   }
 }
 
-// Lightweight provider just for the dialog — fetches void reason names only
-final _voidReasonsDialogProvider = FutureProvider.autoDispose<List<String>>((ref) async {
+// Lightweight provider just for the dialog — void reason names from the local
+// Drift cache so the void flow works offline.
+final _voidReasonsDialogProvider =
+    StreamProvider.autoDispose<List<String>>((ref) {
   final companyId = ref.watch(selectedCompanyProvider)?.id;
-  final dio = createDio();
-  final res = await dio.get('/VoidReasons/GetAll',
-      queryParameters: companyId != null ? {'companyId': companyId} : null);
-  return (res.data as List)
-      .map((j) => (j as Map<String, dynamic>)['name']?.toString() ?? '')
-      .where((n) => n.isNotEmpty)
-      .toList();
+  if (companyId == null) return Stream.value(const <String>[]);
+  final db = ref.watch(appDatabaseProvider);
+  return db.watchVoidReasons(companyId).map((rows) =>
+      rows.map((r) => r.name).where((n) => n.isNotEmpty).toList());
 });

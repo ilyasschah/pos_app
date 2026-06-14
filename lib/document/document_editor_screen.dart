@@ -13,44 +13,92 @@ import 'package:pos_app/product/product_provider.dart';
 import 'package:pos_app/document/documents_screen.dart';
 import 'package:pos_app/document/document_item_tax_model.dart';
 import 'package:pos_app/tax/tax_provider.dart';
-import 'package:pos_app/document/document_item_expiration_date_model.dart';
-import 'package:pos_app/document/document_item_expiration_date_provider.dart';
 import 'package:pos_app/cart/payment_provider.dart';
 import 'package:pos_app/cart/payment_type_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:drift/drift.dart' show Value;
+import 'package:uuid/uuid.dart';
 import 'package:pos_app/database/app_database.dart';
 import 'package:pos_app/database/database_provider.dart';
+import 'package:pos_app/sync/sync_notifier.dart';
 import 'package:pos_app/stock/stock_provider.dart';
 
 final documentCategoriesProvider =
-    FutureProvider.autoDispose<List<DocumentCategory>>((ref) async {
+    StreamProvider.autoDispose<List<DocumentCategory>>((ref) {
       final company = ref.watch(selectedCompanyProvider);
-      if (company == null) return [];
-      final dio = createDio();
-      final response = await dio.get(
-        '/DocumentCategory/GetAll',
-        queryParameters: {'companyId': company.id},
-      );
-      return (response.data as List)
-          .map((j) => DocumentCategory.fromJson(j))
-          .toList();
+      if (company == null) return Stream.value(const <DocumentCategory>[]);
+      final db = ref.watch(appDatabaseProvider);
+      return db.watchDocumentCategories(company.id).map((rows) => rows
+          .map((r) => DocumentCategory(id: r.id, name: r.name))
+          .toList());
     });
 
-final documentItemsByDocIdProvider = FutureProvider.autoDispose
-    .family<List<DocumentItem>, int>((ref, documentId) async {
-      final company = ref.watch(selectedCompanyProvider);
-      if (company == null) return [];
-      final dio = createDio();
-      final response = await dio.get(
-        '/DocumentItems/GetByDocumentId',
-        queryParameters: {'documentId': documentId, 'companyId': company.id},
+/// Offline-first document line items, streamed from local Drift and keyed by
+/// the document's local UUID. Product names/costs are resolved from the local
+/// product cache so the editor renders fully offline.
+final localDocumentItemsProvider = StreamProvider.autoDispose
+    .family<List<DocumentItem>, LocalItemsArgs>((ref, args) {
+  final db = ref.watch(appDatabaseProvider);
+  return db.watchDocumentItems(args.docLocalId).asyncMap((rows) async {
+    final products = await db.select(db.productsTable).get();
+    final pById = {for (final p in products) p.id: p};
+    return rows.map((r) {
+      final p = pById[r.productId];
+      final beforeTaxAfterDisc =
+          r.taxRate > 0 ? r.total / (1 + r.taxRate / 100) : r.total;
+      return DocumentItem(
+        id: r.serverId ?? 0,
+        localId: r.localId,
+        syncStatus: r.syncStatus,
+        taxId: r.taxId,
+        taxRate: r.taxRate,
+        expirationDate: r.expirationDate,
+        companyId: args.companyId,
+        documentId: args.docServerId,
+        productId: r.productId,
+        productName: p?.name,
+        productCode: p?.code,
+        measurementUnit: p?.measurementUnit,
+        quantity: r.quantity,
+        expectedQuantity: r.quantity,
+        priceBeforeTax: r.priceBeforeTax,
+        price: r.unitPrice,
+        discount: r.discount,
+        discountType: r.discountType,
+        productCost: p?.cost ?? 0,
+        priceBeforeTaxAfterDiscount: beforeTaxAfterDisc,
+        priceAfterDiscount: r.unitPrice,
+        total: r.total,
+        totalAfterDocumentDiscount: r.total,
+        discountApplyRule: true,
       );
-      return (response.data as List)
-          .map((j) => DocumentItem.fromJson(j))
-          .toList();
-    });
+    }).toList();
+  });
+});
+
+/// Family key for [localDocumentItemsProvider].
+class LocalItemsArgs {
+  final String docLocalId;
+  final int docServerId;
+  final int companyId;
+
+  const LocalItemsArgs({
+    required this.docLocalId,
+    required this.docServerId,
+    required this.companyId,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is LocalItemsArgs &&
+      other.docLocalId == docLocalId &&
+      other.docServerId == docServerId &&
+      other.companyId == companyId;
+
+  @override
+  int get hashCode => Object.hash(docLocalId, docServerId, companyId);
+}
 
 final documentItemTaxesProvider = FutureProvider.autoDispose
     .family<List<DocumentItemTaxModel>, int>((ref, documentItemId) async {
@@ -103,6 +151,10 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
   final _formKey = GlobalKey<FormState>();
   bool _headerSaved = false;
   int? _savedDocumentId;
+  // Drift local UUID for the saved document — the key the offline-first
+  // paid-status and payments writes operate on. Resolved lazily from the
+  // document's server id when not supplied directly by the list.
+  String? _savedDocumentLocalId;
   Document? _savedDocument;
 
   int? _selectedDocTypeId;
@@ -140,8 +192,18 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
     if (_isEditing) {
       final d = widget.existingDocument!;
       _savedDocumentId = d.id;
+      _savedDocumentLocalId = d.localId;
       _savedDocument = d;
       _headerSaved = true;
+
+      // The list passes localId for offline-first writes. When it's missing
+      // (e.g. a document opened straight from an API payload), resolve it from
+      // the server id so paid-status / payments still persist locally.
+      if (_savedDocumentLocalId == null && d.id > 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _resolveLocalId();
+        });
+      }
       _selectedDocTypeId = d.documentTypeId;
       _selectedDocTypeName = d.documentTypeName;
       _selectedCustomerId = d.customerId;
@@ -211,46 +273,102 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
   String _isoDate(DateTime dt) => dt.toIso8601String().split('.')[0];
 
   Future<void> _syncDocumentTotal(double itemsSubtotal) async {
-    if (_savedDocumentId == null) return;
+    final localId = _savedDocumentLocalId;
+    if (localId == null) return;
+    double finalTotal = itemsSubtotal;
+    if (_discountType == 1) {
+      finalTotal -= _discount;
+    } else if (_discountType == 0) {
+      finalTotal -= finalTotal * (_discount / 100);
+    }
+    if (finalTotal < 0) finalTotal = 0;
     try {
-      final dio = createDio();
-      final companyId = ref.read(selectedCompanyProvider)?.id ?? 0;
-      double finalTotal = itemsSubtotal;
-      if (_discountType == 1) {
-        finalTotal -= _discount;
-      } else if (_discountType == 0) {
-        finalTotal -= finalTotal * (_discount / 100);
-      }
-      if (finalTotal < 0) finalTotal = 0;
-      await dio.patch(
-        '/Document/Update',
-        queryParameters: {'companyId': companyId},
-        data: {'id': _savedDocumentId, 'total': finalTotal},
-      );
+      // Offline-first: persist the recomputed total locally; the document is
+      // flagged for push and SyncManager sends it to /Document/Update.
+      await ref.read(appDatabaseProvider).setDocumentTotalLocal(localId, finalTotal);
+      _savedDocument = _savedDocument == null
+          ? null
+          : Document(
+              id: _savedDocument!.id,
+              localId: _savedDocument!.localId,
+              number: _savedDocument!.number,
+              userId: _savedDocument!.userId,
+              customerId: _savedDocument!.customerId,
+              companyId: _savedDocument!.companyId,
+              documentTypeId: _savedDocument!.documentTypeId,
+              documentTypeName: _savedDocument!.documentTypeName,
+              warehouseId: _savedDocument!.warehouseId,
+              date: _savedDocument!.date,
+              total: finalTotal,
+              discount: _savedDocument!.discount,
+              discountType: _savedDocument!.discountType,
+              discountApplyRule: _savedDocument!.discountApplyRule,
+              paidStatus: _savedDocument!.paidStatus,
+              serviceType: _savedDocument!.serviceType,
+            );
       ref.invalidate(allDocumentsProvider);
     } catch (e) {
-      debugPrint("Sync failed: $e");
+      debugPrint("Total sync failed: $e");
     }
   }
 
+  /// Resolves (and caches) the Drift local UUID for the saved document so the
+  /// offline-first paid-status and payments writes have a key to operate on.
+  /// Creates a 'srv_<id>' sentinel row for server-side documents that aren't in
+  /// the local store yet (e.g. just created through the API in this dialog).
+  Future<String?> _resolveLocalId() async {
+    if (_savedDocumentLocalId != null) return _savedDocumentLocalId;
+    final serverId = _savedDocumentId ?? 0;
+    if (serverId <= 0) return null;
+    final company = ref.read(selectedCompanyProvider);
+    final localId =
+        await ref.read(appDatabaseProvider).ensureLocalDocumentForServer(
+              serverId: serverId,
+              companyId: company?.id ?? 0,
+              userId: _selectedUserId ?? 0,
+              warehouseId: _selectedWarehouseId ?? 0,
+              documentTypeId: _selectedDocTypeId ?? 0,
+              number: _numberCtrl.text.trim(),
+              total: _savedDocument?.total ?? 0,
+              paidStatus: _paidStatus,
+              date: _date,
+            );
+    if (mounted) setState(() => _savedDocumentLocalId = localId);
+    return localId;
+  }
+
   Future<void> _updatePaidStatus(int newStatus) async {
-    if (_savedDocumentId == null) return;
     final companyId = ref.read(selectedCompanyProvider)?.id ?? 0;
-    try {
-      final dio = createDio();
-      await dio.patch(
-        '/Document/Update',
-        queryParameters: {'companyId': companyId},
-        data: {'id': _savedDocumentId, 'paidStatus': newStatus},
-      );
+    final db = ref.read(appDatabaseProvider);
+    final localId = await _resolveLocalId();
+
+    // Offline-first: write through to local SQLite (the source of truth for the
+    // documents list) so the toggle persists immediately and survives the
+    // provider invalidate. SyncManager pushes the change to the server later.
+    if (localId != null) {
+      await db.setLocalPaidStatus(localId, newStatus);
+      if (!mounted) return;
       setState(() => _paidStatus = newStatus);
       ref.invalidate(allDocumentsProvider);
-      // Invalidate the payments cache so the UI clears immediately after
-      // the backend deletes payment records (e.g. when marking Unpaid).
-      ref.invalidate(paymentsByDocumentIdProvider(_savedDocumentId!));
-    } catch (e) {
-      debugPrint("Failed to update paid status: $e");
+
+      // Best-effort immediate server push; the dirty flag retries on next sync.
+      if ((_savedDocumentId ?? 0) > 0) {
+        try {
+          await createDio().patch(
+            '/Document/Update',
+            queryParameters: {'companyId': companyId},
+            data: {'id': _savedDocumentId, 'paidStatus': newStatus},
+          );
+          await db.clearPaidStatusDirty(localId);
+        } catch (e) {
+          debugPrint('Paid-status server push deferred to sync: $e');
+        }
+      }
+      return;
     }
+
+    // No server id yet (unsaved document): nothing to persist.
+    if ((_savedDocumentId ?? 0) <= 0) return;
   }
 
   Future<void> _saveOrUpdateHeader() async {
@@ -278,64 +396,46 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
       _errorMessage = null;
     });
 
+    final db = ref.read(appDatabaseProvider);
+
     try {
-      final dio = createDio();
-
       if (!_headerSaved) {
-        // --- CREATE (POST) ---
-        final payload = {
-          'number': _numberCtrl.text.trim(),
-          'userId': _selectedUserId,
-          'customerId': _selectedCustomerId,
-          'orderNumber': 'ORD-${DateTime.now().millisecondsSinceEpoch}',
-          'date': _isoDate(_date),
-          'stockDate': _isoDate(_stockDate),
-          'dueDate': _isoDate(_dueDate),
-          'total': 0,
-          'isClockedOut': true,
-          'documentTypeId': _selectedDocTypeId,
-          'warehouseId': _selectedWarehouseId,
-          'internalNote': _internalNoteCtrl.text.trim(),
-          'note': _noteCtrl.text.trim(),
-          'referenceDocumentNumber': _refDocCtrl.text.trim(),
-          'discount': _discount,
-          'discountType': _discountType,
-          'paidStatus': 0,
-          'discountApplyRule': _discountApplyRule,
-          'serviceType': _serviceType,
-        };
-
-        final response = await dio.post(
-          '/Document/Add',
-          queryParameters: {'companyId': company.id},
-          data: payload,
-        );
-
-        int? newId;
-
-        final responseBody = response.data;
-
-        final data = responseBody is Map && responseBody.containsKey('data')
-            ? responseBody['data']
-            : responseBody;
-
-        if (data != null && data is Map) {
-          newId = int.tryParse(
-            data['id']?.toString() ?? data['Id']?.toString() ?? '',
-          );
-        } else if (data is int || data is num) {
-          newId = (data as num).toInt();
+        // --- CREATE (offline-first) ---
+        final localId = const Uuid().v4();
+        var number = _numberCtrl.text.trim();
+        if (number.isEmpty) {
+          number = 'DOC-${DateTime.now().millisecondsSinceEpoch}';
         }
 
-        if (newId == null || newId <= 0) {
-          throw Exception(
-            "Server saved the document but returned an unreadable ID: $data",
-          );
-        }
+        await db.createManualDocument(DocumentsTableCompanion(
+          localId: Value(localId),
+          companyId: Value(company.id),
+          documentTypeId: Value(_selectedDocTypeId!),
+          number: Value(number),
+          userId: Value(_selectedUserId!),
+          warehouseId: Value(_selectedWarehouseId!),
+          customerId: Value(_selectedCustomerId),
+          orderNumber: Value('ORD-${DateTime.now().millisecondsSinceEpoch}'),
+          total: const Value(0),
+          discount: Value(_discount),
+          discountType: Value(_discountType),
+          serviceType: Value(_serviceType),
+          paidStatus: const Value(0),
+          stockDate: Value(_stockDate),
+          dueDate: Value(_dueDate),
+          internalNote: Value(_internalNoteCtrl.text.trim()),
+          note: Value(_noteCtrl.text.trim()),
+          referenceDocumentNumber: Value(_refDocCtrl.text.trim()),
+          discountApplyRule: Value(_discountApplyRule),
+          date: Value(_date),
+          syncStatus: const Value('pending_create'),
+          lastModified: Value(DateTime.now().toUtc()),
+        ));
 
         final createdDoc = Document(
-          id: newId,
-          number: _numberCtrl.text.trim(),
+          id: 0,
+          localId: localId,
+          number: number,
           userId: _selectedUserId ?? 0,
           customerId: _selectedCustomerId ?? 0,
           companyId: company.id,
@@ -349,63 +449,78 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
           discountApplyRule: _discountApplyRule,
           internalNote: _internalNoteCtrl.text.trim(),
           note: _noteCtrl.text.trim(),
+          paidStatus: 0,
+          serviceType: _serviceType,
         );
 
         setState(() {
-          _savedDocumentId = newId;
+          _savedDocumentId = 0;
+          _savedDocumentLocalId = localId;
           _savedDocument = createdDoc;
+          _numberCtrl.text = number;
           _headerSaved = true;
           _isLoading = false;
         });
-      } else {
-        // --- UPDATE (PATCH) ---
-        final payload = {
-          'id': _savedDocumentId,
-          'number': _numberCtrl.text.trim(),
-          'customerId': _selectedCustomerId,
-          'date': _isoDate(_date),
-          'stockDate': _isoDate(_stockDate),
-          'dueDate': _isoDate(_dueDate),
-          'documentTypeId': _selectedDocTypeId,
-          'warehouseId': _selectedWarehouseId,
-          'internalNote': _internalNoteCtrl.text.trim(),
-          'note': _noteCtrl.text.trim(),
-          'referenceDocumentNumber': _refDocCtrl.text.trim(),
-          'discount': _discount,
-          'discountType': _discountType,
-          'discountApplyRule': _discountApplyRule,
-        };
 
-        await dio.patch(
-          '/Document/Update',
-          queryParameters: {'companyId': company.id},
-          data: payload,
+        ref.invalidate(allDocumentsProvider);
+        _kickSync();
+      } else {
+        // --- UPDATE (offline-first) ---
+        final localId = await _resolveLocalId();
+        if (localId == null) {
+          setState(() {
+            _errorMessage = "Could not resolve the local document.";
+            _isLoading = false;
+          });
+          return;
+        }
+
+        await db.updateManualDocumentHeader(
+          localId,
+          DocumentsTableCompanion(
+            number: Value(_numberCtrl.text.trim()),
+            customerId: Value(_selectedCustomerId),
+            userId: Value(_selectedUserId!),
+            warehouseId: Value(_selectedWarehouseId!),
+            documentTypeId: Value(_selectedDocTypeId!),
+            discount: Value(_discount),
+            discountType: Value(_discountType),
+            discountApplyRule: Value(_discountApplyRule),
+            serviceType: Value(_serviceType),
+            stockDate: Value(_stockDate),
+            dueDate: Value(_dueDate),
+            internalNote: Value(_internalNoteCtrl.text.trim()),
+            note: Value(_noteCtrl.text.trim()),
+            referenceDocumentNumber: Value(_refDocCtrl.text.trim()),
+            date: Value(_date),
+          ),
         );
 
-        ref.invalidate(documentItemsByDocIdProvider(_savedDocumentId!));
-
         setState(() => _isLoading = false);
+        ref.invalidate(allDocumentsProvider);
+        _kickSync();
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text("Document updated!"),
+              content: Text("Document saved!"),
               backgroundColor: Colors.green,
             ),
           );
         }
       }
-    } on DioException catch (e) {
-      setState(() {
-        _errorMessage = e.response?.data?.toString() ?? "Operation failed.";
-        _isLoading = false;
-      });
     } catch (e) {
       setState(() {
         _errorMessage = e.toString();
         _isLoading = false;
       });
     }
+  }
+
+  /// Best-effort immediate sync so a saved document reaches the server quickly
+  /// when online; the connectivity / auto-sync watchers retry otherwise.
+  void _kickSync() {
+    ref.read(syncStateProvider.notifier).sync().catchError((_) {});
   }
 
   @override
@@ -501,12 +616,13 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
                   setState(() => _discountApplyRule = v),
               onSave: _saveOrUpdateHeader,
             ),
-            if (_headerSaved && _savedDocumentId != null) ...[
+            if (_headerSaved && _savedDocumentLocalId != null) ...[
               const SizedBox(height: 24),
               Divider(thickness: 2, color: theme.dividerColor),
               const SizedBox(height: 24),
               _ItemsView(
-                documentId: _savedDocumentId!,
+                documentId: _savedDocumentId ?? 0,
+                documentLocalId: _savedDocumentLocalId!,
                 companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
                 onItemsChanged: _syncDocumentTotal,
                 isPurchase:
@@ -526,6 +642,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
           padding: const EdgeInsets.all(24),
           child: _PaymentsView(
             documentId: _savedDocumentId!,
+            documentLocalId: _savedDocumentLocalId,
             companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
             userId: _selectedUserId ?? 0,
             documentTotal: _savedDocument!.total,
@@ -1105,12 +1222,14 @@ class _HeaderForm extends ConsumerWidget {
 // --- ITEMS VIEW ---
 class _ItemsView extends ConsumerWidget {
   final int documentId;
+  final String documentLocalId;
   final int companyId;
   final ValueChanged<double> onItemsChanged;
   final bool isPurchase;
 
   const _ItemsView({
     required this.documentId,
+    required this.documentLocalId,
     required this.companyId,
     required this.onItemsChanged,
     this.isPurchase = false,
@@ -1121,8 +1240,13 @@ class _ItemsView extends ConsumerWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final sym = ref.watch(currencySymbolProvider);
+    final itemsArgs = LocalItemsArgs(
+      docLocalId: documentLocalId,
+      docServerId: documentId,
+      companyId: companyId,
+    );
     ref.listen<AsyncValue<List<DocumentItem>>>(
-      documentItemsByDocIdProvider(documentId),
+      localDocumentItemsProvider(itemsArgs),
       (previous, next) {
         next.whenData((items) {
           final subtotal = items.fold<double>(0, (s, i) => s + i.total);
@@ -1131,7 +1255,7 @@ class _ItemsView extends ConsumerWidget {
       },
     );
 
-    final asyncItems = ref.watch(documentItemsByDocIdProvider(documentId));
+    final asyncItems = ref.watch(localDocumentItemsProvider(itemsArgs));
 
     return Card(
       elevation: 1,
@@ -1169,12 +1293,11 @@ class _ItemsView extends ConsumerWidget {
                     await showDialog(
                       context: context,
                       builder: (_) => _AddItemDialog(
-                        documentId: documentId,
+                        documentLocalId: documentLocalId,
                         companyId: companyId,
                         isPurchase: isPurchase,
                       ),
                     );
-                    ref.invalidate(documentItemsByDocIdProvider(documentId));
                   },
                 ),
               ],
@@ -1432,11 +1555,6 @@ class _ItemsView extends ConsumerWidget {
                                                 companyId: companyId,
                                               ),
                                             );
-                                            ref.invalidate(
-                                              documentItemsByDocIdProvider(
-                                                documentId,
-                                              ),
-                                            );
                                           },
                                           child: Padding(
                                             padding: const EdgeInsets.all(4.0),
@@ -1493,20 +1611,21 @@ class _ItemsView extends ConsumerWidget {
                                                 ],
                                               ),
                                             );
-                                            if (confirm == true) {
-                                              final dio = createDio();
-                                              await dio.delete(
-                                                '/DocumentItems/Delete',
-                                                queryParameters: {
-                                                  'id': item.id,
-                                                  'companyId': companyId,
-                                                },
-                                              );
-                                              ref.invalidate(
-                                                documentItemsByDocIdProvider(
-                                                  documentId,
-                                                ),
-                                              );
+                                            if (confirm == true &&
+                                                item.localId != null) {
+                                              // Offline-first: remove locally
+                                              // (the stream refreshes the list);
+                                              // the sync queue DELETEs the server
+                                              // row if it had one.
+                                              await ref
+                                                  .read(appDatabaseProvider)
+                                                  .deleteDocumentItemLocal(
+                                                      item.localId!);
+                                              ref
+                                                  .read(syncStateProvider
+                                                      .notifier)
+                                                  .sync()
+                                                  .catchError((_) {});
                                             }
                                           },
                                           child: Padding(
@@ -1569,11 +1688,11 @@ class _ItemsView extends ConsumerWidget {
 
 // --- ADD ITEM DIALOG ---
 class _AddItemDialog extends ConsumerStatefulWidget {
-  final int documentId;
+  final String documentLocalId;
   final int companyId;
   final bool isPurchase;
   const _AddItemDialog({
-    required this.documentId,
+    required this.documentLocalId,
     required this.companyId,
     this.isPurchase = false,
   });
@@ -1622,47 +1741,27 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
       _errorMessage = null;
     });
     try {
-      final dio = createDio();
-
-      // 1. Create the item with the correct price before and after tax
-      final res = await dio.post(
-        '/DocumentItems/Add',
-        queryParameters: {'companyId': widget.companyId},
-        data: {
-          'documentId': widget.documentId,
-          'productId': _selectedProductId,
-          'quantity': _qty,
-          'expectedQuantity': _qty,
-          'priceBeforeTax': _pbt,
-          'price': _price,
-          'discount': _disc,
-          'discountType': _discountType,
-          'discountApplyRule': true,
-        },
-      );
-
-      final int newItemId = (res.data['id'] as num).toInt();
-
-      // 2. Add tax if selected (backend will also recalculate item price)
-      if (_selectedTaxId != null) {
-        await dio.post(
-          '/DocumentItemTaxes/Add',
-          queryParameters: {'companyId': widget.companyId},
-          data: {'documentItemId': newItemId, 'taxId': _selectedTaxId},
-        );
-      }
-
-      // 3. Add expiration date if set
-      if (_expirationDate != null) {
-        await dio.post(
-          '/DocumentItemExpirationDates/Add',
-          queryParameters: {'companyId': widget.companyId},
-          data: {
-            'documentItemId': newItemId,
-            'expirationDate': _expirationDate!.toIso8601String(),
-          },
-        );
-      }
+      // Offline-first: write the line item to local SQLite. The selected tax +
+      // expiration travel on the row and SyncManager pushes them to
+      // /DocumentItems(+Taxes/+ExpirationDates) on the next sync.
+      await ref.read(appDatabaseProvider).insertDocumentItemLocal(
+            DocumentItemsTableCompanion(
+              localId: Value(const Uuid().v4()),
+              documentId: Value(widget.documentLocalId),
+              productId: Value(_selectedProductId!),
+              quantity: Value(_qty),
+              unitPrice: Value(_price),
+              priceBeforeTax: Value(_pbt),
+              discount: Value(_disc),
+              discountType: Value(_discountType),
+              total: Value(_total),
+              taxAmount: Value((_price - _pbt) * _qty),
+              taxId: Value(_selectedTaxId),
+              taxRate: Value(_selectedTaxRate),
+              expirationDate: Value(_expirationDate),
+              syncStatus: const Value('pending_create'),
+            ),
+          );
 
       if (!mounted) return;
       if (widget.isPurchase && _selectedProductId != null) {
@@ -1672,10 +1771,11 @@ class _AddItemDialogState extends ConsumerState<_AddItemDialog> {
           quantity: _qty,
         );
       }
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       Navigator.of(context).pop();
-    } on DioException catch (e) {
+    } catch (e) {
       setState(() {
-        _errorMessage = e.response?.data?.toString() ?? "Failed to add item.";
+        _errorMessage = "Failed to add item: $e";
         _isLoading = false;
       });
     }
@@ -1989,13 +2089,12 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
   late final TextEditingController _discountCtrl;
   late final TextEditingController _expirationDateCtrl;
   DateTime? _expirationDate;
-  bool _hasInitialExpirationDate = false;
-  bool _initializedExpDate = false;
   late int _discountType;
   bool _isLoading = false;
   String? _errorMessage;
 
   int? _selectedTaxId;
+  double _selectedTaxRate = 0;
 
   @override
   void initState() {
@@ -2008,7 +2107,12 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
       text: widget.item.discount.toString(),
     );
     _discountType = widget.item.discountType;
-    _expirationDateCtrl = TextEditingController();
+    _selectedTaxId = widget.item.taxId;
+    _selectedTaxRate = widget.item.taxRate;
+    _expirationDate = widget.item.expirationDate;
+    _expirationDateCtrl = TextEditingController(
+      text: _expirationDate?.toIso8601String().split('T').first ?? '',
+    );
   }
 
   @override
@@ -2020,135 +2124,52 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
     super.dispose();
   }
 
+  double get _pbt =>
+      double.tryParse(_priceCtrl.text) ?? widget.item.priceBeforeTax;
+  double get _price => _pbt * (1 + _selectedTaxRate / 100);
+  double get _qty => double.tryParse(_qtyCtrl.text) ?? widget.item.quantity;
+  double get _disc =>
+      double.tryParse(_discountCtrl.text) ?? widget.item.discount;
+  double get _discTaxed => _discountType == 0 ? _price * (_disc / 100) : _disc;
+  double get _total => (_price - _discTaxed) * _qty;
+
   Future<void> _submit() async {
+    final localId = widget.item.localId;
+    if (localId == null) {
+      Navigator.of(context).pop();
+      return;
+    }
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
     try {
-      final dio = createDio();
-
-      // 1. Compute tax-inclusive price from the current applied taxes
-      final itemTaxes =
-          ref.read(documentItemTaxesProvider(widget.item.id)).value ?? [];
-      final allTaxes = ref.read(allTaxesProvider).value ?? [];
-      final appliedIds = itemTaxes.map((t) => t.taxId).toSet();
-      final sumRate = allTaxes
-          .where((t) => appliedIds.contains(t.id))
-          .fold(0.0, (s, t) => s + t.rate);
-      final pbt =
-          double.tryParse(_priceCtrl.text) ?? widget.item.priceBeforeTax;
-      final price = pbt * (1 + sumRate / 100);
-
-      // 2. Update the Document Item
-      await dio.patch(
-        '/DocumentItems/Update',
-        queryParameters: {'companyId': widget.companyId},
-        data: {
-          'id': widget.item.id,
-          'documentId': widget.item.documentId,
-          'productId': widget.item.productId,
-          'quantity': double.tryParse(_qtyCtrl.text) ?? widget.item.quantity,
-          'expectedQuantity':
-              double.tryParse(_qtyCtrl.text) ?? widget.item.quantity,
-          'priceBeforeTax': pbt,
-          'price': price,
-          'discount':
-              double.tryParse(_discountCtrl.text) ?? widget.item.discount,
-          'discountType': _discountType,
-          'productCost': widget.item.productCost,
-          'discountApplyRule': widget.item.discountApplyRule,
-        },
-      );
-
-      // 2. Handle the Expiration Date
-      if (_expirationDate != null) {
-        if (_hasInitialExpirationDate) {
-          await dio.patch(
-            '/DocumentItemExpirationDates/Update',
-            queryParameters: {'companyId': widget.companyId},
-            data: {
-              'documentItemId': widget.item.id,
-              'expirationDate': _expirationDate!.toIso8601String(),
-            },
+      // Offline-first: write the edit to local SQLite. The row carries the
+      // single selected tax + expiration; SyncManager reconciles them with the
+      // server's /DocumentItems(+Taxes/+ExpirationDates) on the next sync.
+      await ref.read(appDatabaseProvider).updateDocumentItemLocal(
+            localId,
+            DocumentItemsTableCompanion(
+              quantity: Value(_qty),
+              unitPrice: Value(_price),
+              priceBeforeTax: Value(_pbt),
+              discount: Value(_disc),
+              discountType: Value(_discountType),
+              total: Value(_total),
+              taxAmount: Value((_price - _pbt) * _qty),
+              taxId: Value(_selectedTaxId),
+              taxRate: Value(_selectedTaxRate),
+              expirationDate: Value(_expirationDate),
+            ),
           );
-        } else {
-          await dio.post(
-            '/DocumentItemExpirationDates/Add',
-            queryParameters: {'companyId': widget.companyId},
-            data: {
-              'documentItemId': widget.item.id,
-              'expirationDate': _expirationDate!.toIso8601String(),
-            },
-          );
-        }
-      } else if (_hasInitialExpirationDate && _expirationDate == null) {
-        // Only trigger delete if an initial date actually existed and was cleared
-        await dio.delete(
-          '/DocumentItemExpirationDates/Delete',
-          queryParameters: {
-            'documentItemId': widget.item.id,
-            'companyId': widget.companyId,
-          },
-        );
-      }
-
-      // Invalidate the provider so next time it is opened it fetches fresh
-      ref.invalidate(documentItemExpirationDateProvider(widget.item.id));
-
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       if (!mounted) return;
       Navigator.of(context).pop();
-    } on DioException catch (e) {
+    } catch (e) {
       setState(() {
-        _errorMessage = e.response?.data?.toString() ?? "Update failed.";
+        _errorMessage = "Update failed: $e";
         _isLoading = false;
       });
-    }
-  }
-
-  Future<void> _addTax() async {
-    if (_selectedTaxId == null) return;
-    try {
-      final dio = createDio();
-      await dio.post(
-        '/DocumentItemTaxes/Add',
-        queryParameters: {'companyId': widget.companyId},
-        data: {'documentItemId': widget.item.id, 'taxId': _selectedTaxId},
-      );
-      ref.invalidate(documentItemTaxesProvider(widget.item.id));
-      ref.invalidate(documentItemsByDocIdProvider(widget.item.documentId));
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  Future<void> _deleteTax(int taxId) async {
-    try {
-      final dio = createDio();
-      await dio.delete(
-        '/DocumentItemTaxes/Delete',
-        queryParameters: {
-          'documentItemId': widget.item.id,
-          'taxId': taxId,
-          'companyId': widget.companyId,
-        },
-      );
-      ref.invalidate(documentItemTaxesProvider(widget.item.id));
-      ref.invalidate(documentItemsByDocIdProvider(widget.item.documentId));
-    } catch (e) {
-      if (mounted) {
-        final theme = Theme.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString()),
-            backgroundColor: theme.colorScheme.error,
-          ),
-        );
-      }
     }
   }
 
@@ -2157,47 +2178,10 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
     final theme = Theme.of(context);
     final sym = ref.watch(currencySymbolProvider);
     final allTaxesAsync = ref.watch(allTaxesProvider);
-    final itemTaxesAsync = ref.watch(documentItemTaxesProvider(widget.item.id));
 
-    // Listen for expiration date changes to populate initial data once
-    ref.listen<AsyncValue<DocumentItemExpirationDateModel?>>(
-      documentItemExpirationDateProvider(widget.item.id),
-      (previous, next) {
-        next.whenData((expDateModel) {
-          if (!_initializedExpDate) {
-            _initializedExpDate = true;
-            if (expDateModel != null) {
-              setState(() {
-                _hasInitialExpirationDate = true;
-                _expirationDate = expDateModel.expirationDate;
-                _expirationDateCtrl.text = _expirationDate!
-                    .toIso8601String()
-                    .split('T')
-                    .first;
-              });
-            }
-          }
-        });
-      },
-    );
-
-    // Live preview computation
-    final allTaxesList = allTaxesAsync.value ?? [];
-    final itemTaxesList = itemTaxesAsync.value ?? [];
-    final appliedIds = itemTaxesList.map((t) => t.taxId).toSet();
-    final sumRate = allTaxesList
-        .where((t) => appliedIds.contains(t.id))
-        .fold(0.0, (s, t) => s + t.rate);
-    final previewPbt =
-        double.tryParse(_priceCtrl.text) ?? widget.item.priceBeforeTax;
-    final previewPrice = previewPbt * (1 + sumRate / 100);
-    final previewDisc =
-        double.tryParse(_discountCtrl.text) ?? widget.item.discount;
-    final previewQty = double.tryParse(_qtyCtrl.text) ?? widget.item.quantity;
-    final previewDiscTaxed = _discountType == 0
-        ? previewPrice * (previewDisc / 100)
-        : previewDisc;
-    final previewTotal = (previewPrice - previewDiscTaxed) * previewQty;
+    // Live preview computation (single selected tax)
+    final previewPrice = _price;
+    final previewTotal = _total;
     final fmt = (double v) => v.toStringAsFixed(2);
 
     return AlertDialog(
@@ -2355,113 +2339,65 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
             VerticalDivider(thickness: 1, color: theme.dividerColor),
             const SizedBox(width: 16),
 
-            // RIGHT COLUMN (Item Taxes)
+            // RIGHT COLUMN (Item Tax)
             Expanded(
               flex: 1,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    "Item Taxes",
+                    "Item Tax",
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                   ),
                   const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: allTaxesAsync.when(
-                          loading: () => const LinearProgressIndicator(),
-                          error: (_, __) => const Text("Error loading taxes"),
-                          data: (taxes) => DropdownButtonFormField<int>(
-                            initialValue: _selectedTaxId,
-                            decoration: const InputDecoration(
-                              labelText: "Select Tax",
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                            ),
-                            items: taxes
-                                .map(
-                                  (t) => DropdownMenuItem(
-                                    value: t.id,
-                                    child: Text("${t.name} (${t.rate}%)"),
-                                  ),
-                                )
-                                .toList(),
-                            onChanged: (v) =>
-                                setState(() => _selectedTaxId = v),
-                          ),
+                  allTaxesAsync.when(
+                    loading: () => const LinearProgressIndicator(),
+                    error: (_, __) => const Text("Error loading taxes"),
+                    data: (taxes) => DropdownButtonFormField<int?>(
+                      initialValue: _selectedTaxId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: "Tax",
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: _selectedTaxId == null ? null : _addTax,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: theme.colorScheme.primary,
-                          foregroundColor: theme.colorScheme.onPrimary,
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 18,
-                            horizontal: 16,
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text("No tax"),
+                        ),
+                        ...taxes.map(
+                          (t) => DropdownMenuItem<int?>(
+                            value: t.id,
+                            child: Text("${t.name} (${t.rate}%)"),
                           ),
                         ),
-                        child: const Text("Add"),
-                      ),
-                    ],
+                      ],
+                      onChanged: (v) => setState(() {
+                        _selectedTaxId = v;
+                        _selectedTaxRate = v == null
+                            ? 0
+                            : taxes
+                                .firstWhere((t) => t.id == v)
+                                .rate
+                                .toDouble();
+                      }),
+                    ),
                   ),
                   const SizedBox(height: 16),
-                  Expanded(
-                    child: itemTaxesAsync.when(
-                      loading: () =>
-                          const Center(child: CircularProgressIndicator()),
-                      error: (e, _) => Text(
-                        "Error: $e",
-                        style: TextStyle(color: theme.colorScheme.error),
-                      ),
-                      data: (taxes) {
-                        if (taxes.isEmpty) {
-                          return Text(
-                            "No taxes applied.",
-                            style: TextStyle(color: theme.disabledColor),
-                          );
-                        }
-
-                        return Container(
-                          decoration: BoxDecoration(
-                            border: Border.all(color: theme.dividerColor),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: ListView.separated(
-                            itemCount: taxes.length,
-                            separatorBuilder: (_, __) =>
-                                Divider(height: 1, color: theme.dividerColor),
-                            itemBuilder: (context, i) {
-                              final t = taxes[i];
-                              return ListTile(
-                                dense: true,
-                                title: Text(
-                                  t.taxName,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  "Tax Amount: ${t.amount.toStringAsFixed(4)} $sym",
-                                ),
-                                trailing: IconButton(
-                                  icon: Icon(
-                                    Icons.delete,
-                                    color: theme.colorScheme.error,
-                                    size: 20,
-                                  ),
-                                  onPressed: () => _deleteTax(t.taxId),
-                                ),
-                              );
-                            },
-                          ),
-                        );
-                      },
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: theme.dividerColor),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: _PreviewRow(
+                      label: "Tax amount",
+                      value: "${fmt((_price - _pbt) * _qty)} $sym",
                     ),
                   ),
                 ],
@@ -2552,6 +2488,7 @@ class _PreviewRow extends StatelessWidget {
 
 class _PaymentsView extends ConsumerWidget {
   final int documentId;
+  final String? documentLocalId;
   final int companyId;
   final int userId;
   final double documentTotal;
@@ -2560,6 +2497,7 @@ class _PaymentsView extends ConsumerWidget {
 
   const _PaymentsView({
     required this.documentId,
+    required this.documentLocalId,
     required this.companyId,
     required this.userId,
     required this.documentTotal,
@@ -2571,7 +2509,21 @@ class _PaymentsView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final asyncPayments = ref.watch(paymentsByDocumentIdProvider(documentId));
+
+    // documentLocalId is resolved by the editor right after the header saves.
+    // Until then there is nothing to attach payments to.
+    final localId = documentLocalId;
+    if (localId == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final asyncPayments = ref.watch(localDocumentPaymentsProvider(
+      LocalPaymentsArgs(
+        documentLocalId: localId,
+        documentServerId: documentId > 0 ? documentId : null,
+        companyId: companyId,
+      ),
+    ));
 
     return Column(
       children: [
@@ -2589,8 +2541,8 @@ class _PaymentsView extends ConsumerWidget {
                   paidStatus: paidStatus,
                   onChanged: (nextStatus) async {
                     // Rule 3: guard against toggling to Unpaid when the
-                    // document is already fully balanced — doing so will
-                    // delete all payment records on the backend.
+                    // document is already fully balanced — doing so clears all
+                    // applied payment records.
                     final totalPaid = asyncPayments.value?.fold<double>(
                             0, (s, p) => s + p.amount.abs()) ??
                         0;
@@ -2635,12 +2587,12 @@ class _PaymentsView extends ConsumerWidget {
                     await showDialog(
                       context: context,
                       builder: (_) => _AddPaymentDialog(
-                        documentId: documentId,
+                        documentServerId: documentId > 0 ? documentId : null,
+                        documentLocalId: localId,
                         companyId: companyId,
                         userId: userId,
                       ),
                     );
-                    ref.invalidate(paymentsByDocumentIdProvider(documentId));
                   },
                 ),
               ],
@@ -2712,15 +2664,25 @@ class _PaymentsView extends ConsumerWidget {
                           ],
                           rows: payments.map((payment) {
                             final isLocked = payment.zReportId != null;
+                            final isPending =
+                                payment.syncStatus.startsWith('pending');
                             return DataRow(
                               cells: [
-                                DataCell(Text(payment.id.toString())),
+                                DataCell(Text(
+                                  payment.id > 0 ? payment.id.toString() : '—',
+                                )),
                                 DataCell(
                                   Icon(
-                                    isLocked ? Icons.lock : Icons.check_circle,
+                                    isLocked
+                                        ? Icons.lock
+                                        : isPending
+                                            ? Icons.sync
+                                            : Icons.check_circle,
                                     color: isLocked
                                         ? theme.disabledColor
-                                        : Colors.green,
+                                        : isPending
+                                            ? theme.colorScheme.tertiary
+                                            : Colors.green,
                                     size: 20,
                                   ),
                                 ),
@@ -2765,11 +2727,6 @@ class _PaymentsView extends ConsumerWidget {
                                                         payment: payment,
                                                         companyId: companyId,
                                                       ),
-                                                );
-                                                ref.invalidate(
-                                                  paymentsByDocumentIdProvider(
-                                                    documentId,
-                                                  ),
                                                 );
                                               },
                                       ),
@@ -2824,34 +2781,38 @@ class _PaymentsView extends ConsumerWidget {
                                                   ),
                                                 );
                                                 if (confirm == true) {
-                                                  try {
-                                                    final dio = createDio();
-                                                    await dio.delete(
-                                                      '/Payments/Delete',
-                                                      queryParameters: {
-                                                        'id': payment.id,
-                                                        'companyId': companyId,
-                                                      },
-                                                    );
-                                                    ref.invalidate(
-                                                      paymentsByDocumentIdProvider(
-                                                        documentId,
-                                                      ),
-                                                    );
-                                                  } catch (e) {
-                                                    if (context.mounted) {
-                                                      ScaffoldMessenger.of(
-                                                        context,
-                                                      ).showSnackBar(
-                                                        SnackBar(
-                                                          content: Text(
-                                                            "Delete failed: $e",
-                                                          ),
-                                                          backgroundColor: theme
-                                                              .colorScheme
-                                                              .error,
-                                                        ),
+                                                  final db = ref.read(
+                                                      appDatabaseProvider);
+                                                  final serverId =
+                                                      payment.id > 0
+                                                          ? payment.id
+                                                          : null;
+                                                  // Offline-first: remove from
+                                                  // local SQLite first (the
+                                                  // stream refreshes the list),
+                                                  // then best-effort tell the
+                                                  // server; the sync queue
+                                                  // retries on failure.
+                                                  await db.deleteLocalPayment(
+                                                    localId: payment.localId!,
+                                                    serverId: serverId,
+                                                  );
+                                                  if (serverId != null) {
+                                                    try {
+                                                      await createDio().delete(
+                                                        '/Payments/Delete',
+                                                        queryParameters: {
+                                                          'id': serverId,
+                                                          'companyId':
+                                                              companyId,
+                                                        },
                                                       );
+                                                      await db
+                                                          .hardDeletePayment(
+                                                              payment.localId!);
+                                                    } catch (e) {
+                                                      debugPrint(
+                                                          'Payment delete deferred to sync: $e');
                                                     }
                                                   }
                                                 }
@@ -2916,11 +2877,13 @@ class _SummaryCard extends ConsumerWidget {
 
 // --- ADD PAYMENT DIALOG ---
 class _AddPaymentDialog extends ConsumerStatefulWidget {
-  final int documentId;
+  final int? documentServerId;
+  final String documentLocalId;
   final int companyId;
   final int userId;
   const _AddPaymentDialog({
-    required this.documentId,
+    required this.documentServerId,
+    required this.documentLocalId,
     required this.companyId,
     required this.userId,
   });
@@ -2950,30 +2913,70 @@ class _AddPaymentDialogState extends ConsumerState<_AddPaymentDialog> {
       _isLoading = true;
       _errorMessage = null;
     });
-    try {
-      final dio = createDio();
-      await dio.post(
-        '/Payments/Add',
-        queryParameters: {'companyId': widget.companyId},
-        data: {
-          'documentId': widget.documentId,
-          'paymentTypeId': _selectedPaymentTypeId,
-          'amount': double.tryParse(_amountCtrl.text) ?? 0.0,
-          'userId': widget.userId,
-        },
-      );
-      if (!mounted) return;
-      Navigator.of(context).pop();
-    } on DioException catch (e) {
-      setState(() {
-        // This will catch and display the exact text of your C# InvalidOperationException!
-        _errorMessage =
-            e.response?.data?['message']?.toString() ??
-            e.response?.data?.toString() ??
-            "Failed to add payment.";
-        _isLoading = false;
-      });
+
+    final amount = double.tryParse(_amountCtrl.text) ?? 0.0;
+    final db = ref.read(appDatabaseProvider);
+    final localId = const Uuid().v4();
+
+    // Offline-first: write the payment to local SQLite first so it shows
+    // instantly and survives offline. SyncManager pushes 'pending_create' rows
+    // to /Payments/Add on the next sync.
+    await db.insertLocalPayment(PaymentsTableCompanion(
+      localId: Value(localId),
+      documentId: Value(widget.documentLocalId),
+      paymentTypeId: Value(_selectedPaymentTypeId!),
+      amount: Value(amount),
+      userId: Value(widget.userId),
+      date: Value(DateTime.now()),
+      syncStatus: const Value('pending_create'),
+    ));
+
+    // Best-effort immediate push so the row gets its server id while online.
+    if (widget.documentServerId != null) {
+      try {
+        final res = await createDio().post(
+          '/Payments/Add',
+          queryParameters: {'companyId': widget.companyId},
+          data: {
+            'documentId': widget.documentServerId,
+            'paymentTypeId': _selectedPaymentTypeId,
+            'amount': amount,
+            'userId': widget.userId,
+          },
+        );
+        await db.markPaymentSynced(localId, _parsePaymentId(res.data));
+      } on DioException catch (e) {
+        // A real business rejection (e.g. overpayment) must not leave a ghost
+        // local payment — roll it back and surface the server message.
+        await db.hardDeletePayment(localId);
+        if (!mounted) return;
+        setState(() {
+          _errorMessage = e.response?.data is Map
+              ? (e.response?.data['message']?.toString() ??
+                  e.response?.data.toString())
+              : (e.response?.data?.toString() ?? "Failed to add payment.");
+          _isLoading = false;
+        });
+        return;
+      } catch (_) {
+        // Network/offline error — keep the local row for the sync queue.
+      }
     }
+
+    if (!mounted) return;
+    Navigator.of(context).pop();
+  }
+
+  /// Pulls a created payment's server id out of the various shapes the API may
+  /// return (bare int, {id}, or {data:{id}}).
+  int? _parsePaymentId(dynamic body) {
+    final data = body is Map && body.containsKey('data') ? body['data'] : body;
+    if (data is Map) {
+      return int.tryParse(
+          data['id']?.toString() ?? data['Id']?.toString() ?? '');
+    }
+    if (data is num) return data.toInt();
+    return null;
   }
 
   @override
@@ -3111,29 +3114,54 @@ class _EditPaymentDialogState extends ConsumerState<_EditPaymentDialog> {
       _isLoading = true;
       _errorMessage = null;
     });
-    try {
-      final dio = createDio();
-      await dio.patch(
-        '/Payments/Update',
-        queryParameters: {'companyId': widget.companyId},
-        data: {
-          'id': widget.payment.id,
-          'amount': double.tryParse(_amountCtrl.text) ?? widget.payment.amount,
-          'date': widget.payment.date
-              .toIso8601String(), // Passing the existing date to satisfy the Update Request
-        },
+
+    final amount =
+        double.tryParse(_amountCtrl.text) ?? widget.payment.amount;
+    final db = ref.read(appDatabaseProvider);
+    final localId = widget.payment.localId;
+
+    // Offline-first: persist the edit to local SQLite first, flagging it for a
+    // server push, then best-effort PATCH while online.
+    if (localId != null) {
+      await db.editLocalPayment(
+        localId: localId,
+        amount: amount,
+        currentSyncStatus: widget.payment.syncStatus,
       );
-      if (!mounted) return;
-      Navigator.of(context).pop();
-    } on DioException catch (e) {
-      setState(() {
-        _errorMessage =
-            e.response?.data?['message']?.toString() ??
-            e.response?.data?.toString() ??
-            "Update failed.";
-        _isLoading = false;
-      });
     }
+
+    final serverId = widget.payment.id;
+    if (serverId > 0) {
+      try {
+        await createDio().patch(
+          '/Payments/Update',
+          queryParameters: {'companyId': widget.companyId},
+          data: {
+            'id': serverId,
+            'amount': amount,
+            'date': widget.payment.date.toIso8601String(),
+          },
+        );
+        if (localId != null) await db.markPaymentSynced(localId, serverId);
+      } on DioException catch (e) {
+        // Keep the local pending edit for the sync queue, but show why the
+        // immediate push failed.
+        if (!mounted) return;
+        setState(() {
+          _errorMessage = e.response?.data is Map
+              ? (e.response?.data['message']?.toString() ??
+                  e.response?.data.toString())
+              : (e.response?.data?.toString() ?? "Update failed.");
+          _isLoading = false;
+        });
+        if (localId == null) return; // nothing persisted locally — stay open
+      } catch (_) {
+        // Offline — local pending_update will sync later.
+      }
+    }
+
+    if (!mounted) return;
+    Navigator.of(context).pop();
   }
 
   @override

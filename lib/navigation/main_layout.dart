@@ -24,6 +24,7 @@ import 'package:pos_app/time_clock/time_clock_screen.dart';
 import 'package:pos_app/reports/sales_history_screen.dart';
 import 'package:pos_app/credit/credit_payment_dialog.dart';
 import 'package:pos_app/shift/shift_management_screen.dart';
+import 'package:pos_app/kitchen/pos_kitchen_server.dart';
 import 'package:pos_app/sync/connectivity_watcher.dart';
 import 'package:pos_app/sync/auto_sync_watcher.dart';
 import 'package:pos_app/sync/sync_button.dart';
@@ -59,6 +60,36 @@ int resolveDefaultScreenIndex(Map<String, String> settings) {
   if (pref == 'booking' && bookingEnabled) return 2;
   if (pref == 'tables' && floorPlanEnabled) return 4;
   return 0; // POS Menu — always valid.
+}
+
+/// Small pill showing how many open orders the kitchen has marked ready.
+/// Sits in the "View open sales" nav item's trailing slot.
+class _ReadyCountBadge extends StatelessWidget {
+  final int count;
+  const _ReadyCountBadge(this.count);
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      constraints: const BoxConstraints(minWidth: 20),
+      height: 20,
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: cs.error,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        '$count',
+        style: TextStyle(
+          color: cs.onError,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
 }
 
 class MainLayout extends ConsumerStatefulWidget {
@@ -116,6 +147,18 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     // alive here for the whole post-login session (like the connectivity
     // watcher). Cleaned up via ref.onDispose when MainLayout is popped.
     ref.watch(autoSyncWatcherProvider);
+
+    // Background poll for KDS order-status changes so the "ready" badge stays
+    // live even while the cashier is on the POS menu. Kept alive for the
+    // session like the watchers above.
+    ref.watch(kitchenStatusWatcherProvider);
+
+    // LAN listener: paired Kitchen Displays POST here when an order is marked
+    // ready, flipping its local serviceStatus → drives the same badge offline.
+    ref.watch(posKitchenServerProvider);
+
+    // Count of orders the kitchen has marked ready — drives the nav badge.
+    final readyCount = ref.watch(readyOrdersCountProvider).value ?? 0;
 
     // Active tab comes from the shared provider — tab switches are pure state
     // changes, never a MainLayout rebuild from a navigator push.
@@ -236,6 +279,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                       icon: Icons.layers,
                       label: "View open sales",
                       isActive: selectedIndex == 1,
+                      trailing: readyCount > 0 ? _ReadyCountBadge(readyCount) : null,
                       onTap: () => ref.read(securityGuardProvider).guard(
                         context,
                         SecurityKeys.openOrders,

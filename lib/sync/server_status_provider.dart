@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:pos_app/api/api_client.dart';
+import 'package:pos_app/company/company_provider.dart';
 
 /// Pings the C# API every 15 seconds and emits `true` if it's reachable.
 ///
@@ -23,23 +24,25 @@ final serverStatusProvider = StreamProvider<bool>((ref) async* {
     receiveTimeout: const Duration(seconds: 3),
   );
 
+  int companyId() => ref.read(selectedCompanyProvider)?.id ?? 1;
+
   // First check fires immediately.
-  yield await _ping(dio, pingOptions);
+  yield await _ping(dio, pingOptions, companyId());
 
   // Then every 15 seconds for the lifetime of the provider.
   await for (final _ in Stream<void>.periodic(const Duration(seconds: 15))) {
-    yield await _ping(dio, pingOptions);
+    yield await _ping(dio, pingOptions, companyId());
   }
 });
 
-Future<bool> _ping(Dio dio, Options options) async {
+Future<bool> _ping(Dio dio, Options options, int companyId) async {
   try {
     // Hit a lightweight endpoint. /Currencies/GetAll is small (single-digit
     // rows typically) and exists on every deployment. Any 2xx OR 4xx means
     // the server is alive; only connection-class failures mean offline.
     await dio.get<dynamic>(
       '/Currencies/GetAll',
-      queryParameters: {'companyId': 1},
+      queryParameters: {'companyId': companyId},
       options: options,
     );
     return true;
