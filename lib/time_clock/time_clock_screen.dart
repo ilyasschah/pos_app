@@ -462,12 +462,16 @@ class TotalHoursBadge extends ConsumerWidget {
             children: [
               Icon(Icons.timer_outlined, size: 13, color: cs.primary),
               const SizedBox(width: 6),
-              Text(
-                'Today: $label',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  color: cs.primary,
-                  fontWeight: FontWeight.w600,
+              Flexible(
+                child: Text(
+                  'Today: $label',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: cs.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],

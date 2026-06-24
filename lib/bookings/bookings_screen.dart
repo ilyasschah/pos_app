@@ -18,6 +18,7 @@ import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/document/document_editor_screen.dart';
 import 'package:pos_app/document/document_model.dart';
 import 'package:pos_app/customer/customer_model.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 
 // ── Layout constants ──────────────────────────────────────────────────────────
@@ -985,12 +986,8 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     if (widget.resourceMode != 'staff' && _selectedTableIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select at least one table.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      showAppSnackbar(context, ref, 'Please select at least one table.',
+          isError: true);
       return;
     }
     final allowPast = ref
@@ -998,21 +995,13 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
         .bookingSettings
         .allowPastBookings;
     if (!allowPast && _toDateTime(_startTime).isBefore(DateTime.now())) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cannot create a booking in the past.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      showAppSnackbar(context, ref, 'Cannot create a booking in the past.',
+          isError: true);
       return;
     }
     if (!_toDateTime(_endTime).isAfter(_toDateTime(_startTime))) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('End time must be after start time.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      showAppSnackbar(context, ref, 'End time must be after start time.',
+          isError: true);
       return;
     }
     setState(() => _saving = true);
@@ -1106,9 +1095,7 @@ class _AddBookingDialogState extends ConsumerState<_AddBookingDialog> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
+        showAppSnackbar(context, ref, 'Error: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1513,9 +1500,7 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
+        showAppSnackbar(context, ref, 'Error: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1589,9 +1574,7 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
+        showAppSnackbar(context, ref, 'Error: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1615,14 +1598,9 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
           );
       if (!mounted) return;
       if (!loaded) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Order not found. It may have been completed or voided.',
-            ),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        showAppSnackbar(context, ref,
+            'Order not found. It may have been completed or voided.',
+            isError: true);
         return;
       }
       Navigator.pushAndRemoveUntil(
@@ -1632,9 +1610,7 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
+        showAppSnackbar(context, ref, 'Error: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1659,9 +1635,7 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
       await showDocumentEditor(context, ref, existingDocument: doc);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
+        showAppSnackbar(context, ref, 'Error: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1712,9 +1686,7 @@ class _BookingDetailDialogState extends ConsumerState<_BookingDetailDialog> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-        );
+        showAppSnackbar(context, ref, 'Error: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _saving = false);

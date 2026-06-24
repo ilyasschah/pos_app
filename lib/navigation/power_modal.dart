@@ -141,12 +141,18 @@ class _PowerOptionCardState extends State<_PowerOptionCard> {
             children: [
               Icon(widget.icon, size: 54, color: widget.iconColor),
               const SizedBox(height: 16),
-              Text(
-                widget.label,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: widget.textColor ?? Theme.of(context).colorScheme.onSurface,
-                  fontWeight: FontWeight.w500,
+              // Flexible + ellipsis so a larger font scale can't push the label
+              // past the fixed 150px card height (vertical overflow).
+              Flexible(
+                child: Text(
+                  widget.label,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: widget.textColor ?? Theme.of(context).colorScheme.onSurface,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
               ),
             ],

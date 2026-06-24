@@ -16,7 +16,6 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/settings/settings_provider.dart';
 import 'package:pos_app/sync/sync_provider.dart';
-import 'package:pos_app/utils/error_handler.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -356,37 +355,25 @@ class _PinPadModalState extends ConsumerState<_PinPadModal> {
   Future<void> _loginUser() async {
     ref.read(currentUserProvider.notifier).setUser(widget.user);
 
-    // Seed the local Drift DB before navigating into MainLayout. After this
-    // returns, every read-only provider migrated in Phase 3 has data to serve
-    // even if the network drops mid-session.
+    // Offline-first login: the user already authenticated against the LOCAL
+    // cache (the user list + PIN are read from Drift), so go STRAIGHT into the
+    // app on cached data — never block login on the network. The sync runs in
+    // the BACKGROUND (push pending writes + pull fresh master data); Drift-backed
+    // screens fill in reactively as the pull lands. A first install briefly shows
+    // empty screens until the first pull completes — an acceptable trade for not
+    // hanging on "Syncing master data…" when the server is slow/unreachable.
     //
-    // Failure policy (plan section 2.3): if the seed fails but we already have
-    // data from a prior session, warn and continue. We can't easily check
-    // emptiness here without an extra round-trip, so V1 always continues —
-    // first-install failure surfaces later as empty product/floor-plan screens.
-    setState(() {
-      _isLoading = true;
-      _isSyncing = true;
-    });
-
-    try {
-      // Use sync() — push first so any orders left pending from a previous
-      // shift get flushed before we pull fresh master data.
-      await ref.read(syncManagerProvider).sync(widget.user.companyId);
-    } catch (e) {
-      if (mounted) {
-        _showError(
-          'Sync failed — running on cached data. '
-          '${friendlyErrorMessage(e)}',
-        );
-      }
-    }
+    // Capture the manager before navigating so the future outlives this screen,
+    // and swallow errors (we're already running on cache).
+    final sync = ref.read(syncManagerProvider);
+    sync.sync(widget.user.companyId).catchError((Object _) => <String>[]);
 
     if (!mounted) return;
 
     // Land on the user's configured default screen. MainLayout (initialIndex
     // defaults to 0) resolves it from settings via resolveDefaultScreenIndex,
-    // validated against the feature flags.
+    // validated against the feature flags. MainLayout's auto-sync watcher keeps
+    // syncing for the rest of the session.
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (context) => const MainLayout()),

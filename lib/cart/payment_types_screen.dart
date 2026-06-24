@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
-import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/cart/payment_type_model.dart';
 import 'package:pos_app/cart/payment_type_provider.dart';
+import 'package:pos_app/database/database_provider.dart';
+import 'package:pos_app/sync/sync_notifier.dart';
 import 'package:pos_app/sync/sync_provider.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 
@@ -581,23 +581,15 @@ class PaymentTypesScreen extends ConsumerWidget {
     int companyId,
   ) async {
     try {
-      final dio = createDio();
-
-      await dio.delete(
-        '/PaymentTypes/Delete',
-
-        queryParameters: {'companyId': companyId, 'id': id},
-      );
-
-      await ref.read(syncManagerProvider).pullPaymentTypes(companyId);
-
+      // Offline-first: tombstone locally (list drops it instantly via the Drift
+      // stream); SyncManager issues /PaymentTypes/Delete on the next push.
+      await ref.read(appDatabaseProvider).deletePaymentTypeLocal(id);
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       if (!context.mounted) return;
       showAppSnackbar(context, ref, 'Payment type deleted');
-    } on DioException catch (e) {
+    } catch (e) {
       if (!context.mounted) return;
-      final data = e.response?.data;
-      final msg = (data is Map ? data['message'] : null) ?? data?.toString() ?? 'Delete failed';
-      showAppSnackbar(context, ref, msg, isError: true);
+      showAppSnackbar(context, ref, 'Delete failed', isError: true);
     }
   }
 }
@@ -711,51 +703,31 @@ class _PaymentTypeFormDialogState
       _errorMessage = null;
     });
 
-    final payload = <String, dynamic>{
-      'name': _nameCtrl.text.trim(),
-      'code': _codeCtrl.text.trim(),
-      'ordinal': int.tryParse(_ordinalCtrl.text.trim()) ?? 0,
-      'shortcutKey': _shortcutCtrl.text.trim(),
-      'isEnabled': _isEnabled,
-      'isQuickPayment': _isQuickPayment,
-      'isCustomerRequired': _isCustomerRequired,
-      'isChangeAllowed': _isChangeAllowed,
-      'markAsPaid': _markAsPaid,
-      'openCashDrawer': _openCashDrawer,
-      'isFiscal': _isFiscal,
-      'isSlipRequired': _isSlipRequired,
-    };
-
     try {
-      final dio = createDio();
-
-      if (_isEditing) {
-        payload['id'] = widget.paymentType!.id;
-
-        await dio.patch(
-          '/PaymentTypes/Update',
-
-          queryParameters: {'companyId': widget.companyId},
-
-          data: payload,
-        );
-      } else {
-        await dio.post(
-          '/PaymentTypes/Add',
-
-          queryParameters: {'companyId': widget.companyId},
-
-          data: payload,
-        );
-      }
-
+      // Offline-first: write to the local DB first so the list updates instantly
+      // via the Drift stream; SyncManager pushes /PaymentTypes/Add|Update later.
+      await ref.read(appDatabaseProvider).savePaymentTypeLocal(
+            id: _isEditing ? widget.paymentType!.id : null,
+            companyId: widget.companyId,
+            name: _nameCtrl.text.trim(),
+            code: _codeCtrl.text.trim(),
+            ordinal: int.tryParse(_ordinalCtrl.text.trim()) ?? 0,
+            shortcutKey: _shortcutCtrl.text.trim(),
+            isEnabled: _isEnabled,
+            isQuickPayment: _isQuickPayment,
+            isCustomerRequired: _isCustomerRequired,
+            isChangeAllowed: _isChangeAllowed,
+            markAsPaid: _markAsPaid,
+            openCashDrawer: _openCashDrawer,
+            isFiscal: _isFiscal,
+            isSlipRequired: _isSlipRequired,
+          );
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       if (!mounted) return;
-
       Navigator.of(context).pop();
-    } on DioException catch (e) {
+    } catch (e) {
       setState(() {
-        _errorMessage = e.response?.data?.toString() ?? "Operation failed.";
-
+        _errorMessage = "Operation failed.";
         _isLoading = false;
       });
     }

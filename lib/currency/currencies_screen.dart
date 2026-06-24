@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/currency/currency_model.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 // --- PROVIDER (No CompanyId Required!) ---
 final allCurrenciesProvider =
@@ -57,12 +58,10 @@ class CurrenciesScreen extends ConsumerWidget {
           .delete('/Currencies/Delete', queryParameters: {'id': currency.id});
       ref.invalidate(allCurrenciesProvider);
       if (context.mounted)
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("Currency deleted"), backgroundColor: Colors.green));
+        showAppSnackbar(context, ref, "Currency deleted");
     } catch (e) {
       if (context.mounted)
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(_parseApiError(e)), backgroundColor: Colors.red));
+        showAppSnackbar(context, ref, _parseApiError(e), isError: true);
     }
   }
 

@@ -15,6 +15,7 @@ import 'package:pos_app/product/product_group_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 import 'package:pos_app/reports/report_models.dart';
 import 'package:pos_app/reports/reports_provider.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 // ─── Data models ──────────────────────────────────────────────────────────────
 
@@ -606,15 +607,11 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       await Process.start('explorer.exe', [file.path]);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Saved: ${file.path}')),
-        );
+        showAppSnackbar(context, ref, 'Saved: ${file.path}');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e'), backgroundColor: Theme.of(context).colorScheme.error),
-        );
+        showAppSnackbar(context, ref, 'Export failed: $e', isError: true);
       }
     }
   }

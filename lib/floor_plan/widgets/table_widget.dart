@@ -10,6 +10,7 @@ import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/kitchen/kitchen_push_service.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 class TableWidget extends ConsumerStatefulWidget {
   final FloorPlanTable table;
@@ -100,12 +101,8 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
                 if (success && mounted) {
                   Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainLayout(initialIndex: 0)));
                 } else if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Could not find active order.'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                  showAppSnackbar(context, ref, 'Could not find active order.',
+                      isError: true);
                 }
               } else {
                 final types = ref
@@ -239,12 +236,7 @@ class _TableWidgetState extends ConsumerState<TableWidget> {
               }
             } catch (e) {
               if (mounted)
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Error: $e'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
+                showAppSnackbar(context, ref, 'Error: $e', isError: true);
             } finally {
               if (mounted) setState(() => isCreatingOrder = false);
             }

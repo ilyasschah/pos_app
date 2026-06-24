@@ -76,9 +76,10 @@ class Company {
   /// zero call-site changes. One small file read per `fromDrift` call —
   /// fine for the singleton-ish Company.
   ///
-  /// Fields not in the lean schema (countryName, postal/city, bank details,
-  /// etc.) come back null. Admin Company-edit screens that need the full
-  /// set should keep going through the API.
+  /// All editable fields are now persisted by pullCompany, so the My Company
+  /// edit screen reads/writes this cache offline-first. Only `countryName` is
+  /// null here (it's a server-side join) — the screen resolves it from the
+  /// cached countries list.
   factory Company.fromDrift(CompaniesTableData row) {
     String? logoBase64;
     final logoPath = row.localLogoPath;
@@ -94,9 +95,21 @@ class Company {
     return Company(
       id: row.id,
       name: row.name,
+      countryId: row.countryId,
       taxNumber: row.taxNumber,
       address: row.address,
+      postalCode: row.postalCode,
+      city: row.city,
+      email: row.email,
       phoneNumber: row.phone,
+      bankAccountNumber: row.bankAccountNumber,
+      bankDetails: row.bankDetails,
+      streetName: row.streetName,
+      additionalStreetName: row.additionalStreetName,
+      buildingNumber: row.buildingNumber,
+      plotIdentification: row.plotIdentification,
+      citySubdivisionName: row.citySubdivisionName,
+      countrySubentity: row.countrySubentity,
       logo: logoBase64,
     );
   }

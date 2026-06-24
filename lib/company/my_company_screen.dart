@@ -8,6 +8,8 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_model.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/currency/country_model.dart';
+import 'package:pos_app/database/database_provider.dart';
+import 'package:pos_app/sync/sync_notifier.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 
 class MyCompanyScreen extends ConsumerStatefulWidget {
@@ -70,15 +72,14 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
     });
 
     try {
-      final dio = createDio();
+      // Offline-first: read the full company + country list from the local
+      // Drift cache (populated by pullCompany / pullCountries). No network.
+      final db = ref.read(appDatabaseProvider);
 
-      final companyResponse = await dio.get(
-        '/Company/GetById',
-        queryParameters: {'id': selected.id},
-      );
-      final company = Company.fromJson(
-        companyResponse.data as Map<String, dynamic>,
-      );
+      final row = await (db.select(db.companiesTable)
+            ..where((t) => t.id.equals(selected.id)))
+          .getSingleOrNull();
+      final company = row != null ? Company.fromDrift(row) : selected;
 
       _nameCtrl.text = company.name;
       _taxNumberCtrl.text = company.taxNumber ?? '';
@@ -95,38 +96,27 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
       _bankAccountCtrl.text = company.bankAccountNumber ?? '';
       _bankDetailsCtrl.text = company.bankDetails ?? '';
 
-      if (mounted) setState(() => _isLoadingCompany = false);
+      // Country dropdown from the cached countries table. serverId is the real
+      // id that company.countryId references.
+      final countryRows = await db.select(db.countriesTable).get();
+      final countries = countryRows
+          .map((r) => Country(
+                id: r.serverId ?? r.id,
+                name: r.name,
+                code: r.code,
+              ))
+          .toList();
 
-      try {
-        final countryResponse = await dio.get(
-          '/Country/GetAllCountries',
-          queryParameters: {'companyId': company.id},
-        );
-        final countries = (countryResponse.data as List)
-            .map((j) => Country.fromJson(j))
-            .toList();
-
-        if (!mounted) return;
-        setState(() {
-          _countries = countries;
-          final hasMatch =
-              company.countryId != null &&
-              company.countryId! > 0 &&
-              countries.any((c) => c.id == company.countryId);
-          _selectedCountryId = hasMatch
-              ? company.countryId
-              : (countries.isNotEmpty ? countries.first.id : null);
-          _countriesLoading = false;
-        });
-      } catch (_) {
-        if (mounted) setState(() => _countriesLoading = false);
-      }
-    } on DioException catch (e) {
       if (!mounted) return;
       setState(() {
-        _loadError =
-            e.response?.data?.toString() ??
-            'Failed to load company data. Please check your connection.';
+        _countries = countries;
+        final hasMatch = company.countryId != null &&
+            company.countryId! > 0 &&
+            countries.any((c) => c.id == company.countryId);
+        _selectedCountryId = hasMatch
+            ? company.countryId
+            : (countries.isNotEmpty ? countries.first.id : null);
+        _countriesLoading = false;
         _isLoadingCompany = false;
       });
     } catch (_) {
@@ -134,6 +124,7 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
       setState(() {
         _loadError = 'An unexpected error occurred. Please try again.';
         _isLoadingCompany = false;
+        _countriesLoading = false;
       });
     }
   }
@@ -218,28 +209,27 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
     });
 
     try {
-      final dio = createDio();
-      await dio.patch(
-        '/Company/Update',
-        data: {
-          'id': company.id,
-          'name': _nameCtrl.text.trim(),
-          'countryId': _selectedCountryId,
-          'taxNumber': _taxNumberCtrl.text.trim(),
-          'streetName': _streetNameCtrl.text.trim(),
-          'buildingNumber': _buildingNumberCtrl.text.trim(),
-          'additionalStreetName': _additionalStreetCtrl.text.trim(),
-          'plotIdentification': _plotIdCtrl.text.trim(),
-          'citySubdivisionName': _citySubdivisionCtrl.text.trim(),
-          'countrySubentity': _countrySubentityCtrl.text.trim(),
-          'postalCode': _postalCodeCtrl.text.trim(),
-          'city': _cityCtrl.text.trim(),
-          'email': _emailCtrl.text.trim(),
-          'phoneNumber': _phoneCtrl.text.trim(),
-          'bankAccountNumber': _bankAccountCtrl.text.trim(),
-          'bankDetails': _bankDetailsCtrl.text.trim(),
-        },
-      );
+      // Offline-first: write the edit to the local cache (pending_update) so it
+      // shows instantly; SyncManager pushes /Company/Update on the next sync.
+      await ref.read(appDatabaseProvider).saveCompanyLocal(
+            id: company.id,
+            name: _nameCtrl.text.trim(),
+            countryId: _selectedCountryId,
+            taxNumber: _taxNumberCtrl.text.trim(),
+            streetName: _streetNameCtrl.text.trim(),
+            buildingNumber: _buildingNumberCtrl.text.trim(),
+            additionalStreetName: _additionalStreetCtrl.text.trim(),
+            plotIdentification: _plotIdCtrl.text.trim(),
+            citySubdivisionName: _citySubdivisionCtrl.text.trim(),
+            countrySubentity: _countrySubentityCtrl.text.trim(),
+            postalCode: _postalCodeCtrl.text.trim(),
+            city: _cityCtrl.text.trim(),
+            email: _emailCtrl.text.trim(),
+            phoneNumber: _phoneCtrl.text.trim(),
+            bankAccountNumber: _bankAccountCtrl.text.trim(),
+            bankDetails: _bankDetailsCtrl.text.trim(),
+          );
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
 
       if (!mounted) return;
       showAppSnackbar(context, ref, 'Company updated successfully');
@@ -270,11 +260,8 @@ class _MyCompanyScreenState extends ConsumerState<MyCompanyScreen> {
       );
       ref.read(selectedCompanyProvider.notifier).update(updatedCompany);
       ref.invalidate(allCompaniesProvider);
-    } on DioException catch (e) {
-      setState(() {
-        _errorMessage =
-            e.response?.data?.toString() ?? "Failed to save changes.";
-      });
+    } catch (e) {
+      setState(() => _errorMessage = "Failed to save changes.");
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }

@@ -291,14 +291,22 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         icon: Icons.calendar_month,
                         label: "Bookings",
                         isActive: selectedIndex == 2,
-                        onTap: () => handleNavTap(2),
+                        onTap: () => ref.read(securityGuardProvider).guard(
+                          context,
+                          SecurityKeys.bookings,
+                          () => handleNavTap(2),
+                        ),
                       ),
                     if (bookingEnabled)
                       NavItem(
                         icon: Icons.history,
                         label: "Booking History",
                         isActive: selectedIndex == 3,
-                        onTap: () => handleNavTap(3),
+                        onTap: () => ref.read(securityGuardProvider).guard(
+                          context,
+                          SecurityKeys.bookingHistory,
+                          () => handleNavTap(3),
+                        ),
                       ),
                     if (floorPlanEnabled)
                       NavItem(
@@ -306,7 +314,11 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         label:
                             settings[SettingKeys.tablesButtonLabel] ?? "Tables",
                         isActive: selectedIndex == 4,
-                        onTap: () => handleNavTap(4),
+                        onTap: () => ref.read(securityGuardProvider).guard(
+                          context,
+                          SecurityKeys.floorPlanView,
+                          () => handleNavTap(4),
+                        ),
                       ),
 
                     NavItem(

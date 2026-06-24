@@ -79,7 +79,12 @@ class _SecurityKeysTab extends ConsumerWidget {
         key == 'Settings' ||
         key == 'BusinessDay.Close' ||
         key == 'UserProfile' ||
-        key == 'FloorPlans.Design') {
+        key == 'ShiftManagement' ||
+        key == 'CashMovement' ||
+        key == 'FloorPlans.Design' ||
+        key == 'FloorPlans.View' ||
+        key == 'Bookings' ||
+        key == 'Bookings.History') {
       return 'General';
     }
     return 'Sales';
@@ -91,7 +96,12 @@ class _SecurityKeysTab extends ConsumerWidget {
       'Settings': 'Settings',
       'BusinessDay.Close': 'End of day',
       'UserProfile': 'User profile',
+      'ShiftManagement': 'Shift management',
+      'CashMovement': 'Cash in / out',
       'FloorPlans.Design': 'Design floor plans',
+      'FloorPlans.View': 'Floor plan / tables',
+      'Bookings': 'Bookings',
+      'Bookings.History': 'Booking history',
       'Order.All': 'View all open orders',
       'Order.Void': 'Void order',
       'Order.Item.Void': 'Void item',
@@ -111,15 +121,19 @@ class _SecurityKeysTab extends ConsumerWidget {
       'Management.Dashboard': 'Dashboard',
       'Management.Documents': 'Documents',
       'Management.Products': 'Products',
+      'Management.ProductGroups': 'Product groups',
       'Management.Stock': 'Stock',
+      'Management.Warehouses': 'Warehouses',
       'Management.Reporting': 'Reporting',
       'Management.Customers': 'Customers & suppliers',
       'Management.Promotions': 'Promotions',
       'Management.Security': 'Users & security',
       'Management.PaymentTypes': 'Payment types',
       'Management.Countries': 'Countries',
+      'Management.Currencies': 'Currencies',
       'Management.TaxRates': 'Tax rates',
       'Management.Company': 'My company',
+      'Management.VoidReasons': 'Void reasons',
       'Management.Stock.QuickInventory': 'Quick inventory',
       'Management.Stock.ShowCostPrices': 'View cost prices',
       'Management.LoyaltyCards': 'Loyalty cards',
@@ -1075,11 +1089,7 @@ Future<void> _adminResetPassword(
 
                       if (context.mounted) {
                         Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text("Password forcibly reset!"),
-                          ),
-                        );
+                        showAppSnackbar(context, ref, "Password forcibly reset!");
                       }
                     } on DioException catch (e, st) {
                       rethrowApiError(e, st);
@@ -1154,13 +1164,8 @@ Future<void> _adminResetPin(
 
                       if (context.mounted) {
                         Navigator.pop(ctx);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              "PIN forcibly reset for this Device!",
-                            ),
-                          ),
-                        );
+                        showAppSnackbar(
+                            context, ref, "PIN forcibly reset for this Device!");
                         ref.invalidate(allUsersAdminProvider);
                       }
                     } on DioException catch (e, st) {

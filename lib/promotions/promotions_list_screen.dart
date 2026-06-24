@@ -7,6 +7,7 @@ import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/promotions/promotion_edit_screen.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/sync/sync_provider.dart';
 
 class PromotionsListScreen extends ConsumerWidget {
   /// Passed by ManagementLayout when the sidebar is hidden so the AppBar can
@@ -79,7 +80,20 @@ class PromotionsListScreen extends ConsumerWidget {
                   OutlinedButton.icon(
                     icon: const Icon(Icons.refresh),
                     label: const Text("Refresh"),
-                    onPressed: () => ref.refresh(allPromotionsProvider),
+                    // The list streams live from Drift, so it needs no manual
+                    // provider refresh — "Refresh" pulls the latest from the
+                    // server (best-effort) and the stream reflects the new rows.
+                    onPressed: () async {
+                      final companyId = ref.read(selectedCompanyProvider)?.id;
+                      if (companyId == null) return;
+                      try {
+                        await ref
+                            .read(syncManagerProvider)
+                            .pullPromotions(companyId);
+                      } catch (_) {
+                        // Offline — the local stream is already current.
+                      }
+                    },
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton.icon(
@@ -89,10 +103,12 @@ class PromotionsListScreen extends ConsumerWidget {
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
                     ),
+                    // No post-pop refresh needed: allPromotionsProvider streams
+                    // live from Drift and updates the instant the editor writes.
                     onPressed: () => Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const PromotionEditScreen()),
-                    ).then((_) => ref.refresh(allPromotionsProvider)),
+                    ),
                   ),
                 ],
               ),
@@ -173,7 +189,9 @@ class PromotionsListScreen extends ConsumerWidget {
                                             // Real status: Disabled (off),
                                             // Active (live now), or Inactive
                                             // (enabled but outside its date /
-                                            // day / time window).
+                                            // day / time window). Shown as a
+                                            // colour-coded dot; the label is in
+                                            // the tooltip on hover/long-press.
                                             final (label, color) =
                                                 !promotion.isEnabled
                                                     ? ("Disabled", Colors.red)
@@ -182,21 +200,17 @@ class PromotionsListScreen extends ConsumerWidget {
                                                         ? ("Active", Colors.green)
                                                         : ("Inactive",
                                                             Colors.orange);
-                                            return Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                  horizontal: 12, vertical: 5),
-                                              decoration: ShapeDecoration(
-                                                color: color.withValues(
-                                                    alpha: 0.15),
-                                                shape: const StadiumBorder(),
-                                              ),
-                                              child: Text(
-                                                label,
-                                                textAlign: TextAlign.center,
-                                                style: TextStyle(
-                                                  color: color,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 12,
+                                            return Align(
+                                              alignment: Alignment.centerLeft,
+                                              child: Tooltip(
+                                                message: label,
+                                                child: Container(
+                                                  width: 14,
+                                                  height: 14,
+                                                  decoration: BoxDecoration(
+                                                    color: color,
+                                                    shape: BoxShape.circle,
+                                                  ),
                                                 ),
                                               ),
                                             );
@@ -221,7 +235,7 @@ class PromotionsListScreen extends ConsumerWidget {
                                                   MaterialPageRoute(
                                                     builder: (_) => PromotionEditScreen(promotion: promotion),
                                                   ),
-                                                ).then((_) => ref.refresh(allPromotionsProvider)),
+                                                ),
                                               ),
                                               IconButton(
                                                 icon: const Icon(Icons.delete, color: Colors.red),

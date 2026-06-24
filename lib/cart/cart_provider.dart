@@ -161,6 +161,34 @@ class CartNotifier extends Notifier<CartState> {
         .toList();
   }
 
+  /// Resolves the taxes assigned to a product in the product editor (the
+  /// `product_taxes` table) into concrete [MenuTax] objects, so adding the
+  /// product to the cart applies its own tax. Fully offline (reads Drift + the
+  /// warm tax cache). Falls back to the configured default tax rates when the
+  /// product has no assignment of its own.
+  Future<List<MenuTax>> resolveProductTaxes(int productId) async {
+    final db = ref.read(appDatabaseProvider);
+    final assigned = await db.getProductTaxes(productId); // excludes pending_delete
+    if (assigned.isEmpty) return _resolveDefaultTaxes();
+
+    final taxIds = assigned.map((a) => a.taxId).toSet();
+    final taxes = _taxesCache
+        .where((t) => taxIds.contains(t.id) && t.isEnabled)
+        .map(
+          (t) => MenuTax(
+            id: t.id,
+            name: t.name,
+            rate: t.rate,
+            isFixed: t.isFixed,
+            isTaxOnTotal: t.isTaxOnTotal,
+          ),
+        )
+        .toList();
+    // A product whose only assignment is a disabled/missing tax falls back to
+    // the configured defaults rather than silently applying nothing.
+    return taxes.isNotEmpty ? taxes : _resolveDefaultTaxes();
+  }
+
   void _notifyKitchen() {
     ref.read(kitchenSyncProvider).push();
   }
@@ -193,9 +221,13 @@ class CartNotifier extends Notifier<CartState> {
       final todayUtc = DateTime.now().toUtc();
       int absoluteMax = 0;
 
+      // POS sequence numbers are always '{prefix} #{NNN}'. Match ONLY the '#'
+      // delimiter — never a bare '-' — so foreign document numbering schemes
+      // (purchases like 'PUR-1052', timestamp fallbacks 'DOC-1750…') can't
+      // poison the counter and wreck the next order number.
       for (final o in results[0]) {
         final raw = (o['number'] ?? o['Number'] ?? '') as String;
-        final match = RegExp(r'[#-](\d+)$').firstMatch(raw);
+        final match = RegExp(r'#\s*(\d+)$').firstMatch(raw);
         if (match != null) {
           final parsed = int.tryParse(match.group(1)!);
           if (parsed != null && parsed > absoluteMax) absoluteMax = parsed;
@@ -222,7 +254,7 @@ class CartNotifier extends Notifier<CartState> {
 
         final raw = (d['orderNumber'] ?? d['OrderNumber'] ?? '') as String;
         if (raw.isEmpty) continue;
-        final match = RegExp(r'[#-](\d+)$').firstMatch(raw);
+        final match = RegExp(r'#\s*(\d+)$').firstMatch(raw);
         if (match != null) {
           final parsed = int.tryParse(match.group(1)!);
           if (parsed != null && parsed > absoluteMax) absoluteMax = parsed;

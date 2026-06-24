@@ -7,6 +7,7 @@ import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/navigation/nav_widgets.dart';
 import 'package:pos_app/sync/pending_count_provider.dart';
 import 'package:pos_app/sync/sync_notifier.dart';
+import 'package:pos_app/sync/sync_provider.dart';
 import 'package:pos_app/utils/error_handler.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 
@@ -23,17 +24,48 @@ class SyncButton extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // Toast on every transition out of loading. Stays attached for the life
     // of this widget; ref.listen registers a one-shot callback per change.
-    ref.listen<AsyncValue<void>>(syncStateProvider, (prev, next) {
+    ref.listen<AsyncValue<List<String>>>(syncStateProvider, (prev, next) {
       if (prev is! AsyncLoading || next is AsyncLoading) return;
       if (next is AsyncError) {
+        // Hard failure — the whole run threw before completing.
         showAppSnackbar(
           context,
           ref,
-          friendlyErrorMessage(next.error),
+          friendlyErrorMessage(next.error ?? 'Sync failed'),
           isError: true,
         );
       } else {
-        // Success toast is opt-in — the AUTO SYNC "Show sync notification"
+        // Server-rejected ops (resolved, won't retry) — e.g. deleting a product
+        // still linked to a document. The local row was reverted, so tell the
+        // user why their action didn't stick. Surfaced regardless of the opt-in
+        // toast so a silently-reappearing row is always explained.
+        final rejections = ref.read(syncManagerProvider).rejectionNotices;
+        if (rejections.isNotEmpty) {
+          showAppSnackbar(
+            context,
+            ref,
+            rejections.length == 1
+                ? rejections.first
+                : '${rejections.length} changes were rejected: '
+                    '${rejections.join(' · ')}',
+            isError: true,
+          );
+        }
+
+        // Partial failures: some entities couldn't sync but the run finished.
+        // Always surfaced (not gated by the opt-in toast) so missing cloud data
+        // is never silent.
+        final failed = next.value ?? const [];
+        if (failed.isNotEmpty) {
+          showAppSnackbar(
+            context,
+            ref,
+            "Sync finished, but these didn't sync: ${failed.join(', ')}",
+            isError: true,
+          );
+          return;
+        }
+        // Clean success toast is opt-in — the AUTO SYNC "Show sync notification"
         // setting controls it so background syncs don't spam the screen.
         final showToast = ref
                 .read(appSettingsProvider)[SettingKeys.autoSyncShowNotification]

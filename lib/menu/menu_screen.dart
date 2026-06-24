@@ -34,19 +34,23 @@ import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table.dart';
 import 'package:pos_app/auth/user_model.dart';
 import 'package:pos_app/product/product_comment_model.dart';
-import 'package:pos_app/product/product_comment_provider.dart';
 // import 'package:pos_app/menu/open_orders_screen.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
 import 'package:pos_app/refund/refund_dialog.dart';
+import 'package:pos_app/security/security_guard.dart';
+import 'package:pos_app/security/security_keys.dart';
 import 'package:pos_app/utils/error_handler.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 import 'package:pos_app/utils/scale_barcode_parser.dart';
 import 'package:pos_app/customer_display/customer_display_provider.dart';
 import 'package:pos_app/stock/stock_provider.dart';
+import 'package:pos_app/stock/stock_control_provider.dart';
+import 'package:pos_app/stock/stock_control_model.dart';
+import 'package:pos_app/navigation/nav_widgets.dart';
+import 'package:pos_app/settings/local_ui_prefs.dart';
 
 final currentGroupProvider = StateProvider<ProductGroup?>((ref) => null);
 final searchQueryProvider = StateProvider<String>((ref) => "");
-final cartWidthProvider = StateProvider<double>((ref) => 350.0);
 
 // --- MAIN SCREEN ---
 class MenuScreen extends ConsumerStatefulWidget {
@@ -618,9 +622,13 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                       iconSize: 26,
                       icon: const Icon(Icons.percent),
                       tooltip: "Discount",
-                      onPressed: () => showDialog(
-                        context: context,
-                        builder: (_) => const DiscountDialog(),
+                      onPressed: () => ref.read(securityGuardProvider).guard(
+                        context,
+                        SecurityKeys.applyDiscount,
+                        () => showDialog(
+                          context: context,
+                          builder: (_) => const DiscountDialog(),
+                        ),
                       ),
                     ),
                   if (showTaxBtn)
@@ -628,24 +636,29 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                       iconSize: 26,
                       icon: const Icon(Icons.receipt),
                       tooltip: "Tax",
-                      onPressed: () {
-                        final selectedCartItemId = cartState.selectedCartItemId;
-                        if (selectedCartItemId == null) {
-                          showAppSnackbar(context, ref, 'Please select an item first', isError: true);
-                          return;
-                        }
-                        final item = cartState.items
-                            .where((i) => i.cartItemId == selectedCartItemId)
-                            .firstOrNull;
-                        if (item == null) {
-                          showAppSnackbar(context, ref, 'Please add a product to the cart and select it', isError: true);
-                          return;
-                        }
-                        showDialog(
-                          context: context,
-                          builder: (_) => _ItemTaxDialog(item: item),
-                        );
-                      },
+                      onPressed: () => ref.read(securityGuardProvider).guard(
+                        context,
+                        SecurityKeys.taxOverride,
+                        () {
+                          final selectedCartItemId =
+                              cartState.selectedCartItemId;
+                          if (selectedCartItemId == null) {
+                            showAppSnackbar(context, ref, 'Please select an item first', isError: true);
+                            return;
+                          }
+                          final item = cartState.items
+                              .where((i) => i.cartItemId == selectedCartItemId)
+                              .firstOrNull;
+                          if (item == null) {
+                            showAppSnackbar(context, ref, 'Please add a product to the cart and select it', isError: true);
+                            return;
+                          }
+                          showDialog(
+                            context: context,
+                            builder: (_) => _ItemTaxDialog(item: item),
+                          );
+                        },
+                      ),
                     ),
                   if (showTransferBtn)
                     IconButton(
@@ -654,10 +667,14 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                       tooltip: "Transfer",
                       onPressed: cartState.activePosOrderId == null
                           ? null
-                          : () => showDialog(
-                              context: context,
-                              builder: (_) =>
-                                  _TransferDialog(cartState: cartState),
+                          : () => ref.read(securityGuardProvider).guard(
+                              context,
+                              SecurityKeys.orderTransfer,
+                              () => showDialog(
+                                context: context,
+                                builder: (_) =>
+                                    _TransferDialog(cartState: cartState),
+                              ),
                             ),
                     ),
                   if (showRefundBtn)
@@ -665,9 +682,13 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                       iconSize: 26,
                       icon: const Icon(Icons.undo),
                       tooltip: "Refund",
-                      onPressed: () => showDialog(
-                        context: context,
-                        builder: (_) => const RefundDialog(),
+                      onPressed: () => ref.read(securityGuardProvider).guard(
+                        context,
+                        SecurityKeys.refund,
+                        () => showDialog(
+                          context: context,
+                          builder: (_) => const RefundDialog(),
+                        ),
                       ),
                     ),
 
@@ -877,7 +898,14 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
               double newWidth = currentWidth - details.delta.dx;
               if (newWidth < 250) newWidth = 250;
               if (newWidth > maxWidth) newWidth = maxWidth;
-              ref.read(cartWidthProvider.notifier).state = newWidth;
+              // Live in-memory update during the drag.
+              ref.read(cartWidthProvider.notifier).set(newWidth);
+            },
+            // Flush to on-device storage once the drag settles (one write per
+            // resize). Stored locally — not cloud-synced — so resizing here
+            // never changes the layout on another terminal.
+            onHorizontalDragEnd: (_) {
+              ref.read(cartWidthProvider.notifier).persist();
             },
             child: const MouseRegion(
               cursor: SystemMouseCursors.resizeLeftRight,
@@ -921,6 +949,7 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
   int _currentPage = 0;
   List<PromotionDto> _activePromos = const [];
   Map<int, double> _stockMap = const {};
+  Map<int, StockControl> _stockControlMap = const {};
   String? _activeSearchMode;
   final TextEditingController _searchCtrl = TextEditingController();
 
@@ -1029,23 +1058,9 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
       }
     }
 
-    // Negative-inventory guard
-    if (!match.isService) {
-      final preventNeg =
-          settings[SettingKeys.preventNegativeInventory]?.toLowerCase() == 'true';
-      if (preventNeg) {
-        final stock = _stockMap[match.id] ?? 0;
-        final cartQty = ref
-            .read(cartProvider)
-            .items
-            .where((i) => i.productId == match!.id)
-            .fold(0.0, (s, i) => s + i.quantity);
-        if (cartQty + quantity > stock) {
-          if (mounted) await _showOutOfStockDialog(match);
-          return;
-        }
-      }
-    }
+    // Offline stock validation: hard-block negative inventory and warn on low
+    // stock (acknowledgement required) before the item reaches the cart.
+    if (!await _passesStockGuards(match, quantity)) return;
 
     // Age restriction check
     if (match.ageRestriction != null) {
@@ -1053,6 +1068,12 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
           await _showAgeRestrictionDialog(context, match.ageRestriction!);
       if (!confirmed || !mounted) return;
     }
+
+    // Resolve the product's assigned taxes so a scanned/searched item carries
+    // its tax just like a tapped one.
+    final productTaxes =
+        await ref.read(cartProvider.notifier).resolveProductTaxes(match.id);
+    if (!mounted) return;
 
     // Add to cart and clear the search bar
     try {
@@ -1064,7 +1085,7 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
         isTaxInclusivePrice: match.isTaxInclusivePrice,
         color: match.color,
         stockQuantity: 9999,
-        taxes: [],
+        taxes: productTaxes,
         isEnabled: match.isEnabled,
         ageRestriction: match.ageRestriction,
         isPriceChangeAllowed: match.isPriceChangeAllowed,
@@ -1103,6 +1124,97 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
 
   String _fmtQty(double q) =>
       q == q.roundToDouble() ? q.toInt().toString() : q.toString();
+
+  /// Synchronous, offline-first stock validation run the instant a product is
+  /// tapped to be added to the cart. Reads live local stock ([_stockMap]) and the
+  /// per-product control rules ([_stockControlMap]) — both seeded reactively in
+  /// [build] from Drift — so it works with zero network access.
+  ///
+  /// Returns `true` if the item may be added, `false` if the add must be aborted.
+  ///
+  ///  * Projected qty = current local stock − qty already in the cart − this tap.
+  ///  * Hard block: if "Prevent Negative Inventory" is on and the projection goes
+  ///    below zero, the add is blocked outright.
+  ///  * Soft warning: if a low-stock rule is enabled and the projection hits the
+  ///    threshold, the cashier must explicitly acknowledge before proceeding.
+  Future<bool> _passesStockGuards(Product product, double quantity) async {
+    if (product.isService) return true;
+
+    final settings = ref.read(appSettingsProvider);
+    final currentStock = _stockMap[product.id] ?? 0;
+    final cartQty = ref
+        .read(cartProvider)
+        .items
+        .where((i) => i.productId == product.id)
+        .fold(0.0, (sum, i) => sum + i.quantity);
+    final projectedQuantity = currentStock - cartQty - quantity;
+
+    // Hard block — negative inventory is not permitted.
+    final preventNegInv =
+        settings[SettingKeys.preventNegativeInventory]?.toLowerCase() == 'true';
+    if (preventNegInv && projectedQuantity < 0) {
+      if (context.mounted) await _showOutOfStockDialog(product);
+      return false;
+    }
+
+    // Soft warning — running low against the configured threshold.
+    final rule = _stockControlMap[product.id];
+    if (rule != null && rule.isLowStockAt(projectedQuantity)) {
+      if (!context.mounted) return false;
+      return _showLowStockWarningDialog(product, projectedQuantity);
+    }
+
+    return true;
+  }
+
+  /// Flat, low-overhead warning the cashier must acknowledge when a tapped item
+  /// would drop to/below its low-stock threshold. Returns `true` to proceed.
+  Future<bool> _showLowStockWarningDialog(
+    Product product,
+    double projectedQuantity,
+  ) async {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: context.navSidebarBg,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: context.navDivider, width: 1),
+        ),
+        icon: PhosphorIcon(
+          PhosphorIconsRegular.warning,
+          color: cs.error,
+          size: 32,
+        ),
+        title: Text('${product.name} is running low'),
+        content: Text(
+          'Adding this item leaves only ${_fmtQty(projectedQuantity)} '
+          '${product.measurementUnit ?? 'unit(s)'} in stock, at or below the '
+          'low-stock warning level.\n\nAdd it anyway?',
+          style: tt.bodyMedium?.copyWith(color: context.navMuted),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: cs.error,
+              foregroundColor: cs.onError,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Proceed Anyway'),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
 
   /// Shown when a product can't be added because the selected warehouse is out
   /// of stock. Lists the other warehouses that still hold the product and lets
@@ -1203,6 +1315,10 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
     // here seeds them on first build and refreshes on every change.
     _activePromos = ref.watch(activePromotionsProvider).value ?? const [];
     _stockMap = ref.watch(stockQuantitiesProvider).value ?? const {};
+    // Per-product stock-control rules (reorder point, low-stock threshold) read
+    // straight from the offline Drift cache so the add-to-cart guards below can
+    // evaluate them synchronously without a network/async round-trip.
+    _stockControlMap = ref.watch(stockControlsMapProvider).value ?? const {};
 
     final asyncGroups = ref.watch(allProductGroupsProvider);
     final asyncProducts = ref.watch(allProductsListProvider);
@@ -1598,20 +1714,6 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
           }
         }
 
-        if (!product.isService) {
-          final preventNegInv = ref.read(appSettingsProvider)[SettingKeys.preventNegativeInventory]?.toLowerCase() == 'true';
-          if (preventNegInv) {
-            final stock = _stockMap[product.id] ?? 0;
-            final cartQty = ref.read(cartProvider).items
-                .where((i) => i.productId == product.id)
-                .fold(0.0, (sum, i) => sum + i.quantity);
-            if (cartQty + 1 > stock) {
-              if (context.mounted) await _showOutOfStockDialog(product);
-              return;
-            }
-          }
-        }
-
         if (product.ageRestriction != null) {
           final confirmed = await _showAgeRestrictionDialog(
             context,
@@ -1630,6 +1732,11 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
           quantity = qty;
         }
 
+        // Offline stock validation: hard-block negative inventory and warn on
+        // low stock (acknowledgement required) using the real tapped quantity.
+        if (!context.mounted) return;
+        if (!await _passesStockGuards(product, quantity)) return;
+
         double price = product.price;
         if (product.isPriceChangeAllowed) {
           final preventBelowCost = ref.read(appSettingsProvider)[SettingKeys.preventSaleBelowCostPrice]?.toLowerCase() == 'true';
@@ -1640,9 +1747,21 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
 
         String? comment;
         try {
-          final comments = await ref.read(
-            productCommentsProvider(product.id).future,
-          );
+          // Read the product's comment suggestions straight from Drift. Going
+          // through productCommentsProvider(...).future here was unreliable: it's
+          // an autoDispose .family StreamProvider, and reading `.future` with no
+          // active listener can resolve before the Drift watch-stream emits its
+          // first row — so a product that HAS comments looked like it had none
+          // and the modifier popup silently never showed. A direct query is
+          // deterministic and fully offline (the rows are pulled during sync).
+          final db = ref.read(appDatabaseProvider);
+          final companyId = ref.read(selectedCompanyProvider)?.id ?? 0;
+          final rows = await (db.select(db.productCommentsTable)
+                ..where((t) => t.companyId.equals(companyId))
+                ..where((t) => t.productId.equals(product.id))
+                ..where((t) => t.syncStatus.isNotIn(['pending_delete'])))
+              .get();
+          final comments = rows.map(ProductComment.fromDrift).toList();
           if (comments.isNotEmpty) {
             if (!context.mounted) return;
             final result = await showDialog<String?>(
@@ -1658,6 +1777,14 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
           }
         } catch (_) {}
 
+        // Load the product's assigned taxes (set in the product editor) so the
+        // cart applies them. Without this the item is added with no tax even
+        // though it has a primary tax rate configured. Offline-first: reads the
+        // local product_taxes table + warm tax cache.
+        final productTaxes = await ref
+            .read(cartProvider.notifier)
+            .resolveProductTaxes(product.id);
+
         if (!context.mounted) return;
         try {
           final menuProduct = MenuProduct(
@@ -1668,7 +1795,7 @@ class _BrowserSectionState extends ConsumerState<BrowserSection> {
             isTaxInclusivePrice: product.isTaxInclusivePrice,
             color: product.color,
             stockQuantity: 9999,
-            taxes: [],
+            taxes: productTaxes,
             isEnabled: product.isEnabled,
             ageRestriction: product.ageRestriction,
             isPriceChangeAllowed: product.isPriceChangeAllowed,
@@ -2372,221 +2499,243 @@ class _CartSectionState extends ConsumerState<CartSection> {
                     final item = cartItems[index];
                     final isSelected =
                         cartState.selectedCartItemId == item.cartItemId;
-                    return ListTile(
-                      selected: isSelected,
-                      selectedTileColor: isDark
-                          ? Colors.blue[900]?.withValues(alpha: 0.3)
-                          : Colors.blue[50],
-                      onTap: () {
-                        ref
-                            .read(cartProvider.notifier)
-                            .setSelectedProduct(item.cartItemId);
-                      },
-                      title: Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              item.productName,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (item.appliedTaxes.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(left: 6.0),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.blue.withAlpha(38),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.receipt_long,
-                                      size: 10,
-                                      color: Colors.blue,
-                                    ),
-                                    const SizedBox(width: 2),
-                                    Text(
-                                      "TAX",
-                                      style: TextStyle(
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.blue[700],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          if (item.discount > 0)
-                            Padding(
-                              padding: const EdgeInsets.only(left: 6.0),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.green.withAlpha(38),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(
-                                      Icons.sell,
-                                      size: 10,
-                                      color: Colors.green,
-                                    ),
-                                    const SizedBox(width: 2),
-                                    Text(
-                                      "-${item.discountType == 0 ? item.discount.toInt() : item.discount.toStringAsFixed(1)}",
-                                      style: TextStyle(
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.green[700],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          if (item.promotionalDiscount > 0)
-                            const Padding(
-                              padding: EdgeInsets.only(left: 6.0),
-                              child: Text("⭐", style: TextStyle(fontSize: 12)),
-                            ),
-                        ],
-                      ),
+                    final cs = Theme.of(context).colorScheme;
+                    final hasDiscount = item.discount > 0 ||
+                        item.promotionalDiscount > 0;
 
-                      subtitle: Text("${_formatCartQty(item)} (Tap to modify)"),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: Icon(
-                              Icons.remove_circle_outline,
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            ),
-                            onPressed: () => ref
-                                .read(cartProvider.notifier)
-                                .decrementItem(item.cartItemId),
-                          ),
+                    // Compact +/- stepper button — shrunk from the default 48px
+                    // IconButton tap target so the controls row fits even a
+                    // narrow cart panel without overflowing.
+                    Widget stepBtn(IconData icon, VoidCallback onTap) =>
+                        IconButton(
+                          icon: Icon(icon, color: cs.onSurfaceVariant),
+                          iconSize: 22,
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                              minWidth: 34, minHeight: 34),
+                          onPressed: onTap,
+                        );
 
-                          InkWell(
-                            onTap: () {
-                              final controller = TextEditingController(
-                                text: item.quantity % 1 == 0
-                                    ? item.quantity.toInt().toString()
-                                    : item.quantity.toStringAsFixed(2),
-                              );
-                              showDialog(
-                                context: context,
-                                builder: (ctx) => AlertDialog(
-                                  title: const Text("Enter Quantity"),
-                                  content: TextField(
-                                    controller: controller,
-                                    keyboardType:
-                                        const TextInputType.numberWithOptions(
-                                          decimal: true,
-                                        ),
-                                    autofocus: true,
-                                    decoration: InputDecoration(
-                                      labelText: "Quantity",
-                                      suffixText: item.measurementUnit,
-                                    ),
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(ctx),
-                                      child: const Text("Cancel"),
-                                    ),
-                                    ElevatedButton(
-                                      onPressed: () {
-                                        final newQty = double.tryParse(
-                                          controller.text,
-                                        );
-                                        if (newQty != null && newQty >= 0) {
-                                          ref
-                                              .read(cartProvider.notifier)
-                                              .updateItemQuantity(
-                                                item.cartItemId,
-                                                newQty,
-                                              );
-                                        }
-                                        Navigator.pop(ctx);
-                                      },
-                                      child: const Text("Set"),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                            child: Text(
-                              _formatCartQty(item),
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                    // Small status pill (TAX / discount).
+                    Widget badge(IconData icon, String label, Color color) =>
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: color.withAlpha(38),
+                            borderRadius: BorderRadius.circular(4),
                           ),
-                          IconButton(
-                            icon: Icon(
-                              Icons.add_circle_outline,
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
-                            ),
-                            onPressed: () => ref
-                                .read(cartProvider.notifier)
-                                .incrementItem(item.cartItemId),
-                          ),
-                          const SizedBox(width: 8),
-                          // Price
-                          Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (item.discount > 0 ||
-                                  item.promotionalDiscount > 0)
-                                Text(
-                                  "${(taxIncluded ? _grossLineFullPrice(item) : item.price * item.quantity).toStringAsFixed(2)} $sym",
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey,
-                                    decoration: TextDecoration.lineThrough,
-                                  ),
-                                ),
+                              Icon(icon, size: 10, color: color),
+                              const SizedBox(width: 2),
                               Text(
-                                "${(taxIncluded ? _grossLineTotal(item) : (item.price - item.discount - item.promotionalDiscount) * item.quantity).toStringAsFixed(2)} $sym",
+                                label,
                                 style: TextStyle(
-                                  fontSize: 15,
+                                  fontSize: 9,
                                   fontWeight: FontWeight.bold,
-                                  color:
-                                      (item.discount > 0 ||
-                                          item.promotionalDiscount > 0)
-                                      ? Colors.green
-                                      : null,
+                                  color: color,
                                 ),
                               ),
                             ],
                           ),
+                        );
 
-                          IconButton(
-                            icon: Icon(
-                              Icons.close,
-                              color: isDark ? Colors.redAccent : Colors.red,
-                              size: 24,
+                    return InkWell(
+                      onTap: () => ref
+                          .read(cartProvider.notifier)
+                          .setSelectedProduct(item.cartItemId),
+                      child: Container(
+                        color: isSelected
+                            ? (isDark
+                                ? Colors.blue[900]?.withValues(alpha: 0.3)
+                                : Colors.blue[50])
+                            : null,
+                        padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // ── Name + remove ──────────────────────────────
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    item.productName,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: Icon(
+                                    Icons.close,
+                                    color:
+                                        isDark ? Colors.redAccent : Colors.red,
+                                    size: 20,
+                                  ),
+                                  visualDensity: VisualDensity.compact,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                      minWidth: 34, minHeight: 34),
+                                  onPressed: () {
+                                    void remove() => ref
+                                        .read(cartProvider.notifier)
+                                        .removeItem(item.cartItemId);
+                                    // Removing a line from an already-saved
+                                    // order is a gated "void item" action;
+                                    // trimming a fresh unsaved cart is normal
+                                    // cashier work and is not gated.
+                                    if (cartState.activePosOrderId == null) {
+                                      remove();
+                                    } else {
+                                      ref.read(securityGuardProvider).guard(
+                                            context,
+                                            SecurityKeys.orderItemVoid,
+                                            remove,
+                                          );
+                                    }
+                                  },
+                                ),
+                              ],
                             ),
-                            onPressed: () => ref
-                                .read(cartProvider.notifier)
-                                .removeItem(item.cartItemId),
-                          ),
-                        ],
+                            // ── Badges (wrap so they never overflow) ───────
+                            if (item.appliedTaxes.isNotEmpty || hasDiscount)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.only(top: 2, bottom: 2),
+                                child: Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    if (item.appliedTaxes.isNotEmpty)
+                                      badge(Icons.receipt_long, 'TAX',
+                                          Colors.blue),
+                                    if (item.discount > 0)
+                                      badge(
+                                        Icons.sell,
+                                        "-${item.discountType == 0 ? item.discount.toInt() : item.discount.toStringAsFixed(1)}",
+                                        Colors.green,
+                                      ),
+                                    if (item.promotionalDiscount > 0)
+                                      const Text('⭐',
+                                          style: TextStyle(fontSize: 12)),
+                                  ],
+                                ),
+                              ),
+                            // ── Quantity stepper + price ───────────────────
+                            Row(
+                              children: [
+                                stepBtn(
+                                  Icons.remove_circle_outline,
+                                  () => ref
+                                      .read(cartProvider.notifier)
+                                      .decrementItem(item.cartItemId),
+                                ),
+                                InkWell(
+                                  onTap: () {
+                                    final controller = TextEditingController(
+                                      text: item.quantity % 1 == 0
+                                          ? item.quantity.toInt().toString()
+                                          : item.quantity.toStringAsFixed(2),
+                                    );
+                                    showDialog(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        title: const Text("Enter Quantity"),
+                                        content: TextField(
+                                          controller: controller,
+                                          keyboardType: const TextInputType
+                                              .numberWithOptions(decimal: true),
+                                          autofocus: true,
+                                          decoration: InputDecoration(
+                                            labelText: "Quantity",
+                                            suffixText: item.measurementUnit,
+                                          ),
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx),
+                                            child: const Text("Cancel"),
+                                          ),
+                                          ElevatedButton(
+                                            onPressed: () {
+                                              final newQty = double.tryParse(
+                                                  controller.text);
+                                              if (newQty != null &&
+                                                  newQty >= 0) {
+                                                ref
+                                                    .read(cartProvider.notifier)
+                                                    .updateItemQuantity(
+                                                        item.cartItemId, newQty);
+                                              }
+                                              Navigator.pop(ctx);
+                                            },
+                                            child: const Text("Set"),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 4),
+                                    child: Text(
+                                      _formatCartQty(item),
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                stepBtn(
+                                  Icons.add_circle_outline,
+                                  () => ref
+                                      .read(cartProvider.notifier)
+                                      .incrementItem(item.cartItemId),
+                                ),
+                                const Spacer(),
+                                // Price (strikethrough original + net).
+                                Flexible(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      if (hasDiscount)
+                                        Text(
+                                          "${(taxIncluded ? _grossLineFullPrice(item) : item.price * item.quantity).toStringAsFixed(2)} $sym",
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: cs.onSurfaceVariant,
+                                            decoration:
+                                                TextDecoration.lineThrough,
+                                          ),
+                                        ),
+                                      Text(
+                                        "${(taxIncluded ? _grossLineTotal(item) : (item.price - item.discount - item.promotionalDiscount) * item.quantity).toStringAsFixed(2)} $sym",
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.bold,
+                                          color: hasDiscount
+                                              ? Colors.green
+                                              : null,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     );
                   },
@@ -2607,12 +2756,16 @@ class _CartSectionState extends ConsumerState<CartSection> {
           child: Column(
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    taxIncluded ? "Subtotal (incl. tax)" : "Subtotal",
-                    style: const TextStyle(fontSize: 16),
+                  Expanded(
+                    child: Text(
+                      taxIncluded ? "Subtotal (incl. tax)" : "Subtotal",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 16),
+                    ),
                   ),
+                  const SizedBox(width: 8),
                   Text(
                     "${(taxIncluded ? grossSubtotal : subtotal).toStringAsFixed(2)} $sym",
                     style: const TextStyle(fontSize: 16),
@@ -2623,12 +2776,16 @@ class _CartSectionState extends ConsumerState<CartSection> {
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        "Item Discounts",
-                        style: TextStyle(fontSize: 16, color: Colors.green),
+                      const Expanded(
+                        child: Text(
+                          "Item Discounts",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 16, color: Colors.green),
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Text(
                         "-${discountTotal.toStringAsFixed(2)} $sym",
                         style: const TextStyle(
@@ -2644,15 +2801,19 @@ class _CartSectionState extends ConsumerState<CartSection> {
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        "Customer Discount (${cartState.customerDiscountType == 0 ? '${cartState.customerDiscountValue?.toInt()}%' : '${cartState.customerDiscountValue?.toStringAsFixed(2)} $sym'})",
-                        style: const TextStyle(
-                          fontSize: 16,
-                          color: Colors.green,
+                      Expanded(
+                        child: Text(
+                          "Customer Discount (${cartState.customerDiscountType == 0 ? '${cartState.customerDiscountValue?.toInt()}%' : '${cartState.customerDiscountValue?.toStringAsFixed(2)} $sym'})",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            color: Colors.green,
+                          ),
                         ),
                       ),
+                      const SizedBox(width: 8),
                       Text(
                         "-${cartNotifier.customerDiscountAmount.toStringAsFixed(2)} $sym",
                         style: const TextStyle(
@@ -2667,12 +2828,16 @@ class _CartSectionState extends ConsumerState<CartSection> {
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        "Cart Discount",
-                        style: TextStyle(fontSize: 16, color: Colors.green),
+                      const Expanded(
+                        child: Text(
+                          "Cart Discount",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 16, color: Colors.green),
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Text(
                         "-${cartNotifier.manualCartDiscountAmount.toStringAsFixed(2)} $sym",
                         style: const TextStyle(
@@ -2687,12 +2852,16 @@ class _CartSectionState extends ConsumerState<CartSection> {
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        "Total Promotional Discount",
-                        style: TextStyle(fontSize: 16, color: Colors.amber),
+                      const Expanded(
+                        child: Text(
+                          "Total Promotional Discount",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 16, color: Colors.amber),
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Text(
                         "-${cartNotifier.promotionalDiscountTotal.toStringAsFixed(2)} $sym",
                         style: const TextStyle(
@@ -2705,17 +2874,21 @@ class _CartSectionState extends ConsumerState<CartSection> {
                 ),
               const SizedBox(height: 6),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    taxIncluded ? "Tax (incl.)" : "Taxes",
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: taxIncluded
-                          ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45)
-                          : null,
+                  Expanded(
+                    child: Text(
+                      taxIncluded ? "Tax (incl.)" : "Taxes",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: taxIncluded
+                            ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.45)
+                            : null,
+                      ),
                     ),
                   ),
+                  const SizedBox(width: 8),
                   Text(
                     "${taxTotal.toStringAsFixed(2)} $sym",
                     style: TextStyle(
@@ -2732,22 +2905,35 @@ class _CartSectionState extends ConsumerState<CartSection> {
                 child: Divider(height: 1, thickness: 1),
               ),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    "Total Due",
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.greenAccent[400] : Colors.green,
+                  Expanded(
+                    child: Text(
+                      "Total Due",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.greenAccent[400] : Colors.green,
+                      ),
                     ),
                   ),
-                  Text(
-                    "${grandTotal.toStringAsFixed(2)} $sym",
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.greenAccent[400] : Colors.green,
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        "${grandTotal.toStringAsFixed(2)} $sym",
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: isDark
+                              ? Colors.greenAccent[400]
+                              : Colors.green,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -2773,8 +2959,12 @@ class _CartSectionState extends ConsumerState<CartSection> {
                   ElevatedButton(
                     onPressed: cartState.activePosOrderId == null
                         ? null
-                        : () => _handleVoidOrder(
-                              context, ref, cartState, cartItems),
+                        : () => ref.read(securityGuardProvider).guard(
+                              context,
+                              SecurityKeys.orderVoid,
+                              () => _handleVoidOrder(
+                                  context, ref, cartState, cartItems),
+                            ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.redAccent,
                       padding: const EdgeInsets.symmetric(

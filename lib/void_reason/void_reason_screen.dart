@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
-import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/sync/sync_notifier.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 // ── Models ────────────────────────────────────────────────────────────────────
 
@@ -97,19 +96,18 @@ class _VoidReasonsScreenState extends ConsumerState<VoidReasonsScreen> {
 
     setState(() { _saving = true; _error = null; });
     try {
-      final dio = createDio();
-      if (_selectedId == null) {
-        await dio.post('/VoidReasons/Add',
-            queryParameters: {'companyId': companyId, 'name': name, 'rank': rank});
-      } else {
-        await dio.put('/VoidReasons/Update/$_selectedId',
-            queryParameters: {'name': name, 'rank': rank});
-      }
-      // Refresh the local cache from the server so the Drift-backed list updates.
+      // Offline-first: write to the local DB first so the list updates instantly
+      // via the Drift stream; SyncManager pushes /VoidReasons/Add|Update later.
+      await ref.read(appDatabaseProvider).saveVoidReasonLocal(
+            id: _selectedId,
+            companyId: companyId,
+            name: name,
+            rank: rank,
+          );
       ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       _clearSelection();
-    } on DioException catch (e) {
-      setState(() => _error = e.response?.data?.toString() ?? 'Save failed.');
+    } catch (e) {
+      setState(() => _error = 'Save failed.');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -134,16 +132,14 @@ class _VoidReasonsScreenState extends ConsumerState<VoidReasonsScreen> {
     if (confirmed != true) return;
 
     try {
-      final dio = createDio();
-      await dio.delete('/VoidReasons/Delete/$id');
+      // Offline-first: tombstone locally (list drops it instantly via the Drift
+      // stream); SyncManager issues /VoidReasons/Delete on the next push.
+      await ref.read(appDatabaseProvider).deleteVoidReasonLocal(id);
       ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       if (_selectedId == id) _clearSelection();
-    } on DioException catch (e) {
+    } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.response?.data?.toString() ?? 'Delete failed.'),
-              backgroundColor: Theme.of(context).colorScheme.error),
-        );
+        showAppSnackbar(context, ref, 'Delete failed.', isError: true);
       }
     }
   }

@@ -19,6 +19,7 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/settings/local_ui_prefs.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/app_settings/service_type_model.dart';
 import 'package:pos_app/app_settings/service_status_model.dart';
@@ -31,10 +32,7 @@ import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/floor_plan/floor_plan_table_provider.dart';
 import 'package:pos_app/navigation/nav_widgets.dart';
-import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
-import 'package:pos_app/currency/country_model.dart';
-import 'package:dio/dio.dart';
 import 'package:pos_app/settings/printer_settings_screen.dart';
 import 'package:pos_app/kitchen/kitchen_push_service.dart';
 import 'package:pos_app/kitchen/printer_group_model.dart';
@@ -43,6 +41,7 @@ import 'package:pos_app/product/product_group_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 import 'package:pos_app/tax/tax_provider.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
+import 'package:pos_app/settings/device_identity.dart';
 import 'package:phosphor_flutter/phosphor_flutter.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,7 +78,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     (icon: Icons.tune, label: 'General'),
     (icon: Icons.receipt_long, label: 'Order & Payment'),
     (icon: Icons.inventory_2, label: 'Products'),
-    (icon: Icons.description, label: 'Documents'),
     (icon: Icons.monitor_weight, label: 'Weighing Scale'),
     (icon: Icons.display_settings, label: 'Customer Display'),
     (icon: Icons.kitchen, label: 'Kitchen Display'),
@@ -89,14 +87,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     (icon: Icons.storage, label: 'Database'),
     (icon: Icons.vpn_key, label: 'License'),
     (icon: Icons.info_outline, label: 'About'),
-    (icon: Icons.public, label: 'Countries'),
   ];
 
   static const _tabViews = [
     _GeneralTab(),
     _OrderPaymentTab(),
     _ProductsTab(),
-    _DocumentsTab(),
     _WeighingScaleTab(),
     _CustomerDisplayTab(),
     _KitchenDisplayTab(),
@@ -106,7 +102,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _DatabaseTab(),
     _LicenseTab(),
     _AboutTab(),
-    _CountriesTab(),
   ];
 
   Future<void> _saveAndRestart() async {
@@ -1891,6 +1886,12 @@ final _kSearchableSettings = <SearchableSetting>[
     trailingBuilder: (openTab) => _OpenTabButton(openTab),
   ),
   SearchableSetting(
+    title: 'Font Size',
+    tabName: 'General · Appearance',
+    tabIndex: 0,
+    trailingBuilder: (openTab) => _OpenTabButton(openTab),
+  ),
+  SearchableSetting(
     title: 'Writing Direction',
     tabName: 'General · Application Style',
     tabIndex: 0,
@@ -2398,43 +2399,18 @@ final _kSearchableSettings = <SearchableSetting>[
         const _DropdownControl(SettingKeys.menuGridRows, ['3', '4', '5']),
   ),
 
-  // ── Documents ────────────────────────────────────────────────────────────────
-  SearchableSetting(
-    title: 'Invoice Number Prefix',
-    tabName: 'Documents · Numbering',
-    tabIndex: 3,
-    trailingBuilder: (_) =>
-        const _TextFieldControl(SettingKeys.invoicePrefix, hint: 'e.g. INV'),
-  ),
-  SearchableSetting(
-    title: 'Auto-generate Document Numbers',
-    tabName: 'Documents · Numbering',
-    tabIndex: 3,
-    trailingBuilder: (_) =>
-        const _SwitchControl(SettingKeys.autoGenerateNumber),
-  ),
-  SearchableSetting(
-    title: 'Default Document Type',
-    tabName: 'Documents · Defaults',
-    tabIndex: 3,
-    trailingBuilder: (_) => const _TextFieldControl(
-      SettingKeys.defaultDocumentType,
-      hint: 'e.g. Sales',
-    ),
-  ),
-
   // ── Weighing Scale ───────────────────────────────────────────────────────────
   SearchableSetting(
     title: 'Enable weighing scales barcode',
     tabName: 'Weighing Scale · Barcode Parsing',
-    tabIndex: 4,
+    tabIndex: 3,
     trailingBuilder: (_) =>
         const _SwitchControl(SettingKeys.scaleBarcodeEnabled),
   ),
   SearchableSetting(
     title: 'First two digits / prefix',
     tabName: 'Weighing Scale · Barcode Parsing',
-    tabIndex: 4,
+    tabIndex: 3,
     trailingBuilder: (_) => const _TextFieldControl(
       SettingKeys.scaleBarcodePrefix,
       hint: 'e.g. 21',
@@ -2443,7 +2419,7 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Number of digits for product code',
     tabName: 'Weighing Scale · Barcode Parsing',
-    tabIndex: 4,
+    tabIndex: 3,
     trailingBuilder: (_) => const _NumericStepper(
       settingKey: SettingKeys.scaleBarcodeCodeLength,
       min: 1,
@@ -2453,7 +2429,7 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Number of decimal places',
     tabName: 'Weighing Scale · Barcode Parsing',
-    tabIndex: 4,
+    tabIndex: 3,
     trailingBuilder: (_) => const _NumericStepper(
       settingKey: SettingKeys.scaleBarcodeDecimalPlaces,
       min: 0,
@@ -2463,14 +2439,14 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Remove zeros from product code (trim zeros)',
     tabName: 'Weighing Scale · Barcode Parsing',
-    tabIndex: 4,
+    tabIndex: 3,
     trailingBuilder: (_) =>
         const _SwitchControl(SettingKeys.scaleBarcodeTrimZeros),
   ),
   SearchableSetting(
     title: 'Scale prints price instead of quantity',
     tabName: 'Weighing Scale · Barcode Parsing',
-    tabIndex: 4,
+    tabIndex: 3,
     trailingBuilder: (_) =>
         const _SwitchControl(SettingKeys.scaleBarcodePrintsPrice),
   ),
@@ -2479,14 +2455,14 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Customer display enabled',
     tabName: 'Customer Display',
-    tabIndex: 5,
+    tabIndex: 4,
     trailingBuilder: (_) =>
         const _SwitchControl(SettingKeys.customerDisplayEnabled),
   ),
   SearchableSetting(
     title: 'COM port',
     tabName: 'Customer Display',
-    tabIndex: 5,
+    tabIndex: 4,
     trailingBuilder: (_) =>
         const _DropdownControl(SettingKeys.customerDisplayPort, [
           'COM1',
@@ -2504,7 +2480,7 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Bits per second',
     tabName: 'Customer Display',
-    tabIndex: 5,
+    tabIndex: 4,
     trailingBuilder: (_) => const _DropdownControl(
       SettingKeys.customerDisplayBaudRate,
       ['1200', '2400', '4800', '9600', '19200', '38400', '57600', '115200'],
@@ -2513,7 +2489,7 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Data bits',
     tabName: 'Customer Display',
-    tabIndex: 5,
+    tabIndex: 4,
     trailingBuilder: (_) => const _DropdownControl(
       SettingKeys.customerDisplayDataBits,
       ['5', '6', '7', '8'],
@@ -2522,7 +2498,7 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Parity',
     tabName: 'Customer Display',
-    tabIndex: 5,
+    tabIndex: 4,
     trailingBuilder: (_) => const _DropdownControl(
       SettingKeys.customerDisplayParity,
       ['None', 'Even', 'Odd', 'Mark', 'Space'],
@@ -2531,7 +2507,7 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Stop bits',
     tabName: 'Customer Display',
-    tabIndex: 5,
+    tabIndex: 4,
     trailingBuilder: (_) => const _DropdownControl(
       SettingKeys.customerDisplayStopBits,
       ['1', '1.5', '2'],
@@ -2540,7 +2516,7 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Flow control',
     tabName: 'Customer Display',
-    tabIndex: 5,
+    tabIndex: 4,
     trailingBuilder: (_) => const _DropdownControl(
       SettingKeys.customerDisplayFlowControl,
       ['None', 'RTS/CTS', 'XON/XOFF'],
@@ -2549,7 +2525,7 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Number of characters',
     tabName: 'Customer Display',
-    tabIndex: 5,
+    tabIndex: 4,
     trailingBuilder: (_) => const _NumericStepper(
       settingKey: SettingKeys.customerDisplayNumChars,
       min: 1,
@@ -2559,7 +2535,7 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Welcome message top line',
     tabName: 'Customer Display · Welcome Message',
-    tabIndex: 5,
+    tabIndex: 4,
     trailingBuilder: (_) => const _TextFieldControl(
       SettingKeys.customerDisplayWelcomeMessage,
       hint: 'WELCOME!',
@@ -2568,14 +2544,14 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Welcome message bottom line',
     tabName: 'Customer Display · Welcome Message',
-    tabIndex: 5,
+    tabIndex: 4,
     trailingBuilder: (_) =>
         const _TextFieldControl(SettingKeys.customerDisplayWelcomeBottom),
   ),
   SearchableSetting(
     title: 'Enable live web customer display',
     tabName: 'Customer Display · Screen Display (Web)',
-    tabIndex: 5,
+    tabIndex: 4,
     trailingBuilder: (_) =>
         const _SwitchControl(SettingKeys.customerDisplayWebEnabled),
   ),
@@ -2584,7 +2560,7 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'SMTP Host',
     tabName: 'Email · SMTP Server',
-    tabIndex: 7,
+    tabIndex: 6,
     trailingBuilder: (_) => const _TextFieldControl(
       SettingKeys.emailSmtpHost,
       hint: 'smtp.gmail.com',
@@ -2594,7 +2570,7 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'SMTP Port',
     tabName: 'Email · SMTP Server',
-    tabIndex: 7,
+    tabIndex: 6,
     trailingBuilder: (_) => const _TextFieldControl(
       SettingKeys.emailSmtpPort,
       hint: '587',
@@ -2604,7 +2580,7 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'From Email Address',
     tabName: 'Email · Sender',
-    tabIndex: 7,
+    tabIndex: 6,
     trailingBuilder: (_) => const _TextFieldControl(
       SettingKeys.emailFromAddress,
       hint: 'pos@yourbusiness.com',
@@ -2614,14 +2590,14 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'From Name',
     tabName: 'Email · Sender',
-    tabIndex: 7,
+    tabIndex: 6,
     trailingBuilder: (_) =>
         const _TextFieldControl(SettingKeys.emailFromName, hint: 'POS System'),
   ),
   SearchableSetting(
     title: 'Account / User Email',
     tabName: 'Email · Sender',
-    tabIndex: 7,
+    tabIndex: 6,
     trailingBuilder: (_) => const _TextFieldControl(
       SettingKeys.emailUserEmail,
       hint: 'your@email.com',
@@ -2633,21 +2609,21 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Dual Currency Enabled',
     tabName: 'Dual Currency',
-    tabIndex: 9,
+    tabIndex: 8,
     trailingBuilder: (_) =>
         const _SwitchControl(SettingKeys.dualCurrencyEnabled),
   ),
   SearchableSetting(
     title: 'Secondary Currency Symbol',
     tabName: 'Dual Currency',
-    tabIndex: 9,
+    tabIndex: 8,
     trailingBuilder: (_) =>
         const _TextFieldControl(SettingKeys.dualCurrencySymbol, hint: 'e.g. €'),
   ),
   SearchableSetting(
     title: 'Exchange Rate',
     tabName: 'Dual Currency',
-    tabIndex: 9,
+    tabIndex: 8,
     trailingBuilder: (_) => const _TextFieldControl(
       SettingKeys.dualCurrencyRate,
       hint: 'e.g. 1.08',
@@ -2659,37 +2635,31 @@ final _kSearchableSettings = <SearchableSetting>[
   SearchableSetting(
     title: 'Kitchen Display',
     tabName: 'Kitchen Display',
-    tabIndex: 6,
+    tabIndex: 5,
     navigational: true,
   ),
   SearchableSetting(
     title: 'Printer & Receipt Settings',
     tabName: 'Print',
-    tabIndex: 8,
+    tabIndex: 7,
     navigational: true,
   ),
   SearchableSetting(
     title: 'Database & Backup',
     tabName: 'Database',
-    tabIndex: 10,
+    tabIndex: 9,
     navigational: true,
   ),
   SearchableSetting(
     title: 'License',
     tabName: 'License',
-    tabIndex: 11,
+    tabIndex: 10,
     navigational: true,
   ),
   SearchableSetting(
     title: 'About',
     tabName: 'About',
-    tabIndex: 12,
-    navigational: true,
-  ),
-  SearchableSetting(
-    title: 'Countries',
-    tabName: 'Countries',
-    tabIndex: 13,
+    tabIndex: 11,
     navigational: true,
   ),
 ];
@@ -2821,6 +2791,75 @@ class _AccentColorPicker extends ConsumerWidget {
                 ),
               );
             }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Font Scale Picker ─────────────────────────────────────────────────────────
+
+/// Slider that scales every Text in the app. The multiplier is a per-terminal
+/// preference stored locally (NOT cloud-synced) via [fontScaleProvider], which
+/// main.dart reads into a global MediaQuery textScaler.
+class _FontScalePicker extends ConsumerWidget {
+  const _FontScalePicker();
+
+  static const _min = kFontScaleMin;
+  static const _max = kFontScaleMax;
+
+  String _label(double v) {
+    if (v <= 0.85) return 'Small';
+    if (v < 1.05) return 'Default';
+    if (v < 1.2) return 'Large';
+    return 'Larger';
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final value = ref.watch(fontScaleProvider).clamp(_min, _max);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                'Font Size',
+                style:
+                    TextStyle(fontSize: 14, color: theme.colorScheme.onSurface),
+              ),
+              const Spacer(),
+              Text(
+                '${_label(value)}  (${(value * 100).round()}%)',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
+          ),
+          Slider(
+            value: value,
+            min: _min,
+            max: _max,
+            // 0.8 → 1.3 in 0.05 steps = 10 divisions.
+            divisions: 10,
+            label: '${(value * 100).round()}%',
+            // Live update on drag; flush to disk when the drag settles.
+            onChanged: (v) => ref.read(fontScaleProvider.notifier).set(v),
+            onChangeEnd: (v) =>
+                ref.read(fontScaleProvider.notifier).setAndPersist(v),
+          ),
+          Text(
+            'Preview: the quick brown fox',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+            ),
           ),
         ],
       ),
@@ -3247,13 +3286,80 @@ class _DeviceCardState extends ConsumerState<_DeviceCard> {
     );
   }
 
+  Future<void> _editDeviceName() async {
+    final ctrl = TextEditingController(text: ref.read(deviceNameProvider));
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Device Name'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'A short, UNIQUE name for this terminal. It becomes the prefix of '
+              'every document number (e.g. CAISSE1-200-000045), so two POS never '
+              'produce the same number. Letters & digits only.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Device name',
+                hintText: 'e.g. CAISSE1',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (result == null) return;
+    await ref.read(deviceNameProvider.notifier).setName(result);
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final deviceName = ref.watch(deviceNameProvider);
 
     return _SettingsCard(
       title: 'DEVICE',
       children: [
+        ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+          leading: CircleAvatar(
+            backgroundColor: cs.secondaryContainer,
+            child: Icon(
+              Icons.point_of_sale,
+              color: cs.onSecondaryContainer,
+              size: 20,
+            ),
+          ),
+          title: Text(
+            deviceName.isEmpty ? 'Not set' : deviceName,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          subtitle: const Text('POS name — prefix for document numbers'),
+          trailing: TextButton.icon(
+            icon: const Icon(Icons.edit, size: 16),
+            label: const Text('Edit'),
+            onPressed: _editDeviceName,
+          ),
+        ),
         ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 20),
           leading: CircleAvatar(
@@ -3346,7 +3452,11 @@ class _GeneralTab extends ConsumerWidget {
         ),
         _SettingsCard(
           title: 'APPEARANCE',
-          children: const [_ThemeModePicker(), _AccentColorPicker()],
+          children: const [
+            _ThemeModePicker(),
+            _AccentColorPicker(),
+            _FontScalePicker(),
+          ],
         ),
         _SettingsCard(
           title: 'APPLICATION STYLE',
@@ -4054,43 +4164,6 @@ class _ProductsTab extends ConsumerWidget {
   }
 }
 
-// ── Documents ─────────────────────────────────────────────────────────────────
-class _DocumentsTab extends ConsumerWidget {
-  const _DocumentsTab();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return _TabScrollView(
-      cards: [
-        _SettingsCard(
-          title: 'NUMBERING',
-          children: [
-            const _SettingTextField(
-              settingKey: SettingKeys.invoicePrefix,
-              label: 'Invoice Number Prefix',
-              hint: 'e.g. INV',
-            ),
-            const _SettingSwitch(
-              settingKey: SettingKeys.autoGenerateNumber,
-              label: 'Auto-generate Document Numbers',
-            ),
-          ],
-        ),
-        _SettingsCard(
-          title: 'DEFAULTS',
-          children: [
-            const _SettingTextField(
-              settingKey: SettingKeys.defaultDocumentType,
-              label: 'Default Document Type',
-              hint: 'e.g. Sales',
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
 // ── Weighing Scale ────────────────────────────────────────────────────────────
 class _WeighingScaleTab extends ConsumerWidget {
   const _WeighingScaleTab();
@@ -4616,7 +4689,7 @@ class _CustomerDisplayTabState extends ConsumerState<_CustomerDisplayTab> {
 }
 
 // ── Printer-group editor dialog (name + category checkboxes) ──────────────────
-class _PrinterGroupDialog extends StatefulWidget {
+class _PrinterGroupDialog extends ConsumerStatefulWidget {
   final PrinterGroup? existing;
   final List<ProductGroup> productGroups;
 
@@ -4626,10 +4699,11 @@ class _PrinterGroupDialog extends StatefulWidget {
   });
 
   @override
-  State<_PrinterGroupDialog> createState() => _PrinterGroupDialogState();
+  ConsumerState<_PrinterGroupDialog> createState() =>
+      _PrinterGroupDialogState();
 }
 
-class _PrinterGroupDialogState extends State<_PrinterGroupDialog> {
+class _PrinterGroupDialogState extends ConsumerState<_PrinterGroupDialog> {
   late final TextEditingController _name;
   late final Set<int> _selected;
 
@@ -4649,9 +4723,7 @@ class _PrinterGroupDialogState extends State<_PrinterGroupDialog> {
   void _save() {
     final name = _name.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Enter a group name.')));
+      showAppSnackbar(context, ref, 'Enter a group name.', isError: true);
       return;
     }
     Navigator.pop(
@@ -4787,14 +4859,11 @@ class _KitchenDisplayTabState extends ConsumerState<_KitchenDisplayTab> {
     // just mutated appSettingsProvider, and reading providers synchronously in
     // the same frame trips Riverpod's "only one task can be scheduled" guard.
     _afterFrame(() => ref.read(kitchenSyncProvider).pair(ip));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Pairing request sent to $ip — the KDS should switch to '
-          'the kitchen view.',
-        ),
-        duration: const Duration(seconds: 3),
-      ),
+    showAppSnackbar(
+      context,
+      ref,
+      'Pairing request sent to $ip — the KDS should switch to '
+      'the kitchen view.',
     );
   }
 
@@ -6269,427 +6338,6 @@ class _TimezoneCardState extends ConsumerState<_TimezoneCard> {
             ),
           ),
         ],
-      ],
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// COUNTRIES TAB
-// ─────────────────────────────────────────────────────────────────────────────
-class _CountriesTab extends ConsumerStatefulWidget {
-  const _CountriesTab();
-
-  @override
-  ConsumerState<_CountriesTab> createState() => _CountriesTabState();
-}
-
-class _CountriesTabState extends ConsumerState<_CountriesTab> {
-  List<Country> _countries = [];
-  bool _loading = false;
-  Country? _selected;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final company = ref.read(selectedCompanyProvider);
-    if (company == null) return;
-    setState(() => _loading = true);
-    try {
-      final dio = createDio();
-      final res = await dio.get(
-        '/Country/GetAllCountries',
-        queryParameters: {'companyId': company.id},
-      );
-      final list = (res.data as List).map((e) => Country.fromJson(e)).toList();
-      if (mounted)
-        setState(() {
-          _countries = list;
-          _selected = null;
-        });
-    } catch (_) {
-      if (mounted) setState(() => _countries = []);
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _delete(Country c) async {
-    final company = ref.read(selectedCompanyProvider);
-    if (company == null) return;
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: cs.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: cs.error),
-            const SizedBox(width: 8),
-            const Text("Delete Country"),
-          ],
-        ),
-        content: Text("Delete '${c.name}'?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: cs.error,
-              foregroundColor: cs.onError,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text("Delete"),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true || !mounted) return;
-
-    try {
-      final dio = createDio();
-      await dio.delete(
-        '/Country/Delete',
-        queryParameters: {'id': c.id, 'companyId': company.id},
-      );
-      _load();
-    } on DioException catch (e) {
-      if (!mounted) return;
-      final data = e.response?.data;
-      final msg =
-          (data is Map ? data['message'] : null) ??
-          data?.toString() ??
-          "Delete failed";
-      showAppSnackbar(context, ref, msg, isError: true);
-    }
-  }
-
-  Future<void> _openForm({Country? country}) async {
-    final company = ref.read(selectedCompanyProvider);
-    if (company == null) return;
-    await showDialog(
-      context: context,
-      builder: (_) =>
-          _CountryFormDialog(companyId: company.id, country: country),
-    );
-    _load();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final company = ref.watch(selectedCompanyProvider);
-    final theme = Theme.of(context);
-    final cs = theme.colorScheme;
-
-    if (company == null) {
-      return Center(
-        child: Text(
-          "No company selected.",
-          style: TextStyle(color: cs.onSurfaceVariant),
-        ),
-      );
-    }
-
-    return Column(
-      children: [
-        Container(
-          color: cs.surfaceContainerLow,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                tooltip: "Refresh",
-                onPressed: _load,
-              ),
-              const SizedBox(width: 4),
-              FilledButton.icon(
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text("New Country"),
-                onPressed: () => _openForm(),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: _loading
-              ? Center(child: CircularProgressIndicator(color: cs.primary))
-              : _countries.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.public,
-                        size: 64,
-                        color: cs.onSurfaceVariant.withValues(alpha: 0.4),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        "No countries yet.",
-                        style: TextStyle(
-                          color: cs.onSurfaceVariant,
-                          fontSize: 16,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      FilledButton.icon(
-                        icon: const Icon(Icons.add),
-                        label: const Text("Add Country"),
-                        onPressed: () => _openForm(),
-                      ),
-                    ],
-                  ),
-                )
-              : SingleChildScrollView(
-                  child: LayoutBuilder(
-                    builder: (context, constraints) => SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minWidth: constraints.maxWidth,
-                        ),
-                        child: DataTable(
-                          headingRowColor: WidgetStateProperty.all(
-                            cs.surfaceContainerHighest,
-                          ),
-                          dataRowMaxHeight: 52,
-                          dataRowMinHeight: 52,
-                          columnSpacing: 32,
-                          showCheckboxColumn: false,
-                          columns: [
-                            DataColumn(
-                              label: Text(
-                                "Name",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: cs.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                            DataColumn(
-                              label: Text(
-                                "Code",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: cs.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                            DataColumn(
-                              label: Text(
-                                "Actions",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: cs.onSurfaceVariant,
-                                ),
-                              ),
-                            ),
-                          ],
-                          rows: _countries.map((c) {
-                            final isSelected = _selected?.id == c.id;
-                            return DataRow(
-                              selected: isSelected,
-                              onSelectChanged: (_) => setState(
-                                () => _selected = isSelected ? null : c,
-                              ),
-                              cells: [
-                                DataCell(
-                                  Text(
-                                    c.name,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                                DataCell(Text(c.code ?? '–')),
-                                DataCell(
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        icon: Icon(
-                                          Icons.edit,
-                                          color: cs.primary,
-                                          size: 20,
-                                        ),
-                                        tooltip: "Edit",
-                                        onPressed: () => _openForm(country: c),
-                                      ),
-                                      IconButton(
-                                        icon: Icon(
-                                          Icons.delete_outline,
-                                          color: cs.error,
-                                          size: 20,
-                                        ),
-                                        tooltip: "Delete",
-                                        onPressed: () => _delete(c),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CountryFormDialog extends ConsumerStatefulWidget {
-  final int companyId;
-  final Country? country;
-
-  const _CountryFormDialog({required this.companyId, this.country});
-
-  @override
-  ConsumerState<_CountryFormDialog> createState() => _CountryFormDialogState();
-}
-
-class _CountryFormDialogState extends ConsumerState<_CountryFormDialog> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _nameCtrl;
-  late final TextEditingController _codeCtrl;
-  bool _saving = false;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _nameCtrl = TextEditingController(text: widget.country?.name ?? '');
-    _codeCtrl = TextEditingController(text: widget.country?.code ?? '');
-  }
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _codeCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    try {
-      final dio = createDio();
-      final body = {
-        'name': _nameCtrl.text.trim(),
-        'code': _codeCtrl.text.trim().isEmpty ? null : _codeCtrl.text.trim(),
-      };
-      if (widget.country == null) {
-        await dio.post(
-          '/Country/Add',
-          data: body,
-          queryParameters: {'companyId': widget.companyId},
-        );
-      } else {
-        await dio.put(
-          '/Country/Update',
-          data: body,
-          queryParameters: {
-            'id': widget.country!.id,
-            'companyId': widget.companyId,
-          },
-        );
-      }
-      if (mounted) Navigator.of(context).pop();
-    } on DioException catch (e) {
-      setState(() => _error = e.response?.data?.toString() ?? "Save failed");
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final isEdit = widget.country != null;
-
-    return AlertDialog(
-      backgroundColor: cs.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Text(isEdit ? "Edit Country" : "New Country"),
-      content: SizedBox(
-        width: 400,
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_error != null) ...[
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: cs.errorContainer,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    _error!,
-                    style: TextStyle(color: cs.onErrorContainer),
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-              TextFormField(
-                controller: _nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: "Name *",
-                  border: OutlineInputBorder(),
-                ),
-                textCapitalization: TextCapitalization.words,
-                validator: (v) =>
-                    (v == null || v.trim().isEmpty) ? "Name is required" : null,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _codeCtrl,
-                decoration: const InputDecoration(
-                  labelText: "Code (e.g. US)",
-                  border: OutlineInputBorder(),
-                ),
-                textCapitalization: TextCapitalization.characters,
-                maxLength: 10,
-              ),
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(),
-          child: const Text("Cancel"),
-        ),
-        FilledButton(
-          onPressed: _saving ? null : _save,
-          child: _saving
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Text(isEdit ? "Save" : "Add"),
-        ),
       ],
     );
   }

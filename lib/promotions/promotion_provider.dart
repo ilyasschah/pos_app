@@ -40,15 +40,24 @@ final allPromotionsProvider =
       });
 });
 
+/// Promotions that are live *right now*, derived synchronously from
+/// [allPromotionsProvider].
+///
+/// Kept as a plain `Provider` returning an `AsyncValue` (not a `StreamProvider`
+/// wrapping `Stream.value`). The old StreamProvider form opened a *second*
+/// stream subscription onto [allPromotionsProvider] and re-created that stream
+/// on every upstream emission. During a route-transition TickerMode change
+/// (e.g. popping back after saving a promotion) Riverpod's pause/resume
+/// accounting double-counted those subscriptions and tripped the
+/// `pausedActiveSubscriptionCount` assertion. A pure derived provider has no
+/// stream of its own, so there's nothing to mis-pause — and every call site
+/// already reads `.value`, which `AsyncValue` still exposes.
 final activePromotionsProvider =
-    StreamProvider.autoDispose<List<PromotionDto>>((ref) {
-  // Derive from the local stream — same filtering logic as before, just
-  // sourced from Drift instead of an awaited Future.
-  final promotionsAsync = ref.watch(allPromotionsProvider);
-  final promotions = promotionsAsync.value ?? const [];
-  final now = DateTime.now();
-  final active = promotions.where((p) => isPromotionActiveNow(p, now)).toList();
-  return Stream.value(active);
+    Provider.autoDispose<AsyncValue<List<PromotionDto>>>((ref) {
+  return ref.watch(allPromotionsProvider).whenData((promotions) {
+    final now = DateTime.now();
+    return promotions.where((p) => isPromotionActiveNow(p, now)).toList();
+  });
 });
 
 /// Single source of truth for "is this promotion live right now" — used by both

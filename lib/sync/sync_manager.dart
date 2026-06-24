@@ -19,6 +19,17 @@ import 'package:pos_app/sync/image_sync_helper.dart';
 ///      written server-side mid-request are picked up by the next pull).
 ///
 /// AppProperties is special — see [_pullAppProperties].
+
+/// Thrown when the server rejects a sync because this terminal exceeds the
+/// tenant's paid seat allowance, or has been blocked (Pillar 4). Surfaced to the
+/// operator as a hard error instead of being swallowed as a normal step failure.
+class SeatLimitException implements Exception {
+  final String message;
+  SeatLimitException(this.message);
+  @override
+  String toString() => message;
+}
+
 class SyncManager {
   SyncManager({
     required this.db,
@@ -46,11 +57,83 @@ class SyncManager {
   static const _kDocuments = 'documents';
   static const _kLoyaltyCards = 'loyalty_cards';
 
-  Future<void> sync(int companyId) async {
-    await pushPendingProductGroupOps(companyId);
-    await pushPendingProductOps(companyId);
+  /// Labels of steps that failed during the most recent [sync] run. Reset at the
+  /// start of each run; safe as instance state because syncs never overlap (the
+  /// notifier/watchers gate on `isLoading`).
+  final List<String> _failedSteps = [];
+
+  /// Human-readable notices for ops the server actively *rejected* this run
+  /// (e.g. deleting a product still linked to a document). Unlike [_failedSteps]
+  /// these won't be retried — they were resolved locally (the row was reverted),
+  /// but the user should be told why their action didn't stick. Reset each run.
+  final List<String> _rejectionNotices = [];
+
+  /// Snapshot of the rejection notices from the most recent [sync] run, for the
+  /// UI to surface after the run finishes. Empty = nothing was rejected.
+  List<String> get rejectionNotices => List.of(_rejectionNotices);
+
+  /// Runs [op], recording + logging (but swallowing) any error so one failing
+  /// step never aborts the rest of the sync. The collected labels are returned
+  /// by [sync] so the UI can surface exactly which entities didn't sync.
+  Future<void> _step(String label, Future<void> Function() op) async {
+    try {
+      await op();
+    } on SeatLimitException {
+      rethrow; // licensing block must surface to the UI, not be swallowed
+    } catch (e) {
+      _failedSteps.add(label);
+      debugPrint('sync step "$label" failed — $e');
+    }
+  }
+
+  /// Runs a full bidirectional sync and returns the labels of any steps that
+  /// failed (empty list = everything synced cleanly).
+  Future<List<String>> sync(int companyId) async {
+    _failedSteps.clear();
+    _rejectionNotices.clear();
+
+    // Pillar 4: tag every request this sync makes with the terminal's device
+    // signature, so the server can enforce the seat cap at each BatchSync ingress
+    // (orders, shifts, loyalty cards, time-clock).
+    dio.options.headers['X-Device-Id'] = await authStorage.getOrCreateDeviceId();
+
+    // ── PUSH phase (local → cloud) ─────────────────────────────────────────
+    // Wrapped so a push failure (e.g. one stuck order whose BatchSync rethrows)
+    // can never prevent the PULL phase below from running.
+    await _step('push', () => _pushAll(companyId));
+
+    // ── PULL phase (cloud → local) ─────────────────────────────────────────
+    // pullMasterData isolates each entity internally; pullDocuments is wrapped
+    // here so a document-pull failure is reported but never throws.
+    await pullMasterData(companyId);
+    await _step('documents', () => pullDocuments(companyId));
+
+    return List.of(_failedSteps);
+  }
+
+  Future<void> _pushAll(int companyId) async {
+    // Drop unsyncable orphans (temp-product refs whose product row is gone)
+    // before pushing, so they don't 400-loop forever and a sale that sold a
+    // now-deleted product doesn't sit stuck at "(Pending sync)".
+    final purged = await db.purgeOrphanedTempRefs();
+    if (purged > 0) {
+      debugPrint('purgeOrphanedTempRefs: removed $purged orphaned row(s).');
+    }
+
+    // ── Master data first ────────────────────────────────────────────────────
+    // Everything an order/document/payment can reference by id must be created
+    // (and its temp→real id remapped onto referencing rows) BEFORE those orders
+    // push — otherwise BatchSync 400s on a productId/taxId/paymentTypeId the
+    // server has never seen, and the sale gets stuck at "(Pending sync)".
+    await pushPendingProductGroupOps(companyId); // remaps products.groupId
+    await pushPendingProductOps(companyId);      // remaps order/doc items.productId
+    await pushPendingProductCommentOps(companyId); // comments on offline products
     await pushPendingBarcodeOps(companyId);
+    await pushPendingTaxOps(companyId);          // remaps product-tax + item taxes
+    await pushPendingPaymentTypeOps(companyId);  // remaps payments/orders.paymentTypeId
+    await pushPendingVoidReasonOps(companyId);
     await pushPendingPromotionOps(companyId);
+    // ── Transactional data (now all their referenced ids are real) ───────────
     await pushPendingOpenOrders(companyId);
     await pushPendingOrders(companyId);
     // Manual document editor: create/update/delete headers + their line items.
@@ -73,6 +156,7 @@ class SyncManager {
     await pushPendingShifts(companyId);
     await pushPendingTimeClockEntries(companyId);
     await pushPendingAppProperties(companyId);
+    await pushPendingCompanyOps(companyId);
     // Warehouse + stock ordering matters:
     //  1. create/update warehouses first (a stock "move" may target a brand-new
     //     warehouse that must exist on the server),
@@ -84,10 +168,10 @@ class SyncManager {
     // Offline stock + stock-control edits made on the Stock screen.
     await pushPendingStocks(companyId);
     await pushPendingStockControls(companyId);
+    // Product↔tax assignments — after products (productId) and taxes (taxId)
+    // have both been pushed + remapped above.
     await pushPendingProductTaxes(companyId);
     await pushPendingWarehouseOps(companyId, deletePhase: true);
-    await pullMasterData(companyId);
-    await pullDocuments(companyId);
   }
 
   // ==========================================================================
@@ -167,30 +251,364 @@ class SyncManager {
   }
 
   Future<void> pullMasterData(int companyId) async {
-    await pullProducts(companyId);
-    await pullTaxes(companyId);
-    await pullFloorPlans(companyId);
-    await pullFloorPlanTables(companyId);
-    await pullUsers(companyId);
-    await pullAppProperties(companyId);
-    await pullProductGroups(companyId);
-    await pullPaymentTypes(companyId);
-    await pullCustomers(companyId);
-    await pullPromotions(companyId);
-    await pullProductComments(companyId);
-    await pullSecurityKeys(companyId);
-    await pullCompany(companyId);
-    await pullStocks(companyId);
-    await pullWarehouses(companyId);
-    await pullLoyaltyCards(companyId);
-    await pullStartingCash(companyId);
-    await pullBookings(companyId);
-    await pullDocumentTypes(companyId);
-    await pullDocumentCategories(companyId);
-    await pullVoidReasons(companyId);
-    await pullStockControls(companyId);
-    await pullProductTaxes(companyId);
-    await pullBarcodes(companyId);
+    // Each pull is isolated via [_step] — a single entity failing (network blip,
+    // unexpected payload) must not abort the remaining pulls.
+    await _step('products', () => pullProducts(companyId));
+    await _step('taxes', () => pullTaxes(companyId));
+    await _step('floorPlans', () => pullFloorPlans(companyId));
+    await _step('floorPlanTables', () => pullFloorPlanTables(companyId));
+    await _step('users', () => pullUsers(companyId));
+    await _step('appProperties', () => pullAppProperties(companyId));
+    await _step('productGroups', () => pullProductGroups(companyId));
+    await _step('paymentTypes', () => pullPaymentTypes(companyId));
+    await _step('customers', () => pullCustomers(companyId));
+    await _step('promotions', () => pullPromotions(companyId));
+    await _step('productComments', () => pullProductComments(companyId));
+    await _step('securityKeys', () => pullSecurityKeys(companyId));
+    await _step('company', () => pullCompany(companyId));
+    await _step('stocks', () => pullStocks(companyId));
+    await _step('warehouses', () => pullWarehouses(companyId));
+    await _step('loyaltyCards', () => pullLoyaltyCards(companyId));
+    await _step('startingCash', () => pullStartingCash(companyId));
+    await _step('bookings', () => pullBookings(companyId));
+    await _step('documentTypes', () => pullDocumentTypes(companyId));
+    await _step('documentCategories', () => pullDocumentCategories(companyId));
+    await _step('voidReasons', () => pullVoidReasons(companyId));
+    await _step('stockControls', () => pullStockControls(companyId));
+    await _step('productTaxes', () => pullProductTaxes(companyId));
+    await _step('barcodes', () => pullBarcodes(companyId));
+    // ── v39 schema-clone tables (cloud → local mirror) ──
+    await _step('countries', () => pullCountries(companyId));
+    await _step('currencies', () => pullCurrencies(companyId));
+    await _step('counters', () => pullCounters(companyId));
+    await _step('fiscalItems', () => pullFiscalItems(companyId));
+    await _step('templates', () => pullTemplates(companyId));
+    await _step('posVoids', () => pullPosVoids(companyId));
+    await _step('printerSelections', () => pullPosPrinterSelections(companyId));
+    await _step('printerSelectionSettings',
+        () => pullPosPrinterSelectionSettings(companyId));
+    await _step('printerSettings', () => pullPosPrinterSettings(companyId));
+    await _step('userDevicePins', () => pullUserDevicePins(companyId));
+    await _step('documentItemTaxes', () => pullDocumentItemTaxes(companyId));
+    await _step('documentItemExpirationDates',
+        () => pullDocumentItemExpirationDates(companyId));
+    await _step('zReportPaymentSummaries',
+        () => pullZReportPaymentSummaries(companyId));
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // v39 schema-clone pulls. Each mirrors a cloud table into its local Drift
+  // twin by a full replace (delete-all + insert) — these are reference/config
+  // tables, so last-write-from-cloud wins. Best-effort: a failure preserves the
+  // existing local cache. Push is N/A here (not edited offline on the POS;
+  // voids keep their own pending queue).
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /// Full-replace a mirror table inside one transaction.
+  Future<void> _replaceTable<T extends Table, D>(
+      TableInfo<T, D> table, List<Insertable<D>> rows) async {
+    await db.transaction(() async {
+      await db.delete(table).go();
+      if (rows.isNotEmpty) await db.batch((b) => b.insertAll(table, rows));
+    });
+  }
+
+  int? _i(dynamic v) => (v as num?)?.toInt();
+  double? _d(dynamic v) => (v as num?)?.toDouble();
+  DateTime? _dt(dynamic v) =>
+      v is String ? DateTime.tryParse(v)?.toUtc() : null;
+
+  Future<void> pullCountries(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/Country/GetAllCountries');
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => CountriesTableCompanion(
+                serverId: Value(_i(j['id'])),
+                name: Value((j['name'] as String?) ?? ''),
+                code: Value(j['code'] as String?),
+              ))
+          .toList();
+      await _replaceTable(db.countriesTable, rows);
+    } catch (e) {
+      debugPrint('pullCountries failed: $e — local cache preserved.');
+    }
+  }
+
+  Future<void> pullCurrencies(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/Currencies/GetAll');
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => CurrenciesTableCompanion(
+                serverId: Value(_i(j['id'])),
+                name: Value((j['name'] as String?) ?? ''),
+                code: Value(j['code'] as String?),
+              ))
+          .toList();
+      await _replaceTable(db.currenciesTable, rows);
+    } catch (e) {
+      debugPrint('pullCurrencies failed: $e — local cache preserved.');
+    }
+  }
+
+  Future<void> pullCounters(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/DocumentsCounters/GetAll');
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => CountersTableCompanion(
+                name: Value((j['name'] as String?) ?? ''),
+                value: Value(_i(j['value']) ?? 0),
+                companyId: Value(_i(j['companyId']) ?? companyId),
+              ))
+          .toList();
+      await _replaceTable(db.countersTable, rows);
+    } catch (e) {
+      debugPrint('pullCounters failed: $e — local cache preserved.');
+    }
+  }
+
+  Future<void> pullFiscalItems(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/FiscalItems/GetAll');
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => FiscalItemsTableCompanion(
+                plu: Value(_i(j['plu']) ?? 0),
+                name: Value((j['name'] as String?) ?? ''),
+                vat: Value((j['vat'] as String?) ?? ''),
+                companyId: Value(_i(j['companyId']) ?? companyId),
+              ))
+          .toList();
+      await _replaceTable(db.fiscalItemsTable, rows);
+    } catch (e) {
+      debugPrint('pullFiscalItems failed: $e — local cache preserved.');
+    }
+  }
+
+  Future<void> pullTemplates(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/Templates/GetAll');
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => TemplatesTableCompanion(
+                serverId: Value(_i(j['id'])),
+                name: Value((j['name'] as String?) ?? ''),
+                value: Value((j['value'] as String?) ?? ''),
+                companyId: Value(_i(j['companyId']) ?? companyId),
+              ))
+          .toList();
+      await _replaceTable(db.templatesTable, rows);
+    } catch (e) {
+      debugPrint('pullTemplates failed: $e — local cache preserved.');
+    }
+  }
+
+  Future<void> pullPosVoids(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/PosVoids/GetAll',
+          queryParameters: {'companyId': companyId});
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => PosVoidsTableCompanion(
+                serverId: Value(_i(j['id'])),
+                orderNumber: Value((j['orderNumber'] as String?) ?? ''),
+                userName: Value((j['userName'] as String?) ?? ''),
+                productName: Value((j['productName'] as String?) ?? ''),
+                roundNumber: Value(_i(j['roundNumber']) ?? 0),
+                quantity: Value(_d(j['quantity']) ?? 0),
+                price: Value(_d(j['price']) ?? 0),
+                discount: Value(_d(j['discount']) ?? 0),
+                discountType: Value(_i(j['discountType']) ?? 0),
+                total: Value(_d(j['total']) ?? 0),
+                isConfirmed: Value((j['isConfirmed'] as bool?) ?? false),
+                reason: Value(j['reason'] as String?),
+                voidedByName: Value(j['voidedByName'] as String?),
+                dateCreated: Value(_dt(j['dateCreated']) ?? DateTime.now().toUtc()),
+                dateVoided: Value(_dt(j['dateVoided']) ?? DateTime.now().toUtc()),
+                companyId: Value(_i(j['companyId']) ?? companyId),
+              ))
+          .toList();
+      await _replaceTable(db.posVoidsTable, rows);
+    } catch (e) {
+      debugPrint('pullPosVoids failed: $e — local cache preserved.');
+    }
+  }
+
+  Future<void> pullPosPrinterSelections(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/PosPrinterSelections/GetAll',
+          queryParameters: {'companyId': companyId});
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => PosPrinterSelectionsTableCompanion(
+                serverId: Value(_i(j['id'])),
+                key: Value((j['key'] as String?) ?? ''),
+                printerName: Value(j['printerName'] as String?),
+                isEnabled: Value((j['isEnabled'] as bool?) ?? false),
+                companyId: Value(_i(j['companyId']) ?? companyId),
+              ))
+          .toList();
+      await _replaceTable(db.posPrinterSelectionsTable, rows);
+    } catch (e) {
+      debugPrint('pullPosPrinterSelections failed: $e — local cache preserved.');
+    }
+  }
+
+  Future<void> pullPosPrinterSelectionSettings(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/PosPrinterSelectionSettings/GetAll',
+          queryParameters: {'companyId': companyId});
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => PosPrinterSelectionSettingsTableCompanion(
+                serverId: Value(_i(j['id'])),
+                posPrinterSelectionId: Value(_i(j['posPrinterSelectionId']) ?? 0),
+                paperWidth: Value(_i(j['paperWidth']) ?? 0),
+                header: Value(j['header'] as String?),
+                footer: Value(j['footer'] as String?),
+                feedLines: Value(_i(j['feedLines']) ?? 0),
+                cutPaper: Value((j['cutPaper'] as bool?) ?? false),
+                printBitmap: Value((j['printBitmap'] as bool?) ?? false),
+                openCashDrawer: Value((j['openCashDrawer'] as bool?) ?? false),
+                cashDrawerCommand: Value(j['cashDrawerCommand'] as String?),
+                headerAlignment: Value(_i(j['headerAlignment']) ?? 0),
+                footerAlignment: Value(_i(j['footerAlignment']) ?? 0),
+                isFormattingEnabled: Value((j['isFormattingEnabled'] as bool?) ?? false),
+                printerType: Value(_i(j['printerType']) ?? 0),
+                numberOfCopies: Value(_i(j['numberOfCopies']) ?? 0),
+                codePage: Value(_i(j['codePage']) ?? 0),
+                characterSet: Value(_i(j['characterSet']) ?? 0),
+                margin: Value(_i(j['margin']) ?? 0),
+                leftMargin: Value(_d(j['leftMargin']) ?? 0),
+                topMargin: Value(_d(j['topMargin']) ?? 0),
+                rightMargin: Value(_d(j['rightMargin']) ?? 0),
+                bottomMargin: Value(_d(j['bottomMargin']) ?? 0),
+                printBarcode: Value((j['printBarcode'] as bool?) ?? false),
+                fontName: Value(j['fontName'] as String?),
+                fontSizePercent: Value(_d(j['fontSizePercent']) ?? 0),
+                printLogoFullWidth: Value((j['printLogoFullWidth'] as bool?) ?? false),
+                companyId: Value(_i(j['companyId']) ?? companyId),
+              ))
+          .toList();
+      await _replaceTable(db.posPrinterSelectionSettingsTable, rows);
+    } catch (e) {
+      debugPrint('pullPosPrinterSelectionSettings failed: $e — cache preserved.');
+    }
+  }
+
+  Future<void> pullPosPrinterSettings(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/PosPrinterSettings/GetAll',
+          queryParameters: {'companyId': companyId});
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => PosPrinterSettingsTableCompanion(
+                serverId: Value(_i(j['id'])),
+                printerName: Value((j['printerName'] as String?) ?? ''),
+                paperWidth: Value(_i(j['paperWidth']) ?? 0),
+                header: Value(j['header'] as String?),
+                footer: Value(j['footer'] as String?),
+                feedLines: Value(_i(j['feedLines']) ?? 0),
+                cutPaper: Value((j['cutPaper'] as bool?) ?? false),
+                printBitmap: Value((j['printBitmap'] as bool?) ?? false),
+                openCashDrawer: Value((j['openCashDrawer'] as bool?) ?? false),
+                cashDrawerCommand: Value(j['cashDrawerCommand'] as String?),
+                headerAlignment: Value(_i(j['headerAlignment']) ?? 0),
+                footerAlignment: Value(_i(j['footerAlignment']) ?? 0),
+                isFormattingEnabled: Value((j['isFormattingEnabled'] as bool?) ?? false),
+                printerType: Value(_i(j['printerType']) ?? 0),
+                numberOfCopies: Value(_i(j['numberOfCopies']) ?? 0),
+                codePage: Value(_i(j['codePage']) ?? 0),
+                characterSet: Value(_i(j['characterSet']) ?? 0),
+                companyId: Value(_i(j['companyId']) ?? companyId),
+              ))
+          .toList();
+      await _replaceTable(db.posPrinterSettingsTable, rows);
+    } catch (e) {
+      debugPrint('pullPosPrinterSettings failed: $e — local cache preserved.');
+    }
+  }
+
+  Future<void> pullUserDevicePins(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/UserDevicePins/GetActiveDevices',
+          queryParameters: {'companyId': companyId});
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => UserDevicePinsTableCompanion(
+                serverId: Value(_i(j['id'])),
+                userId: Value(_i(j['userId']) ?? 0),
+                companyId: Value(_i(j['companyId']) ?? companyId),
+                deviceId: Value((j['deviceId'] as String?) ?? ''),
+                hashedPin: Value((j['hashedPin'] as String?) ?? ''),
+                createdAt: Value(_dt(j['createdAt']) ?? DateTime.now().toUtc()),
+              ))
+          .toList();
+      await _replaceTable(db.userDevicePinsTable, rows);
+    } catch (e) {
+      debugPrint('pullUserDevicePins failed: $e — local cache preserved.');
+    }
+  }
+
+  Future<void> pullDocumentItemTaxes(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/DocumentItemTaxes/GetAll',
+          queryParameters: {'companyId': companyId});
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => DocumentItemTaxesTableCompanion(
+                documentItemId: Value(_i(j['documentItemId']) ?? 0),
+                taxId: Value(_i(j['taxId']) ?? 0),
+                amount: Value(_d(j['amount']) ?? 0),
+                companyId: Value(companyId),
+              ))
+          .toList();
+      await _replaceTable(db.documentItemTaxesTable, rows);
+    } catch (e) {
+      debugPrint('pullDocumentItemTaxes failed: $e — local cache preserved.');
+    }
+  }
+
+  Future<void> pullDocumentItemExpirationDates(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/DocumentItemExpirationDates/GetAll',
+          queryParameters: {'companyId': companyId});
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => DocumentItemExpirationDatesTableCompanion(
+                documentItemId: Value(_i(j['documentItemId']) ?? 0),
+                expirationDate:
+                    Value(_dt(j['expirationDate']) ?? DateTime.now().toUtc()),
+                companyId: Value(companyId),
+              ))
+          .toList();
+      await _replaceTable(db.documentItemExpirationDatesTable, rows);
+    } catch (e) {
+      debugPrint(
+          'pullDocumentItemExpirationDates failed: $e — local cache preserved.');
+    }
+  }
+
+  Future<void> pullZReportPaymentSummaries(int companyId) async {
+    try {
+      final res = await dio.get<dynamic>('/ZReportPaymentSummaries/GetAll',
+          queryParameters: {'companyId': companyId});
+      final list = ((res.data as List?) ?? const []).cast<Map<String, dynamic>>();
+      final rows = list
+          .map((j) => ZReportPaymentSummariesTableCompanion(
+                serverId: Value(_i(j['id'])),
+                zReportId: Value(_i(j['zReportId']) ?? 0),
+                paymentTypeId: Value(_i(j['paymentTypeId']) ?? 0),
+                totalAmount: Value(_d(j['totalAmount']) ?? 0),
+              ))
+          .toList();
+      await _replaceTable(db.zReportPaymentSummariesTable, rows);
+    } catch (e) {
+      debugPrint(
+          'pullZReportPaymentSummaries failed: $e — local cache preserved.');
+    }
   }
 
   // ==========================================================================
@@ -289,6 +707,92 @@ class SyncManager {
     });
   }
 
+  /// Drains offline void-reason writes to the server (mirrors pushPendingTaxOps).
+  /// Note: Add/Update take their fields as query params; Update/Delete return 204.
+  Future<void> pushPendingVoidReasonOps(int companyId) async {
+    final pending =
+        await (db.select(db.voidReasonsTable)
+              ..where((t) => t.companyId.equals(companyId))
+              ..where(
+                (t) => t.syncStatus.isIn([
+                  'pending_create',
+                  'pending_update',
+                  'pending_delete',
+                ]),
+              ))
+            .get();
+
+    if (pending.isEmpty) return;
+
+    for (final v in pending) {
+      try {
+        final isTemp = v.id < 0;
+
+        if (v.syncStatus == 'pending_delete') {
+          if (!isTemp) {
+            await dio.delete<dynamic>('/VoidReasons/Delete/${v.id}');
+          }
+          await (db.delete(
+            db.voidReasonsTable,
+          )..where((x) => x.id.equals(v.id))).go();
+          continue;
+        }
+
+        if (isTemp) {
+          final res = await dio.post<dynamic>(
+            '/VoidReasons/Add',
+            queryParameters: {
+              'companyId': companyId,
+              'name': v.name,
+              'rank': v.rank,
+            },
+          );
+          final body =
+              res.data is Map ? ((res.data as Map)['data'] ?? res.data) : null;
+          final realId = (body is Map ? (body['id'] as num?) : null)?.toInt();
+          if (realId == null)
+            throw Exception('Server returned no id for void reason create');
+
+          await db.transaction(() async {
+            await (db.delete(
+              db.voidReasonsTable,
+            )..where((x) => x.id.equals(v.id))).go();
+            await db.into(db.voidReasonsTable).insert(
+              VoidReasonsTableCompanion(
+                id: Value(realId),
+                companyId: Value(v.companyId),
+                name: Value(v.name),
+                rank: Value(v.rank),
+                lastModified: Value(DateTime.now().toUtc()),
+                syncStatus: const Value('synced'),
+              ),
+            );
+          });
+        } else {
+          await dio.put<dynamic>(
+            '/VoidReasons/Update/${v.id}',
+            queryParameters: {'name': v.name, 'rank': v.rank},
+          );
+          await (db.update(
+            db.voidReasonsTable,
+          )..where((x) => x.id.equals(v.id))).write(
+            const VoidReasonsTableCompanion(syncStatus: Value('synced')),
+          );
+        }
+      } catch (e) {
+        await _resolveRejection(
+          error: e,
+          syncStatus: v.syncStatus,
+          logLabel: 'pushPendingVoidReasonOps: ${v.id} (${v.syncStatus})',
+          entityLabel: 'Void reason "${v.name}"',
+          apply: (s, _) => (db.update(db.voidReasonsTable)
+                ..where((x) => x.id.equals(v.id)))
+              .write(VoidReasonsTableCompanion(syncStatus: Value(s))),
+        );
+      }
+    }
+  }
+
   Future<void> pullVoidReasons(int companyId) async {
     try {
       final res = await dio.get<dynamic>('/VoidReasons/GetAll',
@@ -301,6 +805,7 @@ class SyncManager {
                 name: Value((j['name'] as String?) ?? ''),
                 rank: Value((j['rank'] as num?)?.toInt() ?? 0),
                 lastModified: Value(DateTime.now().toUtc()),
+                syncStatus: const Value('synced'),
               ))
           .toList();
       await db.replaceVoidReasons(companyId, rows);
@@ -324,7 +829,8 @@ class SyncManager {
                 code: Value(j['code'] as String?),
                 documentCategoryId:
                     Value((j['documentCategoryId'] as num?)?.toInt()),
-                warehouseId: Value((j['warehouseId'] as num?)?.toInt()),
+                stockDirection:
+                    Value((j['stockDirection'] as num?)?.toInt() ?? 0),
                 lastModified: Value(DateTime.now().toUtc()),
               ))
           .toList();
@@ -413,13 +919,26 @@ class SyncManager {
 
     final List<dynamic> results;
     try {
+      // X-Device-Id is set on dio.options in sync() (Pillar 4 seat enforcement).
       final res = await dio.post<Map<String, dynamic>>(
         '/PosOrder/BatchSync',
         queryParameters: {'companyId': companyId},
         data: payload,
       );
       results = (res.data?['results'] as List<dynamic>?) ?? const [];
-    } catch (_) {
+    } on DioException catch (e) {
+      // Licensing rejection — surface it as a hard, visible error rather than a
+      // swallowed step failure, so the operator understands why sync stopped.
+      if (e.response?.statusCode == 403) {
+        final data = e.response?.data;
+        final err = data is Map ? data['error'] : null;
+        if (err == 'seat_limit_exceeded' || err == 'device_blocked') {
+          throw SeatLimitException(
+            (data is Map ? data['message'] as String? : null) ??
+                'This device is not authorized to sync (license / seat limit).',
+          );
+        }
+      }
       rethrow;
     }
 
@@ -456,6 +975,9 @@ class SyncManager {
       'paymentTypeId': o.order.paymentTypeId,
       'amountPaid': o.order.amountPaid,
       'orderTotal': o.order.total ?? 0,
+      // Device-local document number issued offline at checkout. The server
+      // keeps it verbatim instead of generating its own (offline-first).
+      'clientDocumentNumber': o.order.number,
       'order': {
         'userId': o.order.userId,
         'number': o.order.orderName,
@@ -613,6 +1135,13 @@ class SyncManager {
         final items = (jsonDecode(v.itemsJson) as List)
             .cast<Map<String, dynamic>>();
 
+        // An item still pointing at a temp (negative) product id means its
+        // product create hasn't synced yet (remapProductId rewrites this blob
+        // once it does). Leave the void for the next cycle rather than 400.
+        if (items.any((i) => (i['productId'] as int? ?? 0) < 0)) {
+          continue;
+        }
+
         // Step 1: post a PosVoid row for every voided item.
         for (final item in items) {
           await dio.post<dynamic>(
@@ -755,6 +1284,55 @@ class SyncManager {
   ///
   /// Must run BEFORE pushPendingOrders so newly created products exist on the
   /// server before any order that references them is synced.
+  /// True when [e] is a server REJECTION (the request reached the server and it
+  /// returned an HTTP error) rather than an offline / transient connection error.
+  /// A rejection won't succeed by retrying, so the caller resolves it locally
+  /// instead of leaving it pending to loop on every sync.
+  bool _isServerRejection(Object e) => e is DioException && e.response != null;
+
+  /// Best-effort human message from a server error response.
+  String _serverErrMsg(Object e) {
+    if (e is DioException) {
+      final d = e.response?.data;
+      if (d is Map && d['message'] != null) return d['message'].toString();
+      if (d != null) return d.toString();
+      return e.message ?? 'Server rejected the request.';
+    }
+    return e.toString();
+  }
+
+  /// Shared push-failure resolver. A server REJECTION (HTTP response) can't be
+  /// fixed by retrying, so it's resolved to a terminal status via [apply]:
+  ///   • pending_delete → 'synced'  (un-delete; the server still has the row),
+  ///   • create / update → 'sync_failed' (keep the local data, stop retrying).
+  /// An offline / transient error (no response) is left pending to retry.
+  /// [apply] writes the row with the chosen status (+ the server message for
+  /// tables that carry a syncError column).
+  ///
+  /// When a delete is rejected the row is un-deleted (reappears in the UI), so
+  /// pass [entityLabel] (e.g. a product/barcode name) to record a user-facing
+  /// notice explaining why the delete didn't stick — surfaced after the sync.
+  Future<void> _resolveRejection({
+    required Object error,
+    required String syncStatus,
+    required String logLabel,
+    required Future<void> Function(String newStatus, String message) apply,
+    String? entityLabel,
+  }) async {
+    if (_isServerRejection(error)) {
+      final msg = _serverErrMsg(error);
+      final isDeleteRevert = syncStatus == 'pending_delete';
+      final newStatus = isDeleteRevert ? 'synced' : 'sync_failed';
+      await apply(newStatus, msg);
+      if (isDeleteRevert && entityLabel != null) {
+        _rejectionNotices.add('$entityLabel couldn\'t be deleted — $msg');
+      }
+      debugPrint('$logLabel rejected — $msg (resolved, won\'t retry)');
+    } else {
+      debugPrint('$logLabel failed — $error (will retry)');
+    }
+  }
+
   Future<void> pushPendingProductOps(int companyId) async {
     final pending =
         await (db.select(db.productsTable)
@@ -772,148 +1350,160 @@ class SyncManager {
 
     for (final p in pending) {
       try {
-        switch (p.syncStatus) {
-          // ── CREATE ──────────────────────────────────────────────────────
-          case 'pending_create':
-            // Re-encode image from disk so we can include it in the POST.
-            String imageBase64 = '';
-            if (p.localImagePath != null) {
-              try {
-                final bytes = await File(p.localImagePath!).readAsBytes();
-                imageBase64 = base64Encode(bytes);
-              } catch (_) {}
-            }
+        // A temp (negative) id means the product was created offline and has
+        // never existed on the server yet.
+        final isTemp = p.id < 0;
 
-            final res = await dio.post<Map<String, dynamic>>(
-              '/Products/Add',
-              queryParameters: {'companyId': companyId},
-              data: {
-                'name': p.name,
-                'productGroupId': p.productGroupId,
-                'code': p.code,
-                'plu': p.plu,
-                'measurementUnit': p.measurementUnit,
-                'price': p.price,
-                'cost': p.cost,
-                'markup': p.markup,
-                'rank': p.rank,
-                'ageRestriction': p.ageRestriction,
-                'description': p.description,
-                'isTaxInclusivePrice': p.isTaxInclusivePrice,
-                'isService': p.isService,
-                'isPriceChangeAllowed': p.isPriceChangeAllowed,
-                'isUsingDefaultQuantity': p.isUsingDefaultQuantity,
-                'isEnabled': p.isEnabled,
-                'color': p.colorHex ?? '#000000',
-                'imageBase64': imageBase64,
-              },
-            );
-            final body = res.data?['data'] ?? res.data;
-            final realId = (body['id'] as num?)?.toInt();
-            if (realId == null)
-              throw Exception('Server returned no id for product create');
-
-            // Replace the temp row: delete by temp id, insert with real id, and
-            // cascade the id swap to product-keyed tables (taxes, stock rules,
-            // barcodes, stocks) so their pending pushes use the real id.
-            await db.transaction(() async {
-              await (db.delete(
-                db.productsTable,
-              )..where((t) => t.id.equals(p.id))).go();
-              await db
-                  .into(db.productsTable)
-                  .insert(
-                    ProductsTableCompanion(
-                      id: Value(realId),
-                      companyId: Value(p.companyId),
-                      name: Value(p.name),
-                      price: Value(p.price),
-                      cost: Value(p.cost),
-                      productGroupId: Value(p.productGroupId),
-                      isService: Value(p.isService),
-                      colorHex: Value(p.colorHex),
-                      localImagePath: Value(p.localImagePath),
-                      code: Value(p.code),
-                      plu: Value(p.plu),
-                      measurementUnit: Value(p.measurementUnit),
-                      description: Value(p.description),
-                      markup: Value(p.markup),
-                      rank: Value(p.rank),
-                      ageRestriction: Value(p.ageRestriction),
-                      isPriceChangeAllowed: Value(p.isPriceChangeAllowed),
-                      isUsingDefaultQuantity: Value(p.isUsingDefaultQuantity),
-                      isTaxInclusivePrice: Value(p.isTaxInclusivePrice),
-                      isEnabled: Value(p.isEnabled),
-                      syncStatus: const Value('synced'),
-                      lastModified: Value(DateTime.now().toUtc()),
-                    ),
-                  );
-              await db.remapProductId(p.id, realId);
-            });
-
-          // ── UPDATE ──────────────────────────────────────────────────────
-          case 'pending_update':
-            String imageBase64 = '';
-            if (p.localImagePath != null) {
-              try {
-                final bytes = await File(p.localImagePath!).readAsBytes();
-                imageBase64 = base64Encode(bytes);
-              } catch (_) {}
-            }
-
-            await dio.patch<dynamic>(
-              '/Products/Update',
-              queryParameters: {'id': p.id, 'companyId': companyId},
-              data: {
-                'id': p.id,
-                'name': p.name,
-                'productGroupId': p.productGroupId,
-                'code': p.code,
-                'plu': p.plu,
-                'measurementUnit': p.measurementUnit,
-                'price': p.price,
-                'cost': p.cost,
-                'markup': p.markup,
-                'rank': p.rank,
-                'ageRestriction': p.ageRestriction,
-                'description': p.description,
-                'isTaxInclusivePrice': p.isTaxInclusivePrice,
-                'isService': p.isService,
-                'isPriceChangeAllowed': p.isPriceChangeAllowed,
-                'isUsingDefaultQuantity': p.isUsingDefaultQuantity,
-                'isEnabled': p.isEnabled,
-                'color': p.colorHex ?? '#000000',
-                'imageBase64': imageBase64,
-              },
-            );
-            await (db.update(
-              db.productsTable,
-            )..where((t) => t.id.equals(p.id))).write(
-              const ProductsTableCompanion(
-                syncStatus: Value('synced'),
-                syncError: Value(null),
-              ),
-            );
-
-          // ── DELETE ──────────────────────────────────────────────────────
-          case 'pending_delete':
+        // ── DELETE ────────────────────────────────────────────────────────
+        if (p.syncStatus == 'pending_delete') {
+          // Deleting a row that never reached the server is pure local cleanup
+          // — there is nothing on the server to delete, so don't 400 on it.
+          if (!isTemp) {
             await dio.delete<dynamic>(
               '/Products/Delete',
               queryParameters: {'id': p.id, 'companyId': companyId},
             );
+          }
+          await (db.delete(
+            db.productsTable,
+          )..where((t) => t.id.equals(p.id))).go();
+          continue;
+        }
+
+        // Re-encode image from disk so we can include it in the request body.
+        String imageBase64 = '';
+        if (p.localImagePath != null) {
+          try {
+            final bytes = await File(p.localImagePath!).readAsBytes();
+            imageBase64 = base64Encode(bytes);
+          } catch (_) {}
+        }
+
+        // ── CREATE ──────────────────────────────────────────────────────────
+        // A temp id must ALWAYS be POSTed, even if a later offline edit flipped
+        // its status to pending_update: the product never reached the server, so
+        // PATCH /Products/Update would 400 forever on an unknown id (and drag
+        // every product-keyed dependent — barcodes, stock rules — into the same
+        // loop). Creating it first lets remapProductId cascade the real id.
+        if (isTemp) {
+          final res = await dio.post<Map<String, dynamic>>(
+            '/Products/Add',
+            queryParameters: {'companyId': companyId},
+            data: {
+              'name': p.name,
+              'productGroupId': p.productGroupId,
+              'code': p.code,
+              'plu': p.plu,
+              'measurementUnit': p.measurementUnit,
+              'price': p.price,
+              'cost': p.cost,
+              'markup': p.markup,
+              'rank': p.rank,
+              'ageRestriction': p.ageRestriction,
+              'description': p.description,
+              'isTaxInclusivePrice': p.isTaxInclusivePrice,
+              'isService': p.isService,
+              'isPriceChangeAllowed': p.isPriceChangeAllowed,
+              'isUsingDefaultQuantity': p.isUsingDefaultQuantity,
+              'isEnabled': p.isEnabled,
+              'color': p.colorHex ?? '#000000',
+              'imageBase64': imageBase64,
+            },
+          );
+          final body = res.data?['data'] ?? res.data;
+          final realId = (body['id'] as num?)?.toInt();
+          if (realId == null)
+            throw Exception('Server returned no id for product create');
+
+          // Replace the temp row: delete by temp id, insert with real id, and
+          // cascade the id swap to product-keyed tables (taxes, stock rules,
+          // barcodes, stocks) so their pending pushes use the real id.
+          await db.transaction(() async {
             await (db.delete(
               db.productsTable,
             )..where((t) => t.id.equals(p.id))).go();
+            await db
+                .into(db.productsTable)
+                .insert(
+                  ProductsTableCompanion(
+                    id: Value(realId),
+                    companyId: Value(p.companyId),
+                    name: Value(p.name),
+                    price: Value(p.price),
+                    cost: Value(p.cost),
+                    productGroupId: Value(p.productGroupId),
+                    isService: Value(p.isService),
+                    colorHex: Value(p.colorHex),
+                    localImagePath: Value(p.localImagePath),
+                    code: Value(p.code),
+                    plu: Value(p.plu),
+                    measurementUnit: Value(p.measurementUnit),
+                    description: Value(p.description),
+                    markup: Value(p.markup),
+                    rank: Value(p.rank),
+                    ageRestriction: Value(p.ageRestriction),
+                    isPriceChangeAllowed: Value(p.isPriceChangeAllowed),
+                    isUsingDefaultQuantity: Value(p.isUsingDefaultQuantity),
+                    isTaxInclusivePrice: Value(p.isTaxInclusivePrice),
+                    isEnabled: Value(p.isEnabled),
+                    syncStatus: const Value('synced'),
+                    lastModified: Value(DateTime.now().toUtc()),
+                  ),
+                );
+            await db.remapProductId(p.id, realId);
+          });
+        } else {
+          // ── UPDATE (real, server-known id) ────────────────────────────────
+          await dio.patch<dynamic>(
+            '/Products/Update',
+            queryParameters: {'id': p.id, 'companyId': companyId},
+            data: {
+              'id': p.id,
+              'name': p.name,
+              'productGroupId': p.productGroupId,
+              'code': p.code,
+              'plu': p.plu,
+              'measurementUnit': p.measurementUnit,
+              'price': p.price,
+              'cost': p.cost,
+              'markup': p.markup,
+              'rank': p.rank,
+              'ageRestriction': p.ageRestriction,
+              'description': p.description,
+              'isTaxInclusivePrice': p.isTaxInclusivePrice,
+              'isService': p.isService,
+              'isPriceChangeAllowed': p.isPriceChangeAllowed,
+              'isUsingDefaultQuantity': p.isUsingDefaultQuantity,
+              'isEnabled': p.isEnabled,
+              'color': p.colorHex ?? '#000000',
+              'imageBase64': imageBase64,
+            },
+          );
+          await (db.update(
+            db.productsTable,
+          )..where((t) => t.id.equals(p.id))).write(
+            const ProductsTableCompanion(
+              syncStatus: Value('synced'),
+              syncError: Value(null),
+            ),
+          );
         }
       } catch (e) {
-        debugPrint(
-          'pushPendingProductOps: product ${p.id} (${p.syncStatus}) failed — $e',
+        // Server rejection → un-delete (the row still exists on the server) or
+        // flag sync_failed for create/update; either way stop retrying. Offline
+        // / transient errors are left pending to retry on the next sync.
+        await _resolveRejection(
+          error: e,
+          syncStatus: p.syncStatus,
+          logLabel: 'pushPendingProductOps: product ${p.id} (${p.syncStatus})',
+          entityLabel: '"${p.name}"',
+          apply: (newStatus, msg) =>
+              (db.update(db.productsTable)..where((t) => t.id.equals(p.id)))
+                  .write(ProductsTableCompanion(
+            syncStatus: Value(newStatus),
+            syncError: Value(msg),
+          )),
         );
-        // Record the error; leave syncStatus unchanged so next sync retries.
-        try {
-          await (db.update(db.productsTable)..where((t) => t.id.equals(p.id)))
-              .write(ProductsTableCompanion(syncError: Value(e.toString())));
-        } catch (_) {}
       }
     }
   }
@@ -959,8 +1549,18 @@ class SyncManager {
             )..where((t) => t.localId.equals(b.localId))).go();
         }
       } catch (e) {
-        debugPrint(
-          'pushPendingBarcodeOps: barcode ${b.localId} (${b.syncStatus}) failed — $e',
+        // A delete the server rejects gets un-deleted (barcode reappears) with a
+        // user-facing notice; a rejected create is flagged sync_failed so it
+        // stops retrying. Offline/transient errors stay pending for next sync.
+        // (barcodes carry no syncError column, so the message is logged only.)
+        await _resolveRejection(
+          error: e,
+          syncStatus: b.syncStatus,
+          logLabel: 'pushPendingBarcodeOps: barcode ${b.localId} (${b.syncStatus})',
+          entityLabel: 'Barcode "${b.value}"',
+          apply: (newStatus, _) =>
+              (db.update(db.barcodesTable)..where((t) => t.localId.equals(b.localId)))
+                  .write(BarcodesTableCompanion(syncStatus: Value(newStatus))),
         );
       }
     }
@@ -1116,6 +1716,113 @@ class SyncManager {
     return null;
   }
 
+  /// Drains offline tax-rate writes to the server. Mirrors pushPendingProductOps:
+  /// a temp (negative) id is always POSTed — even if a later edit flipped it to
+  /// pending_update — so /Taxes/UpdateTax never 400s on an id the server never
+  /// saw. On create the temp id is swapped for the real one and cascaded to
+  /// product-tax assignments via remapTaxId.
+  Future<void> pushPendingTaxOps(int companyId) async {
+    final pending =
+        await (db.select(db.taxesTable)
+              ..where((t) => t.companyId.equals(companyId))
+              ..where(
+                (t) => t.syncStatus.isIn([
+                  'pending_create',
+                  'pending_update',
+                  'pending_delete',
+                ]),
+              ))
+            .get();
+
+    if (pending.isEmpty) return;
+
+    for (final t in pending) {
+      try {
+        final isTemp = t.id < 0;
+
+        // ── DELETE ────────────────────────────────────────────────────────
+        if (t.syncStatus == 'pending_delete') {
+          if (!isTemp) {
+            await dio.delete<dynamic>(
+              '/Taxes/DeleteTax',
+              queryParameters: {'id': t.id, 'companyId': companyId},
+            );
+          }
+          await (db.delete(
+            db.taxesTable,
+          )..where((x) => x.id.equals(t.id))).go();
+          continue;
+        }
+
+        final payload = <String, dynamic>{
+          'name': t.name,
+          'rate': t.rate,
+          'code': t.code,
+          'isFixed': t.isFixed,
+          'isTaxOnTotal': t.isTaxOnTotal,
+          'isEnabled': t.isEnabled,
+        };
+
+        // ── CREATE (temp id always POSTs) ─────────────────────────────────
+        if (isTemp) {
+          final res = await dio.post<dynamic>(
+            '/Taxes/AddTax',
+            queryParameters: {'companyId': companyId},
+            data: payload,
+          );
+          final body =
+              res.data is Map ? ((res.data as Map)['data'] ?? res.data) : null;
+          final realId = (body is Map ? (body['id'] as num?) : null)?.toInt();
+          if (realId == null)
+            throw Exception('Server returned no id for tax create');
+
+          await db.transaction(() async {
+            await (db.delete(
+              db.taxesTable,
+            )..where((x) => x.id.equals(t.id))).go();
+            await db.into(db.taxesTable).insert(
+              TaxesTableCompanion(
+                id: Value(realId),
+                companyId: Value(t.companyId),
+                name: Value(t.name),
+                rate: Value(t.rate),
+                code: Value(t.code),
+                isFixed: Value(t.isFixed),
+                isTaxOnTotal: Value(t.isTaxOnTotal),
+                isEnabled: Value(t.isEnabled),
+                lastModified: Value(DateTime.now().toUtc()),
+                syncStatus: const Value('synced'),
+              ),
+            );
+            await db.remapTaxId(t.id, realId);
+          });
+        } else {
+          // ── UPDATE (real, server-known id) ──────────────────────────────
+          await dio.patch<dynamic>(
+            '/Taxes/UpdateTax',
+            queryParameters: {'companyId': companyId},
+            data: {'id': t.id, ...payload},
+          );
+          await (db.update(
+            db.taxesTable,
+          )..where((x) => x.id.equals(t.id))).write(
+            const TaxesTableCompanion(syncStatus: Value('synced')),
+          );
+        }
+      } catch (e) {
+        await _resolveRejection(
+          error: e,
+          syncStatus: t.syncStatus,
+          logLabel: 'pushPendingTaxOps: tax ${t.id} (${t.syncStatus})',
+          entityLabel: 'Tax "${t.name}"',
+          apply: (s, _) =>
+              (db.update(db.taxesTable)..where((x) => x.id.equals(t.id)))
+                  .write(TaxesTableCompanion(syncStatus: Value(s))),
+        );
+      }
+    }
+  }
+
   Future<void> pullTaxes(int companyId) async {
     final startedAt = DateTime.now().toUtc();
     final watermark = await _getLastSync(_kTaxes);
@@ -1126,12 +1833,24 @@ class SyncManager {
     );
     final rows = res.data ?? const [];
 
+    // Local changes win until pushed: never overwrite a row that's still
+    // pending_update/pending_delete (or resurrect a tombstoned one).
+    final pendingIds =
+        (await (db.select(db.taxesTable)
+                  ..where((t) => t.companyId.equals(companyId))
+                  ..where((t) => t.syncStatus.isNotIn(['synced'])))
+                .get())
+            .map((r) => r.id)
+            .toSet();
+
     await db.batch((batch) {
       for (final json in rows.cast<Map<String, dynamic>>()) {
+        final id = json['id'] as int;
+        if (pendingIds.contains(id)) continue;
         batch.insert(
           db.taxesTable,
           TaxesTableCompanion(
-            id: Value(json['id'] as int),
+            id: Value(id),
             companyId: Value(json['companyId'] as int? ?? companyId),
             name: Value(json['name'] as String? ?? ''),
             rate: Value((json['rate'] as num?)?.toDouble() ?? 0),
@@ -1141,6 +1860,7 @@ class SyncManager {
             isTaxOnTotal: Value(json['isTaxOnTotal'] as bool? ?? true),
             isEnabled: Value(json['isEnabled'] as bool? ?? true),
             lastModified: Value(_parseLastModified(json['lastModified'])),
+            syncStatus: const Value('synced'),
           ),
           mode: InsertMode.insertOrReplace,
         );
@@ -1302,95 +2022,118 @@ class SyncManager {
           } catch (_) {}
         }
 
-        switch (g.syncStatus) {
-          case 'pending_create':
-            final res = await dio.post<dynamic>(
-              '/ProductGroups/Add',
-              queryParameters: {'companyId': companyId},
-              data: {
-                'name': g.name,
-                'parentGroupId': g.parentGroupId,
-                'color': g.colorHex,
-                'image': imageBase64,
-                'rank': g.rank,
-              },
-            );
-            final serverId =
-                (res.data is Map ? (res.data as Map)['id'] : null) as int?;
-            if (serverId != null) {
-              // Rename temp image file to the real server ID.
-              String? newPath = g.localImagePath;
-              if (newPath != null) {
-                try {
-                  final renamed = newPath.replaceAll(
-                    '${g.id}_image',
-                    '${serverId}_image',
-                  );
-                  await File(newPath).rename(renamed);
-                  newPath = renamed;
-                } catch (_) {}
-              }
-              await db.transaction(() async {
-                await (db.delete(
-                  db.productGroupsTable,
-                )..where((t) => t.id.equals(g.id))).go();
-                await db
-                    .into(db.productGroupsTable)
-                    .insertOnConflictUpdate(
-                      ProductGroupsTableCompanion(
-                        id: Value(serverId),
-                        companyId: Value(g.companyId),
-                        name: Value(g.name),
-                        parentGroupId: Value(g.parentGroupId),
-                        colorHex: Value(g.colorHex),
-                        rank: Value(g.rank),
-                        localImagePath: Value(newPath),
-                        lastModified: Value(DateTime.now().toUtc()),
-                        syncStatus: const Value('synced'),
-                      ),
-                    );
-              });
-            }
+        // A temp (negative) id means the group was created offline and has
+        // never existed on the server yet.
+        final isTemp = g.id < 0;
 
-          case 'pending_update':
-            await dio.patch<dynamic>(
-              '/ProductGroups/Update',
-              queryParameters: {'companyId': companyId},
-              data: {
-                'id': g.id,
-                'name': g.name,
-                'parentGroupId': g.parentGroupId,
-                'color': g.colorHex,
-                'image': imageBase64,
-                'rank': g.rank,
-              },
-            );
-            await (db.update(
-              db.productGroupsTable,
-            )..where((t) => t.id.equals(g.id))).write(
-              const ProductGroupsTableCompanion(syncStatus: Value('synced')),
-            );
-
-          case 'pending_delete':
+        if (g.syncStatus == 'pending_delete') {
+          // Nothing on the server to delete for a never-synced row.
+          if (!isTemp) {
             await dio.delete<dynamic>(
               '/ProductGroups/Delete',
               queryParameters: {'id': g.id, 'companyId': companyId},
             );
-            await (db.delete(
-              db.productGroupsTable,
-            )..where((t) => t.id.equals(g.id))).go();
+          }
+          await (db.delete(
+            db.productGroupsTable,
+          )..where((t) => t.id.equals(g.id))).go();
+          continue;
         }
-      } catch (e) {
-        debugPrint(
-          'pushPendingProductGroupOps: group ${g.id} (${g.syncStatus}) failed — $e',
-        );
-        try {
+
+        // A temp id must ALWAYS be POSTed, even if a later offline edit flipped
+        // its status to pending_update — otherwise /ProductGroups/Update 400s
+        // forever on an id the server never saw.
+        if (isTemp) {
+          final res = await dio.post<dynamic>(
+            '/ProductGroups/Add',
+            queryParameters: {'companyId': companyId},
+            data: {
+              'name': g.name,
+              'parentGroupId': g.parentGroupId,
+              'color': g.colorHex,
+              'image': imageBase64,
+              'rank': g.rank,
+            },
+          );
+          final serverId =
+              (res.data is Map ? (res.data as Map)['id'] : null) as int?;
+          if (serverId != null) {
+            // Rename temp image file to the real server ID.
+            String? newPath = g.localImagePath;
+            if (newPath != null) {
+              try {
+                final renamed = newPath.replaceAll(
+                  '${g.id}_image',
+                  '${serverId}_image',
+                );
+                await File(newPath).rename(renamed);
+                newPath = renamed;
+              } catch (_) {}
+            }
+            await db.transaction(() async {
+              await (db.delete(
+                db.productGroupsTable,
+              )..where((t) => t.id.equals(g.id))).go();
+              await db
+                  .into(db.productGroupsTable)
+                  .insertOnConflictUpdate(
+                    ProductGroupsTableCompanion(
+                      id: Value(serverId),
+                      companyId: Value(g.companyId),
+                      name: Value(g.name),
+                      parentGroupId: Value(g.parentGroupId),
+                      colorHex: Value(g.colorHex),
+                      rank: Value(g.rank),
+                      localImagePath: Value(newPath),
+                      lastModified: Value(DateTime.now().toUtc()),
+                      syncStatus: const Value('synced'),
+                    ),
+                  );
+              await db.remapProductGroupId(g.id, serverId);
+            });
+          }
+        } else {
+          await dio.patch<dynamic>(
+            '/ProductGroups/Update',
+            queryParameters: {'companyId': companyId},
+            data: {
+              'id': g.id,
+              'name': g.name,
+              'parentGroupId': g.parentGroupId,
+              'color': g.colorHex,
+              'image': imageBase64,
+              'rank': g.rank,
+            },
+          );
           await (db.update(
             db.productGroupsTable,
           )..where((t) => t.id.equals(g.id))).write(
-            ProductGroupsTableCompanion(syncError: Value(e.toString())),
+            const ProductGroupsTableCompanion(syncStatus: Value('synced')),
           );
-        } catch (_) {}
+        }
+      } catch (e) {
+        if (_isServerRejection(e)) {
+          final msg = _serverErrMsg(e);
+          // Server rejected it (e.g. duplicate name, group in use). Stop looping:
+          //  • delete → un-delete locally (the server still has it).
+          //  • create/update → flag sync_failed (keep local data, stop retrying).
+          final revert = g.syncStatus == 'pending_delete';
+          await (db.update(db.productGroupsTable)
+                ..where((t) => t.id.equals(g.id)))
+              .write(ProductGroupsTableCompanion(
+                syncStatus: Value(revert ? 'synced' : 'sync_failed'),
+                syncError: Value(msg),
+              ));
+          debugPrint(
+            'pushPendingProductGroupOps: group ${g.id} (${g.syncStatus}) '
+            'rejected — $msg (resolved, won\'t retry)',
+          );
+        } else {
+          debugPrint(
+            'pushPendingProductGroupOps: group ${g.id} (${g.syncStatus}) '
+            'failed — $e (will retry)',
+          );
+        }
       }
     }
   }
@@ -1454,6 +2197,118 @@ class SyncManager {
     );
   }
 
+  /// Drains offline payment-type writes to the server (mirrors pushPendingTaxOps).
+  Future<void> pushPendingPaymentTypeOps(int companyId) async {
+    final pending =
+        await (db.select(db.paymentTypesTable)
+              ..where((t) => t.companyId.equals(companyId))
+              ..where(
+                (t) => t.syncStatus.isIn([
+                  'pending_create',
+                  'pending_update',
+                  'pending_delete',
+                ]),
+              ))
+            .get();
+
+    if (pending.isEmpty) return;
+
+    for (final p in pending) {
+      try {
+        final isTemp = p.id < 0;
+
+        if (p.syncStatus == 'pending_delete') {
+          if (!isTemp) {
+            await dio.delete<dynamic>(
+              '/PaymentTypes/Delete',
+              queryParameters: {'id': p.id, 'companyId': companyId},
+            );
+          }
+          await (db.delete(
+            db.paymentTypesTable,
+          )..where((x) => x.id.equals(p.id))).go();
+          continue;
+        }
+
+        final payload = <String, dynamic>{
+          'name': p.name,
+          'code': p.code,
+          'ordinal': p.ordinal,
+          'shortcutKey': p.shortcutKey,
+          'isEnabled': p.isEnabled,
+          'isQuickPayment': p.isQuickPayment,
+          'isCustomerRequired': p.isCustomerRequired,
+          'isChangeAllowed': p.isChangeAllowed,
+          'markAsPaid': p.markAsPaid,
+          'openCashDrawer': p.openCashDrawer,
+          'isFiscal': p.isFiscal,
+          'isSlipRequired': p.isSlipRequired,
+        };
+
+        if (isTemp) {
+          final res = await dio.post<dynamic>(
+            '/PaymentTypes/Add',
+            queryParameters: {'companyId': companyId},
+            data: payload,
+          );
+          final body =
+              res.data is Map ? ((res.data as Map)['data'] ?? res.data) : null;
+          final realId = (body is Map ? (body['id'] as num?) : null)?.toInt();
+          if (realId == null)
+            throw Exception('Server returned no id for payment type create');
+
+          await db.transaction(() async {
+            await (db.delete(
+              db.paymentTypesTable,
+            )..where((x) => x.id.equals(p.id))).go();
+            await db.into(db.paymentTypesTable).insert(
+              PaymentTypesTableCompanion(
+                id: Value(realId),
+                companyId: Value(p.companyId),
+                name: Value(p.name),
+                code: Value(p.code),
+                ordinal: Value(p.ordinal),
+                shortcutKey: Value(p.shortcutKey),
+                isEnabled: Value(p.isEnabled),
+                isQuickPayment: Value(p.isQuickPayment),
+                isCustomerRequired: Value(p.isCustomerRequired),
+                isChangeAllowed: Value(p.isChangeAllowed),
+                markAsPaid: Value(p.markAsPaid),
+                openCashDrawer: Value(p.openCashDrawer),
+                isFiscal: Value(p.isFiscal),
+                isSlipRequired: Value(p.isSlipRequired),
+                lastModified: Value(DateTime.now().toUtc()),
+                syncStatus: const Value('synced'),
+              ),
+            );
+            await db.remapPaymentTypeId(p.id, realId);
+          });
+        } else {
+          await dio.patch<dynamic>(
+            '/PaymentTypes/Update',
+            queryParameters: {'companyId': companyId},
+            data: {'id': p.id, ...payload},
+          );
+          await (db.update(
+            db.paymentTypesTable,
+          )..where((x) => x.id.equals(p.id))).write(
+            const PaymentTypesTableCompanion(syncStatus: Value('synced')),
+          );
+        }
+      } catch (e) {
+        await _resolveRejection(
+          error: e,
+          syncStatus: p.syncStatus,
+          logLabel: 'pushPendingPaymentTypeOps: ${p.id} (${p.syncStatus})',
+          entityLabel: 'Payment type "${p.name}"',
+          apply: (s, _) => (db.update(db.paymentTypesTable)
+                ..where((x) => x.id.equals(p.id)))
+              .write(PaymentTypesTableCompanion(syncStatus: Value(s))),
+        );
+      }
+    }
+  }
+
   Future<void> pullPaymentTypes(int companyId) async {
     final startedAt = DateTime.now().toUtc();
     final watermark = await _getLastSync(_kPaymentTypes);
@@ -1464,12 +2319,23 @@ class SyncManager {
     );
     final rows = res.data ?? const [];
 
+    // Local changes win until pushed.
+    final pendingIds =
+        (await (db.select(db.paymentTypesTable)
+                  ..where((t) => t.companyId.equals(companyId))
+                  ..where((t) => t.syncStatus.isNotIn(['synced'])))
+                .get())
+            .map((r) => r.id)
+            .toSet();
+
     await db.batch((batch) {
       for (final json in rows.cast<Map<String, dynamic>>()) {
+        final id = json['id'] as int;
+        if (pendingIds.contains(id)) continue;
         batch.insert(
           db.paymentTypesTable,
           PaymentTypesTableCompanion(
-            id: Value(json['id'] as int),
+            id: Value(id),
             companyId: Value(json['companyId'] as int? ?? companyId),
             name: Value(json['name'] as String? ?? ''),
             code: Value(json['code'] as String?),
@@ -1486,6 +2352,7 @@ class SyncManager {
             shortcutKey: Value(json['shortcutKey'] as String?),
             markAsPaid: Value(json['markAsPaid'] as bool? ?? false),
             lastModified: Value(_parseLastModified(json['lastModified'])),
+            syncStatus: const Value('synced'),
           ),
           mode: InsertMode.insertOrReplace,
         );
@@ -1648,13 +2515,16 @@ class SyncManager {
             )..where((t) => t.id.equals(c.id))).go();
         }
       } catch (e) {
-        debugPrint(
-          'pushPendingCustomerOps: customer ${c.id} (${c.syncStatus}) failed — $e',
+        await _resolveRejection(
+          error: e,
+          syncStatus: c.syncStatus,
+          logLabel: 'pushPendingCustomerOps: customer ${c.id} (${c.syncStatus})',
+          entityLabel: 'Customer "${c.name}"',
+          apply: (s, msg) =>
+              (db.update(db.customersTable)..where((t) => t.id.equals(c.id)))
+                  .write(CustomersTableCompanion(
+                      syncStatus: Value(s), syncError: Value(msg))),
         );
-        try {
-          await (db.update(db.customersTable)..where((t) => t.id.equals(c.id)))
-              .write(CustomersTableCompanion(syncError: Value(e.toString())));
-        } catch (_) {}
       }
     }
   }
@@ -1824,6 +2694,52 @@ class SyncManager {
   /// writes the logo to disk via ImageSyncHelper, and upserts the lean
   /// row into `companies`. No `modifiedAfter` watermark — single tiny
   /// record, cheaper to re-fetch each sync than to track timestamps.
+  /// Pushes an offline company field edit (update-only). The logo is handled by
+  /// the online upload path, so it's not touched here.
+  Future<void> pushPendingCompanyOps(int companyId) async {
+    final pending =
+        await (db.select(db.companiesTable)
+              ..where((t) => t.id.equals(companyId))
+              ..where((t) => t.syncStatus.equals('pending_update')))
+            .getSingleOrNull();
+    if (pending == null) return;
+
+    try {
+      await dio.patch<dynamic>(
+        '/Company/Update',
+        data: {
+          'id': pending.id,
+          'name': pending.name,
+          'countryId': pending.countryId,
+          'taxNumber': pending.taxNumber,
+          'streetName': pending.streetName,
+          'buildingNumber': pending.buildingNumber,
+          'additionalStreetName': pending.additionalStreetName,
+          'plotIdentification': pending.plotIdentification,
+          'citySubdivisionName': pending.citySubdivisionName,
+          'countrySubentity': pending.countrySubentity,
+          'postalCode': pending.postalCode,
+          'city': pending.city,
+          'email': pending.email,
+          'phoneNumber': pending.phone,
+          'bankAccountNumber': pending.bankAccountNumber,
+          'bankDetails': pending.bankDetails,
+        },
+      );
+      await (db.update(db.companiesTable)..where((t) => t.id.equals(companyId)))
+          .write(const CompaniesTableCompanion(syncStatus: Value('synced')));
+    } catch (e) {
+      await _resolveRejection(
+        error: e,
+        syncStatus: pending.syncStatus,
+        logLabel: 'pushPendingCompanyOps: $companyId',
+        apply: (s, _) =>
+            (db.update(db.companiesTable)..where((t) => t.id.equals(companyId)))
+                .write(CompaniesTableCompanion(syncStatus: Value(s))),
+      );
+    }
+  }
+
   Future<void> pullCompany(int companyId) async {
     final res = await dio.get<Map<String, dynamic>>(
       '/Company/GetById',
@@ -1831,6 +2747,13 @@ class SyncManager {
     );
     final json = res.data;
     if (json == null) return;
+
+    // Don't clobber a locally-edited (pending_update) company row — local wins
+    // until pushPendingCompanyOps has pushed it.
+    final existing = await (db.select(db.companiesTable)
+          ..where((t) => t.id.equals(companyId)))
+        .getSingleOrNull();
+    if (existing != null && existing.syncStatus != 'synced') return;
 
     // The C# API serves the logo as a base64 string under `logo`. Write
     // it to disk under company_logos/ and store only the path in Drift.
@@ -1850,8 +2773,23 @@ class SyncManager {
             taxNumber: Value(json['taxNumber'] as String?),
             address: Value(json['address'] as String?),
             phone: Value(json['phoneNumber'] as String?),
+            // Full field set so the My Company editor works offline.
+            countryId: Value(json['countryId'] as int?),
+            postalCode: Value(json['postalCode'] as String?),
+            city: Value(json['city'] as String?),
+            email: Value(json['email'] as String?),
+            bankAccountNumber: Value(json['bankAccountNumber'] as String?),
+            bankDetails: Value(json['bankDetails'] as String?),
+            streetName: Value(json['streetName'] as String?),
+            additionalStreetName:
+                Value(json['additionalStreetName'] as String?),
+            buildingNumber: Value(json['buildingNumber'] as String?),
+            plotIdentification: Value(json['plotIdentification'] as String?),
+            citySubdivisionName: Value(json['citySubdivisionName'] as String?),
+            countrySubentity: Value(json['countrySubentity'] as String?),
             localLogoPath: Value(localLogoPath),
             lastModified: Value(_parseLastModified(json['lastModified'])),
+            syncStatus: const Value('synced'),
           ),
         );
   }
@@ -2198,13 +3136,16 @@ class SyncManager {
                 .go();
         }
       } catch (e) {
-        debugPrint(
-            'pushPendingWarehouseOps: ${w.id} (${w.syncStatus}) failed — $e');
-        try {
-          await (db.update(db.warehousesTable)
-                ..where((t) => t.id.equals(w.id)))
-              .write(WarehousesTableCompanion(syncError: Value(e.toString())));
-        } catch (_) {}
+        await _resolveRejection(
+          error: e,
+          syncStatus: w.syncStatus,
+          logLabel: 'pushPendingWarehouseOps: ${w.id} (${w.syncStatus})',
+          entityLabel: 'Warehouse "${w.name}"',
+          apply: (s, msg) =>
+              (db.update(db.warehousesTable)..where((t) => t.id.equals(w.id)))
+                  .write(WarehousesTableCompanion(
+                      syncStatus: Value(s), syncError: Value(msg))),
+        );
       }
     }
   }
@@ -2219,9 +3160,11 @@ class SyncManager {
 
     for (final op in ops) {
       // A move whose target is still a temp (negative) id can't be pushed yet —
-      // its warehouse create hasn't synced. Leave it for the next cycle.
+      // its warehouse/product create hasn't synced (remapProductId repoints the
+      // productId once the product lands). Leave it for the next cycle.
       if (op.operation == 'move' &&
-          (op.targetWarehouseId == null || op.targetWarehouseId! < 0)) {
+          ((op.targetWarehouseId == null || op.targetWarehouseId! < 0) ||
+              (op.productId != null && op.productId! < 0))) {
         continue;
       }
       try {
@@ -2452,6 +3395,11 @@ class SyncManager {
       final doc = await db.getDocumentByLocalId(it.documentId);
       final docServerId = doc?.serverId;
       if (docServerId == null) continue;
+
+      // Step 1: create the line item. This is the ONLY stock-affecting call
+      // (the server's DocumentItem insert trigger adjusts inventory). If it
+      // throws, the item was not created — leave it pending and retry next sync.
+      final int? itemServerId;
       try {
         final res = await dio.post<dynamic>(
           '/DocumentItems/Add',
@@ -2468,15 +3416,37 @@ class SyncManager {
             'discountApplyRule': true,
           },
         );
-        final itemServerId = _parseDocServerId(res.data);
-        if (itemServerId != null && it.taxId != null) {
+        itemServerId = _parseDocServerId(res.data);
+      } catch (e) {
+        debugPrint('pushPendingDocumentItems (create) ${it.localId} failed — $e');
+        continue;
+      }
+
+      // Step 2: the item now exists server-side (stock already adjusted), so
+      // mark it synced IMMEDIATELY. Critical: a failure in the best-effort tax /
+      // expiration attachments below must never leave it 'pending_create',
+      // otherwise the next sync re-creates the item and re-triggers the stock
+      // adjustment — the cause of the "+N every sync" inventory drift.
+      await db.markDocumentItemSynced(it.localId, itemServerId);
+
+      // Step 3: best-effort attachments — isolated so neither can re-create the
+      // item. Past expiration dates are skipped (the server rejects them with
+      // "Expiration date cannot be in the past").
+      if (itemServerId != null && it.taxId != null) {
+        try {
           await dio.post<dynamic>(
             '/DocumentItemTaxes/Add',
             queryParameters: {'companyId': companyId},
             data: {'documentItemId': itemServerId, 'taxId': it.taxId},
           );
+        } catch (e) {
+          debugPrint('pushPendingDocumentItems (tax) ${it.localId} failed — $e');
         }
-        if (itemServerId != null && it.expirationDate != null) {
+      }
+      if (itemServerId != null &&
+          it.expirationDate != null &&
+          it.expirationDate!.isAfter(DateTime.now())) {
+        try {
           await dio.post<dynamic>(
             '/DocumentItemExpirationDates/Add',
             queryParameters: {'companyId': companyId},
@@ -2485,10 +3455,10 @@ class SyncManager {
               'expirationDate': it.expirationDate!.toIso8601String(),
             },
           );
+        } catch (e) {
+          debugPrint(
+              'pushPendingDocumentItems (expiration) ${it.localId} failed — $e');
         }
-        await db.markDocumentItemSynced(it.localId, itemServerId);
-      } catch (e) {
-        debugPrint('pushPendingDocumentItems (create) ${it.localId} failed — $e');
       }
     }
 
@@ -2516,8 +3486,9 @@ class SyncManager {
             'discountApplyRule': true,
           },
         );
-        if (it.expirationDate != null) {
-          // Best-effort upsert of the expiration date.
+        if (it.expirationDate != null &&
+            it.expirationDate!.isAfter(DateTime.now())) {
+          // Best-effort upsert; skip past dates the server rejects.
           try {
             await dio.post<dynamic>(
               '/DocumentItemExpirationDates/Add',
@@ -2702,6 +3673,7 @@ class SyncManager {
         final disc = ((d['discount'] as num?)?.toDouble()) ?? 0.0;
         final number = (d['number'] as String?) ?? '';
         final orderNo = d['orderNumber'] as String?;
+        final refOf = d['referenceDocumentNumber'] as String?;
         final paid = (d['paidStatus'] as num?)?.toInt() ?? 1;
         final customerId = (d['customerId'] as num?)?.toInt();
         final rawItems =
@@ -2768,6 +3740,34 @@ class SyncManager {
           continue;
         }
 
+        // Case 1b: a document created locally (e.g. an offline refund pushed via
+        // its own queue) carries the server number but no serverId yet — match
+        // by number and stamp the serverId so we adopt the existing row instead
+        // of inserting a duplicate. Its local total/items are preserved.
+        if (number.isNotEmpty) {
+          final byNumber =
+              await (db.select(db.documentsTable)
+                    ..where((t) => t.number.equals(number))
+                    ..where((t) => t.serverId.isNull())
+                    ..limit(1))
+                  .getSingleOrNull();
+          if (byNumber != null) {
+            await (db.update(db.documentsTable)
+                  ..where((t) => t.localId.equals(byNumber.localId)))
+                .write(DocumentsTableCompanion(
+              serverId:     Value(serverId),
+              syncStatus:   const Value('synced'),
+              lastModified: Value(date),
+            ));
+            if (rawItems.isNotEmpty &&
+                !docsWithItems.contains(byNumber.localId)) {
+              await db.batch((b) => b.insertAll(
+                  db.documentItemsTable, buildItems(byNumber.localId)));
+            }
+            continue;
+          }
+        }
+
         // Case 2: new document from another device — insert sentinel row
         // plus its line items + customerId so the local DB can compute the
         // dashboard / item reports offline.
@@ -2785,6 +3785,7 @@ class SyncManager {
             discount: Value(disc),
             customerId: Value(customerId),
             orderNumber: Value(orderNo),
+            referenceDocumentNumber: Value(refOf),
             paidStatus: Value(paid),
             date: Value(date),
             syncStatus: const Value('synced'),
@@ -2810,16 +3811,24 @@ class SyncManager {
     );
     final rows = res.data ?? const [];
 
+    // Don't let an incremental pull overwrite/resurrect a comment the user is
+    // locally deleting before its DELETE has been pushed. (Negative temp
+    // pending_create rows never collide with positive server ids.)
+    final pendingDeletes = await db.pendingDeleteProductCommentIds(companyId);
+
     await db.batch((batch) {
       for (final json in rows.cast<Map<String, dynamic>>()) {
+        final id = json['id'] as int;
+        if (pendingDeletes.contains(id)) continue;
         batch.insert(
           db.productCommentsTable,
           ProductCommentsTableCompanion(
-            id: Value(json['id'] as int),
+            id: Value(id),
             companyId: Value(json['companyId'] as int? ?? companyId),
             productId: Value(json['productId'] as int? ?? 0),
             comment: Value(json['comment'] as String? ?? ''),
             lastModified: Value(_parseLastModified(json['lastModified'])),
+            syncStatus: const Value('synced'),
           ),
           mode: InsertMode.insertOrReplace,
         );
@@ -2827,6 +3836,68 @@ class SyncManager {
     });
 
     await _setLastSync(_kProductComments, startedAt);
+  }
+
+  /// Drains offline product-comment writes. Runs AFTER pushPendingProductOps so
+  /// a comment on an offline-created product already carries the real productId
+  /// (remapProductId cascaded it). A temp (negative) id always POSTs, then its
+  /// row is swapped for the server id. A pending_delete issues the server DELETE
+  /// (skipped for a temp id the server never saw) then hard-deletes locally.
+  Future<void> pushPendingProductCommentOps(int companyId) async {
+    final pending = await db.getPendingProductComments(companyId);
+    if (pending.isEmpty) return;
+
+    for (final c in pending) {
+      try {
+        final isTemp = c.id < 0;
+
+        // ── DELETE ────────────────────────────────────────────────────────
+        if (c.syncStatus == 'pending_delete') {
+          if (!isTemp) {
+            await dio.delete<dynamic>(
+              '/ProductComments/Delete',
+              queryParameters: {'id': c.id, 'companyId': companyId},
+            );
+          }
+          await db.hardDeleteProductComment(c.id);
+          continue;
+        }
+
+        // ── CREATE (temp id always POSTs) ─────────────────────────────────
+        final res = await dio.post<dynamic>(
+          '/ProductComments/Add',
+          queryParameters: {'companyId': companyId},
+          data: {'productId': c.productId, 'comment': c.comment},
+        );
+        final body =
+            res.data is Map ? ((res.data as Map)['data'] ?? res.data) : null;
+        final realId = (body is Map ? (body['id'] as num?) : null)?.toInt();
+        if (realId == null) {
+          throw Exception('Server returned no id for product comment create');
+        }
+        await db.transaction(() async {
+          await db.hardDeleteProductComment(c.id);
+          await db.upsertSyncedProductComment(
+            id: realId,
+            companyId: c.companyId,
+            productId: c.productId,
+            comment: c.comment,
+            lastModified: DateTime.now().toUtc(),
+          );
+        });
+      } catch (e) {
+        await _resolveRejection(
+          error: e,
+          syncStatus: c.syncStatus,
+          logLabel:
+              'pushPendingProductCommentOps: comment ${c.id} (${c.syncStatus})',
+          entityLabel: 'Comment "${c.comment}"',
+          apply: (s, _) => (db.update(db.productCommentsTable)
+                ..where((x) => x.id.equals(c.id)))
+              .write(ProductCommentsTableCompanion(syncStatus: Value(s))),
+        );
+      }
+    }
   }
 
   /// Drains the [PendingUserOpsTable] by replaying each queued write against
@@ -3158,13 +4229,16 @@ class SyncManager {
             )..where((t) => t.id.equals(p.id))).go();
         }
       } catch (e) {
-        debugPrint(
-          'pushPendingPromotionOps: promo ${p.id} (${p.syncStatus}) failed — $e',
+        await _resolveRejection(
+          error: e,
+          syncStatus: p.syncStatus,
+          logLabel: 'pushPendingPromotionOps: promo ${p.id} (${p.syncStatus})',
+          entityLabel: 'Promotion "${p.name}"',
+          apply: (s, msg) =>
+              (db.update(db.promotionsTable)..where((t) => t.id.equals(p.id)))
+                  .write(PromotionsTableCompanion(
+                      syncStatus: Value(s), syncError: Value(msg))),
         );
-        try {
-          await (db.update(db.promotionsTable)..where((t) => t.id.equals(p.id)))
-              .write(PromotionsTableCompanion(syncError: Value(e.toString())));
-        } catch (_) {}
       }
     }
   }
@@ -3305,8 +4379,26 @@ class SyncManager {
           }
         });
       } catch (e) {
-        debugPrint('pushPendingLoyaltyCardOps: batch upsert failed — $e');
-        // Leave rows pending for next retry.
+        if (_isServerRejection(e)) {
+          // The whole batch was rejected by the server — flag every row in it
+          // sync_failed so it stops retrying (it's all-or-nothing server-side).
+          final msg = _serverErrMsg(e);
+          for (final r in toUpsert) {
+            await (db.update(db.loyaltyCardsTable)
+                  ..where((t) => t.id.equals(r.id)))
+                .write(LoyaltyCardsTableCompanion(
+                    syncStatus: const Value('sync_failed'), syncError: Value(msg)));
+          }
+          debugPrint(
+            'pushPendingLoyaltyCardOps: batch upsert rejected — $msg '
+            '(resolved, won\'t retry)',
+          );
+        } else {
+          // Offline / transient — leave rows pending for next retry.
+          debugPrint(
+            'pushPendingLoyaltyCardOps: batch upsert failed — $e (will retry)',
+          );
+        }
       }
     }
 
@@ -3321,8 +4413,14 @@ class SyncManager {
           db.loyaltyCardsTable,
         )..where((t) => t.id.equals(r.id))).go();
       } catch (e) {
-        debugPrint(
-          'pushPendingLoyaltyCardOps: delete card ${r.id} failed — $e',
+        await _resolveRejection(
+          error: e,
+          syncStatus: r.syncStatus,
+          logLabel: 'pushPendingLoyaltyCardOps: delete card ${r.id}',
+          entityLabel: 'Loyalty card ${r.cardNumber ?? r.id}',
+          apply: (s, _) => (db.update(db.loyaltyCardsTable)
+                ..where((t) => t.id.equals(r.id)))
+              .write(LoyaltyCardsTableCompanion(syncStatus: Value(s))),
         );
       }
     }

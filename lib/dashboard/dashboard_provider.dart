@@ -3,6 +3,7 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/dashboard/dashboard_model.dart';
 import 'package:pos_app/database/app_database.dart';
 import 'package:pos_app/database/database_provider.dart';
+import 'package:pos_app/refund/refund_service.dart' show kRefundDocumentTypeId;
 
 class DashboardDateRange {
   final DateTime start;
@@ -49,10 +50,12 @@ Stream<DashboardData> _localStream(
 /// devices' sales within the pulled window (~90 days).
 Future<DashboardData> _computeLocalDashboard(
     AppDatabase db, int companyId, DateTime start, DateTime end) async {
-  // Sales documents (documentTypeId 2) for the company.
+  // Sales (documentTypeId 2) AND refunds (4) for the company. Refunds are
+  // netted out below so the dashboard reflects money actually kept, not gross
+  // sales — a fully-refunded sale nets to zero.
   final docs = await (db.select(db.documentsTable)
         ..where((t) => t.companyId.equals(companyId))
-        ..where((t) => t.documentTypeId.equals(2)))
+        ..where((t) => t.documentTypeId.isIn([2, kRefundDocumentTypeId])))
       .get();
 
   // Range filter in Dart (robust against stored UTC vs local range bounds).
@@ -66,28 +69,42 @@ Future<DashboardData> _computeLocalDashboard(
   final hourlyMap = <int, double>{};
   final customerTotals = <int, double>{};
   final docIds = <String>{};
+  // Track which in-range documents are refunds so the line-item aggregation
+  // below can subtract their quantities/totals too.
+  final refundDocIds = <String>{};
 
   for (final d in inRange) {
     docIds.add(d.localId);
-    totalSales += d.total;
+    final isRefund = d.documentTypeId == kRefundDocumentTypeId;
+    if (isRefund) refundDocIds.add(d.localId);
+    // Normalize by type, not by the stored sign: a refund total is negative
+    // locally but positive once pulled from the server, so always treat a
+    // refund as a deduction (−|total|) and a sale as an addition (+|total|).
+    final signed = isRefund ? -d.total.abs() : d.total.abs();
+    totalSales += signed;
     final dt = d.date.toLocal();
     final mKey = dt.year * 100 + dt.month;
-    monthlyMap[mKey] = (monthlyMap[mKey] ?? 0) + d.total;
-    hourlyMap[dt.hour] = (hourlyMap[dt.hour] ?? 0) + d.total;
+    monthlyMap[mKey] = (monthlyMap[mKey] ?? 0) + signed;
+    hourlyMap[dt.hour] = (hourlyMap[dt.hour] ?? 0) + signed;
     final cid = d.customerId;
     if (cid != null) {
-      customerTotals[cid] = (customerTotals[cid] ?? 0) + d.total;
+      customerTotals[cid] = (customerTotals[cid] ?? 0) + signed;
     }
   }
 
   // Line items for the in-range documents (present for local-origin orders).
+  // Refund line items are subtracted (again normalized by parent doc type, not
+  // stored sign) so top products/groups reflect net quantities and revenue.
   final allItems = await db.select(db.documentItemsTable).get();
   final productQty = <int, double>{};
   final productTotal = <int, double>{};
   for (final it in allItems) {
     if (!docIds.contains(it.documentId)) continue;
-    productQty[it.productId] = (productQty[it.productId] ?? 0) + it.quantity;
-    productTotal[it.productId] = (productTotal[it.productId] ?? 0) + it.total;
+    final isRefund = refundDocIds.contains(it.documentId);
+    final qty   = isRefund ? -it.quantity.abs() : it.quantity.abs();
+    final total = isRefund ? -it.total.abs()    : it.total.abs();
+    productQty[it.productId]   = (productQty[it.productId] ?? 0) + qty;
+    productTotal[it.productId] = (productTotal[it.productId] ?? 0) + total;
   }
 
   // Name + group lookups.

@@ -5,7 +5,10 @@ import 'package:pos_app/auth/auth_storage.dart';
 import 'package:pos_app/auth/master_login_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pos_app/auth/login_screen.dart';
+import 'package:pos_app/license/license_service.dart';
+import 'package:pos_app/license/subscription_blocked_screen.dart';
 import 'package:pos_app/settings/settings_provider.dart';
+import 'package:pos_app/settings/local_ui_prefs.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -133,15 +136,31 @@ class MyApp extends ConsumerStatefulWidget {
   ConsumerState<MyApp> createState() => _MyAppState();
 }
 
+/// Decides the first screen at boot: device registration first, then the
+/// Pillar-2 offline subscription guard.
+class _BootDecision {
+  final bool registered;
+  final LicenseEvaluation? license;
+  const _BootDecision(this.registered, this.license);
+}
+
 class _MyAppState extends ConsumerState<MyApp> {
-  late Future<bool> _deviceRegisteredFuture;
+  late Future<_BootDecision> _bootFuture;
 
   @override
   void initState() {
     super.initState();
-    _deviceRegisteredFuture = ref
-        .read(authStorageProvider)
-        .isDeviceRegistered();
+    _bootFuture = _decideBoot();
+  }
+
+  Future<_BootDecision> _decideBoot() async {
+    final registered =
+        await ref.read(authStorageProvider).isDeviceRegistered();
+    if (!registered) return const _BootDecision(false, null);
+    // Registered terminal: enforce the offline subscription lease before
+    // letting the operator into the POS.
+    final license = await ref.read(licenseServiceProvider).evaluate();
+    return _BootDecision(true, license);
   }
 
   Color _parseAccentColor(String? hex) {
@@ -163,25 +182,43 @@ class _MyAppState extends ConsumerState<MyApp> {
     final themeString = settings[SettingKeys.themeMode] ?? 'dark';
     final themeData = _buildTheme(themeString, seed);
 
+    // Global font scale — a per-terminal preference stored locally (NOT cloud
+    // synced), so adjusting it on one POS never changes another. The notifier
+    // already clamps to a safe range; applied as a textScaler override so it
+    // multiplies every Text in the tree, including ones with a hardcoded
+    // fontSize.
+    final fontScale = ref.watch(fontScaleProvider);
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'POS System',
       themeMode: ThemeMode.light,
       theme: themeData,
-      builder: (context, child) => Directionality(
-        textDirection: isRtl ? TextDirection.rtl : TextDirection.ltr,
-        child: child!,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+          textScaler: TextScaler.linear(fontScale),
+        ),
+        child: Directionality(
+          textDirection: isRtl ? TextDirection.rtl : TextDirection.ltr,
+          child: child!,
+        ),
       ),
-      home: FutureBuilder<bool>(
-        future: _deviceRegisteredFuture,
+      home: FutureBuilder<_BootDecision>(
+        future: _bootFuture,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+          if (snapshot.connectionState == ConnectionState.waiting ||
+              !snapshot.hasData) {
             return const Scaffold(
               body: Center(child: CircularProgressIndicator()),
             );
           }
-          final isRegistered = snapshot.data ?? false;
-          return isRegistered ? const LoginScreen() : const MasterLoginScreen();
+          final decision = snapshot.data!;
+          if (!decision.registered) return const MasterLoginScreen();
+          final license = decision.license;
+          if (license != null && license.blocked) {
+            return SubscriptionBlockedScreen(evaluation: license);
+          }
+          return const LoginScreen();
         },
       ),
     );

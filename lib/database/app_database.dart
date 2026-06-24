@@ -1,11 +1,15 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:sqlite3_flutter_libs/sqlite3_flutter_libs.dart';
+import 'package:sqlite3/sqlite3.dart';
 import 'package:uuid/uuid.dart';
+
+import 'package:pos_app/database/device_key_service.dart';
 
 part 'app_database.g.dart';
 
@@ -66,6 +70,8 @@ class ProductsTable extends Table {
 
   @override
   Set<Column> get primaryKey => {id};
+  BlobColumn get image => blob().nullable()();
+  TextColumn get color => text().nullable()();
 }
 
 class TaxesTable extends Table {
@@ -84,6 +90,12 @@ class TaxesTable extends Table {
   BoolColumn get isEnabled => boolean().withDefault(const Constant(true))();
 
   DateTimeColumn get lastModified => dateTime()();
+
+  // ---- Schema v40: offline-first CRUD ----
+  // Drives the local-write outbox: 'synced' | 'pending_create' |
+  // 'pending_update' | 'pending_delete'. Offline-created rows use a temp
+  // negative id until pushPendingTaxOps swaps in the server id.
+  TextColumn get syncStatus => text().withDefault(const Constant('synced'))();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -147,6 +159,8 @@ class UsersTable extends Table {
 
   @override
   Set<Column> get primaryKey => {id};
+  TextColumn get password => text().nullable()();
+  IntColumn get accessLevel => integer().nullable()();
 }
 
 class AppPropertiesTable extends Table {
@@ -207,6 +221,8 @@ class ProductGroupsTable extends Table {
 
   @override
   Set<Column> get primaryKey => {id};
+  TextColumn get color => text().nullable()();
+  BlobColumn get image => blob().nullable()();
 }
 
 class PaymentTypesTable extends Table {
@@ -233,6 +249,9 @@ class PaymentTypesTable extends Table {
   TextColumn get shortcutKey => text().nullable()();
   BoolColumn get markAsPaid => boolean().withDefault(const Constant(false))();
   DateTimeColumn get lastModified => dateTime()();
+
+  // ---- Schema v41: offline-first CRUD (see TaxesTable.syncStatus) ----
+  TextColumn get syncStatus => text().withDefault(const Constant('synced'))();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -270,6 +289,8 @@ class CustomersTable extends Table {
 
   @override
   Set<Column> get primaryKey => {id};
+  DateTimeColumn get dateCreated => dateTime().nullable()();
+  DateTimeColumn get dateUpdated => dateTime().nullable()();
 }
 
 /// Single-row-per-id cache so receipts render with the real company name,
@@ -291,6 +312,24 @@ class CompaniesTable extends Table {
 
   @override
   Set<Column> get primaryKey => {id};
+  TextColumn get postalCode => text().nullable()();
+  TextColumn get city => text().nullable()();
+  IntColumn get countryId => integer().nullable()();
+  TextColumn get email => text().nullable()();
+  TextColumn get phoneNumber => text().nullable()();
+  BlobColumn get logo => blob().nullable()();
+  TextColumn get bankAccountNumber => text().nullable()();
+  TextColumn get bankDetails => text().nullable()();
+  TextColumn get streetName => text().nullable()();
+  TextColumn get additionalStreetName => text().nullable()();
+  TextColumn get buildingNumber => text().nullable()();
+  TextColumn get plotIdentification => text().nullable()();
+  TextColumn get citySubdivisionName => text().nullable()();
+  TextColumn get countrySubentity => text().nullable()();
+  TextColumn get timeZoneId => text().nullable()();
+
+  // ---- Schema v43: offline-first edits ('synced' | 'pending_update') ----
+  TextColumn get syncStatus => text().withDefault(const Constant('synced'))();
 }
 
 /// Per-product comment suggestions (e.g. "no onions", "extra cheese") used
@@ -299,11 +338,15 @@ class ProductCommentsTable extends Table {
   @override
   String get tableName => 'product_comments';
 
-  IntColumn get id => integer()();
+  IntColumn get id => integer()();          // positive = server id; negative = temp local id
   IntColumn get companyId => integer()();
   IntColumn get productId => integer()();
   TextColumn get comment => text()();
   DateTimeColumn get lastModified => dateTime()();
+  // 'synced' | 'pending_create' | 'pending_delete'. pending_create rows use a
+  // negative temp id until pushPendingProductCommentOps swaps in the server id.
+  TextColumn get syncStatus =>
+      text().withDefault(const Constant('synced'))();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -347,6 +390,8 @@ class PromotionItemsTable extends Table {
 
   @override
   Set<Column> get primaryKey => {id};
+  IntColumn get uid => integer().nullable()();
+  IntColumn get companyId => integer().nullable()();
 }
 
 // ============================================================================
@@ -394,6 +439,10 @@ class PosOrdersTable extends Table {
 
   @override
   Set<Column> get primaryKey => {localId};
+  TextColumn get number => text().nullable()();
+  IntColumn get floorPlanTableId => integer().nullable()();
+  DateTimeColumn get dueDate => dateTime().nullable()();
+  DateTimeColumn get dateCreated => dateTime().nullable()();
 }
 
 @TableIndex(name: 'idx_pos_order_items_order_id', columns: {#orderId})
@@ -422,6 +471,16 @@ class PosOrderItemsTable extends Table {
 
   @override
   Set<Column> get primaryKey => {localId};
+  IntColumn get posOrderId => integer().nullable()();
+  IntColumn get roundNumber => integer().nullable()();
+  RealColumn get price => real().nullable()();
+  BoolColumn get isLocked => boolean().nullable()();
+  BoolColumn get isFeatured => boolean().nullable()();
+  IntColumn get voidedBy => integer().nullable()();
+  DateTimeColumn get dateCreated => dateTime().nullable()();
+  TextColumn get bundle => text().nullable()();
+  IntColumn get discountAppliedType => integer().nullable()();
+  IntColumn get companyId => integer().nullable()();
 }
 
 // Offline tax breakdown — one row per item × tax-rate per saved order.
@@ -443,6 +502,9 @@ class PosOrderItemTaxesTable extends Table {
 
   @override
   Set<Column> get primaryKey => {localId};
+  IntColumn get posOrderItemId => integer().nullable()();
+  IntColumn get taxId => integer().nullable()();
+  IntColumn get companyId => integer().nullable()();
 }
 
 /// Local mirror of the server's `StartingCash` table (cash in / out).
@@ -472,6 +534,9 @@ class StartingCashTable extends Table {
 
   @override
   Set<Column> get primaryKey => {localId};
+  TextColumn get description => text().nullable()();
+  IntColumn get startingCashType => integer().nullable()();
+  DateTimeColumn get dateCreated => dateTime().nullable()();
 }
 
 class ZReportsTable extends Table {
@@ -494,6 +559,15 @@ class ZReportsTable extends Table {
 
   @override
   Set<Column> get primaryKey => {localId};
+  IntColumn get number => integer().nullable()();
+  IntColumn get fromDocumentId => integer().nullable()();
+  IntColumn get toDocumentId => integer().nullable()();
+  DateTimeColumn get dateCreated => dateTime().nullable()();
+  RealColumn get totalReturns => real().nullable()();
+  RealColumn get discountsGranted => real().nullable()();
+  RealColumn get taxableTotal => real().nullable()();
+  RealColumn get totalTax => real().nullable()();
+  RealColumn get grandTotal => real().nullable()();
 }
 
 // ============================================================================
@@ -598,6 +672,9 @@ class DocumentsTable extends Table {
 
   @override
   Set<Column> get primaryKey => {localId};
+  BoolColumn get isClockedOut => boolean().nullable()();
+  DateTimeColumn get dateCreated => dateTime().nullable()();
+  DateTimeColumn get dateUpdated => dateTime().nullable()();
 }
 
 class DocumentItemsTable extends Table {
@@ -630,6 +707,14 @@ class DocumentItemsTable extends Table {
 
   @override
   Set<Column> get primaryKey => {localId};
+  RealColumn get expectedQuantity => real().nullable()();
+  RealColumn get price => real().nullable()();
+  RealColumn get productCost => real().nullable()();
+  RealColumn get priceBeforeTaxAfterDiscount => real().nullable()();
+  RealColumn get priceAfterDiscount => real().nullable()();
+  RealColumn get totalAfterDocumentDiscount => real().nullable()();
+  BoolColumn get discountApplyRule => boolean().nullable()();
+  IntColumn get companyId => integer().nullable()();
 }
 
 class PaymentsTable extends Table {
@@ -660,6 +745,8 @@ class PaymentsTable extends Table {
 
   @override
   Set<Column> get primaryKey => {localId};
+  DateTimeColumn get dateCreated => dateTime().nullable()();
+  IntColumn get companyId => integer().nullable()();
 }
 
 // ============================================================================
@@ -764,6 +851,7 @@ class TimeClockEntriesTable extends Table {
 
   @override
   Set<Column> get primaryKey => {localId};
+  DateTimeColumn get lastModified => dateTime().nullable()();
 }
 
 // ============================================================================
@@ -834,6 +922,7 @@ class BookingsTable extends Table {
 
   @override
   Set<Column> get primaryKey => {id};
+  TextColumn get tableIds => text().nullable()();
 }
 
 // ============================================================================
@@ -930,11 +1019,17 @@ class DocumentTypesTable extends Table {
   TextColumn get name => text()();
   TextColumn get code => text().nullable()();
   IntColumn get documentCategoryId => integer().nullable()();
-  IntColumn get warehouseId => integer().nullable()();
+  // Mirrors the server's DocumentType.StockDirection so the app can reason about
+  // a type's inventory direction offline (0 = none, 1 = add, 2 = deduct).
+  IntColumn get stockDirection => integer().withDefault(const Constant(0))();
   DateTimeColumn get lastModified => dateTime().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};
+  IntColumn get editorType => integer().nullable()();
+  TextColumn get printTemplate => text().nullable()();
+  IntColumn get priceType => integer().nullable()();
+  TextColumn get languageKey => text().nullable()();
 }
 
 class DocumentCategoriesTable extends Table {
@@ -948,6 +1043,7 @@ class DocumentCategoriesTable extends Table {
 
   @override
   Set<Column> get primaryKey => {id};
+  TextColumn get languageKey => text().nullable()();
 }
 
 // Per-product stock-control rule (reorder point, low-stock warning). The
@@ -1008,16 +1104,235 @@ class VoidReasonsTable extends Table {
   IntColumn get rank => integer().withDefault(const Constant(0))();
   DateTimeColumn get lastModified => dateTime().nullable()();
 
+  // ---- Schema v42: offline-first CRUD (see TaxesTable.syncStatus) ----
+  TextColumn get syncStatus => text().withDefault(const Constant('synced'))();
+
   @override
   Set<Column> get primaryKey => {id};
+  DateTimeColumn get dateCreated => dateTime().nullable()();
 }
 
 // ============================================================================
 // DATABASE
 // ============================================================================
 
+// ===== Schema-clone v39: full mirror of remaining online tables =====
+class CountersTable extends Table {
+  @override
+  String get tableName => 'counters';
+  IntColumn get id => integer().autoIncrement()();
+  TextColumn get name => text()();
+  IntColumn get value => integer()();
+  IntColumn get companyId => integer()();
+}
+
+/// DEVICE-LOCAL document-number counters. Never synced (the server-pulled
+/// `counters` table is full-replaced on every sync, so it can't hold a local
+/// sequence). One row per (companyId + document-type code); `value` is the last
+/// issued sequence. Drives offline document numbers of the form
+/// `<DeviceName>-<DocTypeCode>-<Seq>` so every sale/refund gets a stable,
+/// collision-free, scannable number the moment it's created — fully offline.
+class LocalDocCountersTable extends Table {
+  @override
+  String get tableName => 'local_doc_counters';
+
+  // "<companyId>:<docTypeCode>" e.g. "18:200"
+  TextColumn get key => text()();
+  IntColumn get value => integer().withDefault(const Constant(0))();
+
+  @override
+  Set<Column> get primaryKey => {key};
+}
+
+class CountriesTable extends Table {
+  @override
+  String get tableName => 'countries';
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get serverId => integer().nullable()();
+  TextColumn get name => text()();
+  TextColumn get code => text().nullable()();
+}
+
+class CurrenciesTable extends Table {
+  @override
+  String get tableName => 'currencies';
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get serverId => integer().nullable()();
+  TextColumn get name => text()();
+  TextColumn get code => text().nullable()();
+}
+
+class DocumentItemExpirationDatesTable extends Table {
+  @override
+  String get tableName => 'document_item_expiration_dates';
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get documentItemId => integer()();
+  DateTimeColumn get expirationDate => dateTime()();
+  IntColumn get companyId => integer()();
+}
+
+class DocumentItemTaxesTable extends Table {
+  @override
+  String get tableName => 'document_item_taxes';
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get documentItemId => integer()();
+  IntColumn get taxId => integer()();
+  RealColumn get amount => real()();
+  IntColumn get companyId => integer()();
+}
+
+class FiscalItemsTable extends Table {
+  @override
+  String get tableName => 'fiscal_items';
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get plu => integer()();
+  TextColumn get name => text()();
+  TextColumn get vat => text()();
+  IntColumn get companyId => integer()();
+}
+
+class PosPrinterSelectionsTable extends Table {
+  @override
+  String get tableName => 'pos_printer_selections';
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get serverId => integer().nullable()();
+  TextColumn get key => text()();
+  TextColumn get printerName => text().nullable()();
+  BoolColumn get isEnabled => boolean()();
+  IntColumn get companyId => integer()();
+}
+
+class PosPrinterSelectionSettingsTable extends Table {
+  @override
+  String get tableName => 'pos_printer_selection_settings';
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get serverId => integer().nullable()();
+  IntColumn get posPrinterSelectionId => integer()();
+  IntColumn get paperWidth => integer()();
+  TextColumn get header => text().nullable()();
+  TextColumn get footer => text().nullable()();
+  IntColumn get feedLines => integer()();
+  BoolColumn get cutPaper => boolean()();
+  BoolColumn get printBitmap => boolean()();
+  BoolColumn get openCashDrawer => boolean()();
+  TextColumn get cashDrawerCommand => text().nullable()();
+  IntColumn get headerAlignment => integer()();
+  IntColumn get footerAlignment => integer()();
+  BoolColumn get isFormattingEnabled => boolean()();
+  IntColumn get printerType => integer()();
+  IntColumn get numberOfCopies => integer()();
+  IntColumn get codePage => integer()();
+  IntColumn get characterSet => integer()();
+  IntColumn get margin => integer()();
+  RealColumn get leftMargin => real()();
+  RealColumn get topMargin => real()();
+  RealColumn get rightMargin => real()();
+  RealColumn get bottomMargin => real()();
+  BoolColumn get printBarcode => boolean()();
+  TextColumn get fontName => text().nullable()();
+  RealColumn get fontSizePercent => real()();
+  BoolColumn get printLogoFullWidth => boolean()();
+  IntColumn get companyId => integer()();
+}
+
+class PosPrinterSettingsTable extends Table {
+  @override
+  String get tableName => 'pos_printer_settings';
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get serverId => integer().nullable()();
+  TextColumn get printerName => text()();
+  IntColumn get paperWidth => integer()();
+  TextColumn get header => text().nullable()();
+  TextColumn get footer => text().nullable()();
+  IntColumn get feedLines => integer()();
+  BoolColumn get cutPaper => boolean()();
+  BoolColumn get printBitmap => boolean()();
+  BoolColumn get openCashDrawer => boolean()();
+  TextColumn get cashDrawerCommand => text().nullable()();
+  IntColumn get headerAlignment => integer()();
+  IntColumn get footerAlignment => integer()();
+  BoolColumn get isFormattingEnabled => boolean()();
+  IntColumn get printerType => integer()();
+  IntColumn get numberOfCopies => integer()();
+  IntColumn get codePage => integer()();
+  IntColumn get characterSet => integer()();
+  IntColumn get companyId => integer()();
+}
+
+class PosVoidsTable extends Table {
+  @override
+  String get tableName => 'pos_voids';
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get serverId => integer().nullable()();
+  TextColumn get orderNumber => text()();
+  IntColumn get userId => integer().nullable()();
+  TextColumn get userName => text()();
+  IntColumn get productId => integer().nullable()();
+  TextColumn get productName => text()();
+  IntColumn get roundNumber => integer()();
+  RealColumn get quantity => real()();
+  RealColumn get price => real()();
+  RealColumn get discount => real()();
+  IntColumn get discountType => integer()();
+  RealColumn get total => real()();
+  BoolColumn get isConfirmed => boolean()();
+  TextColumn get reason => text().nullable()();
+  IntColumn get voidedBy => integer().nullable()();
+  TextColumn get voidedByName => text().nullable()();
+  TextColumn get bundle => text().nullable()();
+  DateTimeColumn get dateCreated => dateTime()();
+  DateTimeColumn get dateVoided => dateTime()();
+  IntColumn get companyId => integer()();
+}
+
+class TemplatesTable extends Table {
+  @override
+  String get tableName => 'templates';
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get serverId => integer().nullable()();
+  TextColumn get name => text()();
+  TextColumn get value => text()();
+  IntColumn get companyId => integer()();
+}
+
+class UserDevicePinsTable extends Table {
+  @override
+  String get tableName => 'user_device_pins';
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get serverId => integer().nullable()();
+  IntColumn get userId => integer()();
+  IntColumn get companyId => integer()();
+  TextColumn get deviceId => text()();
+  TextColumn get hashedPin => text()();
+  DateTimeColumn get createdAt => dateTime()();
+}
+
+class ZReportPaymentSummariesTable extends Table {
+  @override
+  String get tableName => 'z_report_payment_summaries';
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get serverId => integer().nullable()();
+  IntColumn get zReportId => integer()();
+  IntColumn get paymentTypeId => integer()();
+  RealColumn get totalAmount => real()();
+}
+
 @DriftDatabase(
   tables: [
+    CountersTable,
+    LocalDocCountersTable,
+    CountriesTable,
+    CurrenciesTable,
+    DocumentItemExpirationDatesTable,
+    DocumentItemTaxesTable,
+    FiscalItemsTable,
+    PosPrinterSelectionsTable,
+    PosPrinterSelectionSettingsTable,
+    PosPrinterSettingsTable,
+    PosVoidsTable,
+    TemplatesTable,
+    UserDevicePinsTable,
+    ZReportPaymentSummariesTable,
     SecurityKeysTable,
     PendingUserOpsTable,
     ProductsTable,
@@ -1063,12 +1378,172 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 37;
+  int get schemaVersion => 46;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) async => m.createAll(),
         onUpgrade: (m, from, to) async {
+          // v46: product comments become offline-first (create/delete with a
+          // temp id while offline, pushed on sync) — needs a sync_status column.
+          if (from < 46) {
+            await customStatement(
+                "ALTER TABLE product_comments ADD COLUMN sync_status "
+                "TEXT NOT NULL DEFAULT 'synced'");
+          }
+
+          // v45: Backfill legacy refunds that were created before refunds
+          // inherited the original sale's customer/order. Copy customer_id and
+          // order_number from the referenced sale (document_type_id 2). Local
+          // display fix only — leaves sync_status untouched so it isn't re-pushed.
+          if (from < 45) {
+            await customStatement('''
+              UPDATE documents
+              SET customer_id = COALESCE(customer_id, (
+                    SELECT s.customer_id FROM documents s
+                    WHERE s.number = documents.reference_document_number
+                      AND s.company_id = documents.company_id
+                      AND s.document_type_id = 2
+                    LIMIT 1)),
+                  order_number = COALESCE(order_number, (
+                    SELECT s.order_number FROM documents s
+                    WHERE s.number = documents.reference_document_number
+                      AND s.company_id = documents.company_id
+                      AND s.document_type_id = 2
+                    LIMIT 1))
+              WHERE document_type_id = 4
+                AND reference_document_number IS NOT NULL
+                AND (customer_id IS NULL OR order_number IS NULL)
+            ''');
+          }
+
+          // v44: device-local document-number counters (offline numbering).
+          if (from < 44) {
+            await m.createTable(localDocCountersTable);
+          }
+
+          // v43: Offline-first edits for the company record (update-only).
+          if (from < 43) {
+            await customStatement(
+                "ALTER TABLE companies ADD COLUMN sync_status "
+                "TEXT NOT NULL DEFAULT 'synced'");
+          }
+
+          // v42: Offline-first CRUD for void reasons — same pattern as taxes.
+          if (from < 42) {
+            await customStatement(
+                "ALTER TABLE void_reasons ADD COLUMN sync_status "
+                "TEXT NOT NULL DEFAULT 'synced'");
+          }
+
+          // v41: Offline-first CRUD for payment types — same pattern as taxes.
+          if (from < 41) {
+            await customStatement(
+                "ALTER TABLE payment_types ADD COLUMN sync_status "
+                "TEXT NOT NULL DEFAULT 'synced'");
+          }
+
+          // v40: Offline-first CRUD for tax rates — sync_status drives the
+          // local-write outbox so creates/edits/deletes show instantly and
+          // push on reconnect (mirrors products/customers). Was pull-only.
+          if (from < 40) {
+            await customStatement(
+                "ALTER TABLE taxes ADD COLUMN sync_status "
+                "TEXT NOT NULL DEFAULT 'synced'");
+          }
+
+          // ===== -> v39: full schema clone of remaining online tables =====
+          if (from < 39) {
+            await m.createTable(countersTable);
+            await m.createTable(countriesTable);
+            await m.createTable(currenciesTable);
+            await m.createTable(documentItemExpirationDatesTable);
+            await m.createTable(documentItemTaxesTable);
+            await m.createTable(fiscalItemsTable);
+            await m.createTable(posPrinterSelectionsTable);
+            await m.createTable(posPrinterSelectionSettingsTable);
+            await m.createTable(posPrinterSettingsTable);
+            await m.createTable(posVoidsTable);
+            await m.createTable(templatesTable);
+            await m.createTable(userDevicePinsTable);
+            await m.createTable(zReportPaymentSummariesTable);
+
+            await m.addColumn(bookingsTable, bookingsTable.tableIds);
+            await m.addColumn(companiesTable, companiesTable.postalCode);
+            await m.addColumn(companiesTable, companiesTable.city);
+            await m.addColumn(companiesTable, companiesTable.countryId);
+            await m.addColumn(companiesTable, companiesTable.email);
+            await m.addColumn(companiesTable, companiesTable.phoneNumber);
+            await m.addColumn(companiesTable, companiesTable.logo);
+            await m.addColumn(companiesTable, companiesTable.bankAccountNumber);
+            await m.addColumn(companiesTable, companiesTable.bankDetails);
+            await m.addColumn(companiesTable, companiesTable.streetName);
+            await m.addColumn(companiesTable, companiesTable.additionalStreetName);
+            await m.addColumn(companiesTable, companiesTable.buildingNumber);
+            await m.addColumn(companiesTable, companiesTable.plotIdentification);
+            await m.addColumn(companiesTable, companiesTable.citySubdivisionName);
+            await m.addColumn(companiesTable, companiesTable.countrySubentity);
+            await m.addColumn(companiesTable, companiesTable.timeZoneId);
+            await m.addColumn(customersTable, customersTable.dateCreated);
+            await m.addColumn(customersTable, customersTable.dateUpdated);
+            await m.addColumn(documentsTable, documentsTable.isClockedOut);
+            await m.addColumn(documentsTable, documentsTable.dateCreated);
+            await m.addColumn(documentsTable, documentsTable.dateUpdated);
+            await m.addColumn(documentCategoriesTable, documentCategoriesTable.languageKey);
+            await m.addColumn(documentItemsTable, documentItemsTable.expectedQuantity);
+            await m.addColumn(documentItemsTable, documentItemsTable.price);
+            await m.addColumn(documentItemsTable, documentItemsTable.productCost);
+            await m.addColumn(documentItemsTable, documentItemsTable.priceBeforeTaxAfterDiscount);
+            await m.addColumn(documentItemsTable, documentItemsTable.priceAfterDiscount);
+            await m.addColumn(documentItemsTable, documentItemsTable.totalAfterDocumentDiscount);
+            await m.addColumn(documentItemsTable, documentItemsTable.discountApplyRule);
+            await m.addColumn(documentItemsTable, documentItemsTable.companyId);
+            await m.addColumn(documentTypesTable, documentTypesTable.editorType);
+            await m.addColumn(documentTypesTable, documentTypesTable.printTemplate);
+            await m.addColumn(documentTypesTable, documentTypesTable.priceType);
+            await m.addColumn(documentTypesTable, documentTypesTable.languageKey);
+            await m.addColumn(paymentsTable, paymentsTable.dateCreated);
+            await m.addColumn(paymentsTable, paymentsTable.companyId);
+            await m.addColumn(posOrdersTable, posOrdersTable.number);
+            await m.addColumn(posOrdersTable, posOrdersTable.floorPlanTableId);
+            await m.addColumn(posOrdersTable, posOrdersTable.dueDate);
+            await m.addColumn(posOrdersTable, posOrdersTable.dateCreated);
+            await m.addColumn(posOrderItemsTable, posOrderItemsTable.posOrderId);
+            await m.addColumn(posOrderItemsTable, posOrderItemsTable.roundNumber);
+            await m.addColumn(posOrderItemsTable, posOrderItemsTable.price);
+            await m.addColumn(posOrderItemsTable, posOrderItemsTable.isLocked);
+            await m.addColumn(posOrderItemsTable, posOrderItemsTable.isFeatured);
+            await m.addColumn(posOrderItemsTable, posOrderItemsTable.voidedBy);
+            await m.addColumn(posOrderItemsTable, posOrderItemsTable.dateCreated);
+            await m.addColumn(posOrderItemsTable, posOrderItemsTable.bundle);
+            await m.addColumn(posOrderItemsTable, posOrderItemsTable.discountAppliedType);
+            await m.addColumn(posOrderItemsTable, posOrderItemsTable.companyId);
+            await m.addColumn(posOrderItemTaxesTable, posOrderItemTaxesTable.posOrderItemId);
+            await m.addColumn(posOrderItemTaxesTable, posOrderItemTaxesTable.taxId);
+            await m.addColumn(posOrderItemTaxesTable, posOrderItemTaxesTable.companyId);
+            await m.addColumn(productsTable, productsTable.image);
+            await m.addColumn(productsTable, productsTable.color);
+            await m.addColumn(productGroupsTable, productGroupsTable.color);
+            await m.addColumn(productGroupsTable, productGroupsTable.image);
+            await m.addColumn(promotionItemsTable, promotionItemsTable.uid);
+            await m.addColumn(promotionItemsTable, promotionItemsTable.companyId);
+            await m.addColumn(startingCashTable, startingCashTable.description);
+            await m.addColumn(startingCashTable, startingCashTable.startingCashType);
+            await m.addColumn(startingCashTable, startingCashTable.dateCreated);
+            await m.addColumn(timeClockEntriesTable, timeClockEntriesTable.lastModified);
+            await m.addColumn(usersTable, usersTable.password);
+            await m.addColumn(usersTable, usersTable.accessLevel);
+            await m.addColumn(voidReasonsTable, voidReasonsTable.dateCreated);
+            await m.addColumn(zReportsTable, zReportsTable.number);
+            await m.addColumn(zReportsTable, zReportsTable.fromDocumentId);
+            await m.addColumn(zReportsTable, zReportsTable.toDocumentId);
+            await m.addColumn(zReportsTable, zReportsTable.dateCreated);
+            await m.addColumn(zReportsTable, zReportsTable.totalReturns);
+            await m.addColumn(zReportsTable, zReportsTable.discountsGranted);
+            await m.addColumn(zReportsTable, zReportsTable.taxableTotal);
+            await m.addColumn(zReportsTable, zReportsTable.totalTax);
+            await m.addColumn(zReportsTable, zReportsTable.grandTotal);
+          }
           // v1 -> v2: Phase 3.5 schema bump — full admin field coverage for
           // Products and Taxes so the admin screens can stream from Drift.
           // Each addColumn targets either a nullable column or one with a
@@ -1549,6 +2024,14 @@ class AppDatabase extends _$AppDatabase {
             await m.createTable(productTaxesTable);
           }
 
+          // v38: document_types — drop the unused warehouse_id mirror and add
+          // stock_direction (server inventory direction). Pull-only master data,
+          // so a drop + recreate is safe; pullDocumentTypes re-seeds it.
+          if (from < 38) {
+            await customStatement('DROP TABLE IF EXISTS document_types');
+            await m.createTable(documentTypesTable);
+          }
+
           // v24: Employee Time Clock — offline-first attendance tracking.
           // Completely isolated from cash drawer / shift management.
           // One row per clock-in event; clockOutTime null while clocked in.
@@ -1767,6 +2250,23 @@ class AppDatabase extends _$AppDatabase {
     query.orderBy([(t) => OrderingTerm.desc(t.date)]);
     return query.get();
   }
+
+  /// Returns the first Document that references [originalNumber], or null if the
+  /// receipt has not been refunded yet. Backs the offline double-refund lock —
+  /// works for locally-created refunds (still 'pending') and ones pulled from
+  /// another device. Only refund documents carry a referenceDocumentNumber that
+  /// points at a sales receipt, so matching on it alone is sufficient (the pull
+  /// can't recover documentTypeId from GetSalesHistory, so we don't filter on it).
+  Future<DocumentsTableData?> findRefundByReference({
+    required int companyId,
+    required String originalNumber,
+  }) =>
+      (select(documentsTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..where((t) => t.referenceDocumentNumber.equals(originalNumber))
+            ..where((t) => t.syncStatus.equals('pending_delete').not())
+            ..limit(1))
+          .getSingleOrNull();
 
   /// Returns all line items for a given Document localId.
   Future<List<DocumentItemsTableData>> getDocumentItems(String documentLocalId) =>
@@ -2119,21 +2619,144 @@ class AppDatabase extends _$AppDatabase {
   Stream<List<VoidReasonsTableData>> watchVoidReasons(int companyId) =>
       (select(voidReasonsTable)
             ..where((t) => t.companyId.equals(companyId))
+            // Hide rows tombstoned offline (pending server delete queued).
+            ..where((t) => t.syncStatus.isNotIn(['pending_delete']))
             ..orderBy([(t) => OrderingTerm.asc(t.rank)]))
           .watch();
 
-  /// Full-replace the void reasons for a company (small dataset; mirrors server
-  /// deletes that a delta pull would miss).
+  /// Full-replace the SYNCED void reasons for a company (small dataset; mirrors
+  /// server deletes that a delta pull would miss). Locally-pending rows
+  /// (create/update/delete not yet pushed) are preserved — local changes win.
   Future<void> replaceVoidReasons(
           int companyId, List<VoidReasonsTableCompanion> rows) =>
       transaction(() async {
+        final pendingIds =
+            (await (select(voidReasonsTable)
+                      ..where((t) => t.companyId.equals(companyId))
+                      ..where((t) => t.syncStatus.isNotIn(['synced'])))
+                    .get())
+                .map((r) => r.id)
+                .toSet();
+
         await (delete(voidReasonsTable)
-              ..where((t) => t.companyId.equals(companyId)))
+              ..where((t) => t.companyId.equals(companyId))
+              ..where((t) => t.syncStatus.equals('synced')))
             .go();
-        if (rows.isNotEmpty) {
-          await batch((b) => b.insertAll(voidReasonsTable, rows));
+
+        final toInsert =
+            rows.where((r) => !pendingIds.contains(r.id.value)).toList();
+        if (toInsert.isNotEmpty) {
+          await batch((b) => b.insertAll(voidReasonsTable, toInsert,
+              mode: InsertMode.insertOrReplace));
         }
       });
+
+  // ─── Offline-first VOID REASON CRUD (mirrors taxes) ────────────────────────
+
+  Future<int> _nextVoidReasonTempId() async {
+    final row = await (selectOnly(voidReasonsTable)
+          ..addColumns([voidReasonsTable.id.min()]))
+        .getSingleOrNull();
+    final min = row?.read(voidReasonsTable.id.min());
+    return ((min != null && min < 0) ? min : 0) - 1;
+  }
+
+  /// Offline-first upsert. Null [id] creates with a temp id (pending_create);
+  /// otherwise updates in place (keeping pending_create across edits).
+  Future<int> saveVoidReasonLocal({
+    int? id,
+    required int companyId,
+    required String name,
+    required int rank,
+  }) async {
+    if (id == null) {
+      final tempId = await _nextVoidReasonTempId();
+      await into(voidReasonsTable).insert(
+        VoidReasonsTableCompanion(
+          id: Value(tempId),
+          companyId: Value(companyId),
+          name: Value(name),
+          rank: Value(rank),
+          lastModified: Value(DateTime.now().toUtc()),
+          syncStatus: const Value('pending_create'),
+        ),
+      );
+      return tempId;
+    }
+
+    final existing = await (select(voidReasonsTable)
+          ..where((t) => t.id.equals(id)))
+        .getSingleOrNull();
+    final nextStatus = existing?.syncStatus == 'pending_create'
+        ? 'pending_create'
+        : 'pending_update';
+    await (update(voidReasonsTable)..where((t) => t.id.equals(id))).write(
+      VoidReasonsTableCompanion(
+        name: Value(name),
+        rank: Value(rank),
+        lastModified: Value(DateTime.now().toUtc()),
+        syncStatus: Value(nextStatus),
+      ),
+    );
+    return id;
+  }
+
+  /// Temp row hard-deleted; real row tombstoned for the next sync push.
+  Future<void> deleteVoidReasonLocal(int id) async {
+    if (id < 0) {
+      await (delete(voidReasonsTable)..where((t) => t.id.equals(id))).go();
+    } else {
+      await (update(voidReasonsTable)..where((t) => t.id.equals(id))).write(
+        const VoidReasonsTableCompanion(syncStatus: Value('pending_delete')),
+      );
+    }
+  }
+
+  // ─── Offline-first COMPANY edit (update-only; logo stays online) ───────────
+
+  /// Writes the My Company field edits to the local cache and marks the row
+  /// pending_update; pushPendingCompanyOps pushes /Company/Update on next sync.
+  /// Does not touch the logo (handled separately by the online upload path).
+  Future<void> saveCompanyLocal({
+    required int id,
+    required String name,
+    int? countryId,
+    String? taxNumber,
+    String? postalCode,
+    String? city,
+    String? email,
+    String? phoneNumber,
+    String? bankAccountNumber,
+    String? bankDetails,
+    String? streetName,
+    String? additionalStreetName,
+    String? buildingNumber,
+    String? plotIdentification,
+    String? citySubdivisionName,
+    String? countrySubentity,
+  }) async {
+    await (update(companiesTable)..where((t) => t.id.equals(id))).write(
+      CompaniesTableCompanion(
+        name: Value(name),
+        countryId: Value(countryId),
+        taxNumber: Value(taxNumber),
+        postalCode: Value(postalCode),
+        city: Value(city),
+        email: Value(email),
+        phone: Value(phoneNumber),
+        bankAccountNumber: Value(bankAccountNumber),
+        bankDetails: Value(bankDetails),
+        streetName: Value(streetName),
+        additionalStreetName: Value(additionalStreetName),
+        buildingNumber: Value(buildingNumber),
+        plotIdentification: Value(plotIdentification),
+        citySubdivisionName: Value(citySubdivisionName),
+        countrySubentity: Value(countrySubentity),
+        lastModified: Value(DateTime.now().toUtc()),
+        syncStatus: const Value('pending_update'),
+      ),
+    );
+  }
 
   /// Upserts a Document + items + payment pulled from the server.
   /// localId is fabricated as 'srv_<serverId>' for server-originated rows.
@@ -2352,6 +2975,100 @@ class AppDatabase extends _$AppDatabase {
             ..where((t) => t.syncStatus.equals('pending_delete').not()))
           .get();
 
+  // ─── Offline-first PRODUCT COMMENT CRUD (mirrors taxes/void reasons) ───────
+
+  /// Next temp (negative) id, distinct from any server id, for an offline create.
+  Future<int> _nextProductCommentTempId() async {
+    final row = await (selectOnly(productCommentsTable)
+          ..addColumns([productCommentsTable.id.min()]))
+        .getSingleOrNull();
+    final min = row?.read(productCommentsTable.id.min());
+    return ((min != null && min < 0) ? min : 0) - 1;
+  }
+
+  /// Offline-first create. Writes the comment locally with a temp id +
+  /// pending_create so the menu's modifier popup sees it instantly (online or
+  /// offline); pushPendingProductCommentOps later POSTs it and swaps in the
+  /// server id. Returns the temp id. [productId] may itself be a temp product id
+  /// (offline-created product) — remapProductId repoints it before the push.
+  Future<int> createProductCommentLocal({
+    required int companyId,
+    required int productId,
+    required String comment,
+  }) async {
+    final tempId = await _nextProductCommentTempId();
+    await into(productCommentsTable).insert(
+      ProductCommentsTableCompanion(
+        id: Value(tempId),
+        companyId: Value(companyId),
+        productId: Value(productId),
+        comment: Value(comment),
+        lastModified: Value(DateTime.now().toUtc()),
+        syncStatus: const Value('pending_create'),
+      ),
+    );
+    return tempId;
+  }
+
+  /// Upserts a comment pulled from the server as 'synced'. Used by
+  /// [pullProductComments]; never overwrites a row the user is locally deleting.
+  Future<void> upsertSyncedProductComment({
+    required int id,
+    required int companyId,
+    required int productId,
+    required String comment,
+    required DateTime lastModified,
+  }) =>
+      into(productCommentsTable).insertOnConflictUpdate(
+        ProductCommentsTableCompanion(
+          id: Value(id),
+          companyId: Value(companyId),
+          productId: Value(productId),
+          comment: Value(comment),
+          lastModified: Value(lastModified),
+          syncStatus: const Value('synced'),
+        ),
+      );
+
+  /// Offline-first delete. A never-synced row (temp/pending_create) is removed
+  /// outright; a server-known row is flagged pending_delete so the push issues
+  /// the server DELETE. Reads exclude pending_delete, so it disappears at once.
+  Future<void> deleteProductCommentLocal(int id) async {
+    final row = await (select(productCommentsTable)
+          ..where((t) => t.id.equals(id)))
+        .getSingleOrNull();
+    if (row == null) return;
+    if (row.syncStatus == 'pending_create' || row.id < 0) {
+      await (delete(productCommentsTable)..where((t) => t.id.equals(id))).go();
+    } else {
+      await (update(productCommentsTable)..where((t) => t.id.equals(id))).write(
+        const ProductCommentsTableCompanion(syncStatus: Value('pending_delete')),
+      );
+    }
+  }
+
+  /// Hard-remove (used by the push after the server delete/create swap).
+  Future<void> hardDeleteProductComment(int id) =>
+      (delete(productCommentsTable)..where((t) => t.id.equals(id))).go();
+
+  /// Local comments still needing a server push.
+  Future<List<ProductCommentsTableData>> getPendingProductComments(
+          int companyId) =>
+      (select(productCommentsTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..where((t) => t.syncStatus.isIn(['pending_create', 'pending_delete'])))
+          .get();
+
+  /// Server ids the user has locally flagged for deletion — [pullProductComments]
+  /// skips these so an incremental pull can't resurrect them before the push.
+  Future<Set<int>> pendingDeleteProductCommentIds(int companyId) async {
+    final rows = await (select(productCommentsTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.syncStatus.equals('pending_delete')))
+        .get();
+    return rows.map((r) => r.id).toSet();
+  }
+
   /// Changes a product's single assigned tax offline-first: removes the old
   /// assignment and adds the new one (either may be null = none).
   Future<void> setProductTaxLocal({
@@ -2427,6 +3144,357 @@ class AppDatabase extends _$AppDatabase {
         .write(StockControlsTableCompanion(productId: Value(realId)));
     await (update(stocksTable)..where((t) => t.productId.equals(tempId)))
         .write(StocksTableCompanion(productId: Value(realId)));
+    // Offline-created comments on an offline product must push with the real
+    // product id, else /ProductComments/Add 400s on an unknown productId.
+    await (update(productCommentsTable)
+          ..where((t) => t.productId.equals(tempId)))
+        .write(ProductCommentsTableCompanion(productId: Value(realId)));
+    // Promotion built offline that targets an offline product: /Promotions/Add
+    // sends items[].productId, so repoint it before pushPendingPromotionOps.
+    await (update(promotionItemsTable)
+          ..where((t) => t.productId.equals(tempId)))
+        .write(PromotionItemsTableCompanion(productId: Value(realId)));
+    // Queued stock move/reassign whose newProductId is an offline product.
+    await (update(pendingStockOpsTable)
+          ..where((t) => t.productId.equals(tempId)))
+        .write(PendingStockOpsTableCompanion(productId: Value(realId)));
+    // Transactional references: an offline product sold/added in an offline
+    // order or document must repoint at the real id, otherwise BatchSync /
+    // document push 400s on a productId the server never saw.
+    await (update(posOrderItemsTable)..where((t) => t.productId.equals(tempId)))
+        .write(PosOrderItemsTableCompanion(productId: Value(realId)));
+    await (update(documentItemsTable)..where((t) => t.productId.equals(tempId)))
+        .write(DocumentItemsTableCompanion(productId: Value(realId)));
+
+    // Queued offline voids store their items as a JSON blob, so a column UPDATE
+    // can't reach the temp productId inside. Rewrite each pending blob in place
+    // (runs during the product push, before pushPendingVoids sends them).
+    final pendingVoids = await (select(pendingVoidsTable)
+          ..where((t) => t.syncStatus.equals('pending')))
+        .get();
+    for (final v in pendingVoids) {
+      final decoded = jsonDecode(v.itemsJson);
+      if (decoded is! List) continue;
+      var changed = false;
+      for (final item in decoded) {
+        if (item is Map && item['productId'] == tempId) {
+          item['productId'] = realId;
+          changed = true;
+        }
+      }
+      if (changed) {
+        await (update(pendingVoidsTable)
+              ..where((t) => t.localId.equals(v.localId)))
+            .write(PendingVoidsTableCompanion(itemsJson: Value(jsonEncode(decoded))));
+      }
+    }
+  }
+
+  /// Cascade a payment-type id swap (temp → real) to every row that references
+  /// it, so an offline-created payment type used in an offline sale doesn't
+  /// leave the order/payment pointing at a dead temp id ("Unknown" + stuck).
+  Future<void> remapPaymentTypeId(int tempId, int realId) async {
+    await (update(paymentsTable)..where((t) => t.paymentTypeId.equals(tempId)))
+        .write(PaymentsTableCompanion(paymentTypeId: Value(realId)));
+    await (update(posOrdersTable)..where((t) => t.paymentTypeId.equals(tempId)))
+        .write(PosOrdersTableCompanion(paymentTypeId: Value(realId)));
+  }
+
+  /// Cascade a product-group id swap (temp → real) to products assigned to an
+  /// offline-created group, so the product push doesn't reference a dead group.
+  Future<void> remapProductGroupId(int tempId, int realId) async {
+    await (update(productsTable)
+          ..where((t) => t.productGroupId.equals(tempId)))
+        .write(ProductsTableCompanion(productGroupId: Value(realId)));
+  }
+
+  // ─── Offline document numbering ────────────────────────────────────────────
+
+  /// Atomically issues the next device-local document number of the form
+  /// `<DeviceName>-<DocTypeCode>-<NNNNNN>` for the given company + document type
+  /// (e.g. `CAISSE1-200-000045`). Fully offline; the device-name prefix makes it
+  /// collision-free across terminals, and it never changes once issued. The
+  /// counter is per (company, doc-type) and lives in a device-local table the
+  /// sync never touches.
+  Future<String> nextDocumentNumber({
+    required int companyId,
+    required String deviceName,
+    required String docTypeCode,
+  }) async {
+    final key = '$companyId:$docTypeCode';
+    final seq = await transaction(() async {
+      final row = await (select(localDocCountersTable)
+            ..where((t) => t.key.equals(key)))
+          .getSingleOrNull();
+      final next = (row?.value ?? 0) + 1;
+      await into(localDocCountersTable).insertOnConflictUpdate(
+        LocalDocCountersTableCompanion(key: Value(key), value: Value(next)),
+      );
+      return next;
+    });
+    final prefix = _sanitizeDevicePrefix(deviceName);
+    return '$prefix-$docTypeCode-${seq.toString().padLeft(6, '0')}';
+  }
+
+  static String _sanitizeDevicePrefix(String name) {
+    final cleaned = name.toUpperCase().replaceAll(RegExp('[^A-Z0-9]'), '');
+    if (cleaned.isEmpty) return 'POS';
+    return cleaned.length > 12 ? cleaned.substring(0, 12) : cleaned;
+  }
+
+  /// Removes rows that reference a temp (negative) productId for which **no
+  /// product row exists** — orphans left by an interrupted/abandoned offline
+  /// product create. The server has no such product, so these can never sync;
+  /// retrying them forever just spams 400s (barcodes, stock controls) and leaves
+  /// a sale stuck at "(Pending sync)".
+  ///
+  /// Safe + idempotent: a temp-id reference whose product row still exists
+  /// locally (pending_create, not yet pushed) is preserved — only true orphans
+  /// are purged. Run at the start of each sync.
+  Future<int> purgeOrphanedTempRefs() async {
+    // Temp product ids that still have a product row → keep anything pointing
+    // at them. With none, every temp reference is an orphan (isNotIn([]) → true).
+    final liveTempProductIds =
+        (await (selectOnly(productsTable)
+                  ..addColumns([productsTable.id])
+                  ..where(productsTable.id.isSmallerThanValue(0)))
+                .get())
+            .map((r) => r.read(productsTable.id)!)
+            .toList();
+
+    var removed = 0;
+
+    // 1. Orphan product-keyed config rows.
+    removed += await (delete(barcodesTable)
+          ..where((t) =>
+              t.productId.isSmallerThanValue(0) &
+              t.productId.isNotIn(liveTempProductIds)))
+        .go();
+    removed += await (delete(stockControlsTable)
+          ..where((t) =>
+              t.productId.isSmallerThanValue(0) &
+              t.productId.isNotIn(liveTempProductIds)))
+        .go();
+    removed += await (delete(stocksTable)
+          ..where((t) =>
+              t.productId.isSmallerThanValue(0) &
+              t.productId.isNotIn(liveTempProductIds)))
+        .go();
+    removed += await (delete(productTaxesTable)
+          ..where((t) =>
+              t.productId.isSmallerThanValue(0) &
+              t.productId.isNotIn(liveTempProductIds)))
+        .go();
+
+    // 2. Orphan offline sales: any pending order whose item references an orphan
+    //    temp product is unrecoverable (the product it sold no longer exists) →
+    //    discard the whole local sale (order + its document/payment/items).
+    final orphanOrderIds =
+        (await (selectOnly(posOrderItemsTable)
+                  ..addColumns([posOrderItemsTable.orderId])
+                  ..where(posOrderItemsTable.productId.isSmallerThanValue(0) &
+                      posOrderItemsTable.productId
+                          .isNotIn(liveTempProductIds)))
+                .get())
+            .map((r) => r.read(posOrderItemsTable.orderId)!)
+            .toSet();
+
+    for (final localId in orphanOrderIds) {
+      await (delete(posOrderItemsTable)
+            ..where((t) => t.orderId.equals(localId)))
+          .go();
+      await (delete(posOrdersTable)..where((t) => t.localId.equals(localId)))
+          .go();
+      // insertOfflineDocument keys the document on the same localId.
+      await (delete(documentItemsTable)
+            ..where((t) => t.documentId.equals(localId)))
+          .go();
+      await (delete(paymentsTable)..where((t) => t.documentId.equals(localId)))
+          .go();
+      removed += await (delete(documentsTable)
+            ..where((t) => t.localId.equals(localId)))
+          .go();
+    }
+
+    return removed;
+  }
+
+  // ─── Offline-first TAX CRUD (mirrors the products/warehouses pattern) ──────
+
+  /// Next negative temp id for an offline-created tax row.
+  Future<int> _nextTaxTempId() async {
+    final row = await (selectOnly(taxesTable)
+          ..addColumns([taxesTable.id.min()]))
+        .getSingleOrNull();
+    final min = row?.read(taxesTable.id.min());
+    return ((min != null && min < 0) ? min : 0) - 1;
+  }
+
+  /// Offline-first upsert of a tax rate. A null [id] creates a new row with a
+  /// temp negative id (pending_create); a non-null id updates in place. A row
+  /// that is still pending_create keeps that status across edits, so its first
+  /// push to the server is always a create — never an update on an id the
+  /// server has never seen. Returns the row id (temp id for new rows).
+  Future<int> saveTaxLocal({
+    int? id,
+    required int companyId,
+    required String name,
+    required double rate,
+    String? code,
+    required bool isFixed,
+    required bool isTaxOnTotal,
+    required bool isEnabled,
+  }) async {
+    if (id == null) {
+      final tempId = await _nextTaxTempId();
+      await into(taxesTable).insert(
+        TaxesTableCompanion(
+          id: Value(tempId),
+          companyId: Value(companyId),
+          name: Value(name),
+          rate: Value(rate),
+          code: Value(code),
+          isFixed: Value(isFixed),
+          isTaxOnTotal: Value(isTaxOnTotal),
+          isEnabled: Value(isEnabled),
+          lastModified: Value(DateTime.now().toUtc()),
+          syncStatus: const Value('pending_create'),
+        ),
+      );
+      return tempId;
+    }
+
+    final existing = await (select(taxesTable)..where((t) => t.id.equals(id)))
+        .getSingleOrNull();
+    final nextStatus = existing?.syncStatus == 'pending_create'
+        ? 'pending_create'
+        : 'pending_update';
+    await (update(taxesTable)..where((t) => t.id.equals(id))).write(
+      TaxesTableCompanion(
+        name: Value(name),
+        rate: Value(rate),
+        code: Value(code),
+        isFixed: Value(isFixed),
+        isTaxOnTotal: Value(isTaxOnTotal),
+        isEnabled: Value(isEnabled),
+        lastModified: Value(DateTime.now().toUtc()),
+        syncStatus: Value(nextStatus),
+      ),
+    );
+    return id;
+  }
+
+  /// Offline-first delete. A never-synced temp row is hard-deleted; a real row
+  /// is tombstoned (pending_delete) so the next sync issues the server delete.
+  Future<void> deleteTaxLocal(int id) async {
+    if (id < 0) {
+      await (delete(taxesTable)..where((t) => t.id.equals(id))).go();
+    } else {
+      await (update(taxesTable)..where((t) => t.id.equals(id))).write(
+        const TaxesTableCompanion(syncStatus: Value('pending_delete')),
+      );
+    }
+  }
+
+  /// Cascade a tax id swap (temp → real) to product-tax assignments so their
+  /// pending pushes reference the real id.
+  Future<void> remapTaxId(int tempId, int realId) async {
+    await (update(productTaxesTable)..where((t) => t.taxId.equals(tempId)))
+        .write(ProductTaxesTableCompanion(taxId: Value(realId)));
+  }
+
+  // ─── Offline-first PAYMENT TYPE CRUD (mirrors taxes) ───────────────────────
+
+  /// Next negative temp id for an offline-created payment type.
+  Future<int> _nextPaymentTypeTempId() async {
+    final row = await (selectOnly(paymentTypesTable)
+          ..addColumns([paymentTypesTable.id.min()]))
+        .getSingleOrNull();
+    final min = row?.read(paymentTypesTable.id.min());
+    return ((min != null && min < 0) ? min : 0) - 1;
+  }
+
+  /// Offline-first upsert of a payment type. Null [id] creates with a temp id
+  /// (pending_create); otherwise updates in place (keeping pending_create across
+  /// edits so the first push is a create). Returns the row id.
+  Future<int> savePaymentTypeLocal({
+    int? id,
+    required int companyId,
+    required String name,
+    String? code,
+    required int ordinal,
+    String? shortcutKey,
+    required bool isEnabled,
+    required bool isQuickPayment,
+    required bool isCustomerRequired,
+    required bool isChangeAllowed,
+    required bool markAsPaid,
+    required bool openCashDrawer,
+    required bool isFiscal,
+    required bool isSlipRequired,
+  }) async {
+    if (id == null) {
+      final tempId = await _nextPaymentTypeTempId();
+      await into(paymentTypesTable).insert(
+        PaymentTypesTableCompanion(
+          id: Value(tempId),
+          companyId: Value(companyId),
+          name: Value(name),
+          code: Value(code),
+          ordinal: Value(ordinal),
+          shortcutKey: Value(shortcutKey),
+          isEnabled: Value(isEnabled),
+          isQuickPayment: Value(isQuickPayment),
+          isCustomerRequired: Value(isCustomerRequired),
+          isChangeAllowed: Value(isChangeAllowed),
+          markAsPaid: Value(markAsPaid),
+          openCashDrawer: Value(openCashDrawer),
+          isFiscal: Value(isFiscal),
+          isSlipRequired: Value(isSlipRequired),
+          lastModified: Value(DateTime.now().toUtc()),
+          syncStatus: const Value('pending_create'),
+        ),
+      );
+      return tempId;
+    }
+
+    final existing = await (select(paymentTypesTable)
+          ..where((t) => t.id.equals(id)))
+        .getSingleOrNull();
+    final nextStatus = existing?.syncStatus == 'pending_create'
+        ? 'pending_create'
+        : 'pending_update';
+    await (update(paymentTypesTable)..where((t) => t.id.equals(id))).write(
+      PaymentTypesTableCompanion(
+        name: Value(name),
+        code: Value(code),
+        ordinal: Value(ordinal),
+        shortcutKey: Value(shortcutKey),
+        isEnabled: Value(isEnabled),
+        isQuickPayment: Value(isQuickPayment),
+        isCustomerRequired: Value(isCustomerRequired),
+        isChangeAllowed: Value(isChangeAllowed),
+        markAsPaid: Value(markAsPaid),
+        openCashDrawer: Value(openCashDrawer),
+        isFiscal: Value(isFiscal),
+        isSlipRequired: Value(isSlipRequired),
+        lastModified: Value(DateTime.now().toUtc()),
+        syncStatus: Value(nextStatus),
+      ),
+    );
+    return id;
+  }
+
+  /// Offline-first delete: temp row hard-deleted, real row tombstoned
+  /// (pending_delete) for the next sync push.
+  Future<void> deletePaymentTypeLocal(int id) async {
+    if (id < 0) {
+      await (delete(paymentTypesTable)..where((t) => t.id.equals(id))).go();
+    } else {
+      await (update(paymentTypesTable)..where((t) => t.id.equals(id))).write(
+        const PaymentTypesTableCompanion(syncStatus: Value('pending_delete')),
+      );
+    }
   }
 
   /// Upserts a server-pulled product-tax row without clobbering local edits.
@@ -2965,22 +4033,168 @@ extension OfflineQueueHelpers on AppDatabase {
   }
 }
 
+/// Pillar 3 (SQLCipher hardware-bound encryption) master switch.
+///
+/// TEMPORARILY **false** while verifying offline-first behaviour by inspecting
+/// the local DB with standard tools (DBeaver / LINQPad). When false the DB is
+/// opened as plaintext and any previously-encrypted file is decrypted in place
+/// (data preserved). Flip back to **true** to restore encryption — on the next
+/// launch the plaintext DB is re-encrypted automatically.
+/// See docs/offline-first-audit.md → "Pillar 3 temporarily disabled".
+const bool kPillar3Encryption = false;
+
 LazyDatabase _openConnection() {
   return LazyDatabase(() async {
-    // sqlite3_flutter_libs ships a tested SQLite build; this avoids
-    // version skew on Android devices that ship older sqlite.
-    if (Platform.isAndroid) {
-      await applyWorkaroundToOpenSqlite3OnOldAndroidVersions();
-    }
-
+    // The sqlite3 native-assets hook (see pubspec `hooks.user_defines`) bundles
+    // a prebuilt SQLCipher library and resolves it for us — no manual library
+    // loading / Android workaround needed.
     final dir = await getApplicationDocumentsDirectory();
     final file = File(p.join(dir.path, 'pos_app.sqlite'));
 
-    // createInBackground spawns an isolate for DB I/O — keeps UI smooth
-    // during the Phase 2 seed of all products + images.
-    return NativeDatabase.createInBackground(
-      file,
-      logStatements: false, // flip to true while debugging
-    );
+    // Pillar 3: hardware-bound key, derived (never hardcoded) per device.
+    final key = await DeviceKeyService().getDatabaseKey();
+
+    if (kPillar3Encryption) {
+      // One-time: encrypt a pre-existing PLAINTEXT database in place so upgrading
+      // terminals keep their offline data instead of starting empty.
+      await _encryptLegacyDbIfNeeded(file, key);
+
+      // NOTE: a plain (same-isolate) NativeDatabase is required for SQLCipher —
+      // the key must be applied in `setup`, which the background-isolate variant
+      // can't carry. The big initial product/image seed therefore runs on the
+      // main isolate; acceptable for the security guarantee.
+      return NativeDatabase(
+        file,
+        logStatements: false, // flip to true while debugging
+        setup: (rawDb) {
+          // Fail loudly if we somehow linked plain SQLite (no cipher) — better
+          // than silently writing an unencrypted database.
+          final cipher = rawDb.select('PRAGMA cipher_version;');
+          if (cipher.isEmpty) {
+            throw StateError(
+                'SQLCipher not available — the local database would be unencrypted.');
+          }
+          rawDb.execute("PRAGMA key = '$key';");
+          // Touch the schema so a wrong key fails here (deterministic), not later.
+          rawDb.execute('SELECT count(*) FROM sqlite_master;');
+        },
+      );
+    }
+
+    // ── Pillar 3 TEMPORARILY DISABLED (offline-first verification) ──────────
+    // Decrypt any existing encrypted DB back to plaintext so it opens in
+    // DBeaver / LINQPad while we confirm the offline-first writes look right.
+    // Flip kPillar3Encryption back to true to restore encryption.
+    await _decryptDbIfNeeded(file, key);
+    return NativeDatabase(file, logStatements: false);
   });
+}
+
+/// If [file] is an existing *unencrypted* SQLite database, rewrite it as a
+/// SQLCipher-encrypted database keyed with [hexKey], preserving all data. A
+/// missing file (fresh install) or an already-encrypted file is left untouched.
+Future<void> _encryptLegacyDbIfNeeded(File file, String hexKey) async {
+  if (!file.existsSync()) return; // fresh install → created encrypted by setup
+
+  // Step 1: is the file plaintext? Probe a read without a key — a plaintext DB
+  // reads fine, an already-encrypted one throws "file is not a database".
+  Database? probe;
+  bool isPlaintext;
+  try {
+    probe = sqlite3.open(file.path);
+    probe.select('SELECT count(*) FROM sqlite_master;');
+    isPlaintext = true;
+  } on SqliteException {
+    isPlaintext = false; // unreadable unkeyed → already encrypted, nothing to do
+  } finally {
+    probe?.close();
+  }
+  if (!isPlaintext) return;
+
+  // Step 2: plaintext → export into a new encrypted file, then swap it in.
+  final encPath = '${file.path}.enc';
+  final encFile = File(encPath);
+  Database? src;
+  try {
+    if (encFile.existsSync()) encFile.deleteSync();
+    src = sqlite3.open(file.path);
+    // Preserve Drift's schema version: sqlcipher_export copies tables + data but
+    // NOT `PRAGMA user_version`, so without this the encrypted DB would report
+    // version 0 and Drift would re-run onCreate over an already-populated DB
+    // ("table/index already exists"). Carry the version onto the encrypted copy.
+    final userVersion = src.select('PRAGMA user_version;').first.columnAt(0) as int;
+    final escaped = encPath.replaceAll("'", "''");
+    src.execute("ATTACH DATABASE '$escaped' AS encrypted KEY '$hexKey';");
+    src.execute("SELECT sqlcipher_export('encrypted');");
+    src.execute('PRAGMA encrypted.user_version = $userVersion;');
+    src.execute('DETACH DATABASE encrypted;');
+    src.close();
+    src = null;
+
+    file.deleteSync();
+    encFile.renameSync(file.path);
+  } catch (e) {
+    debugPrint('Pillar 3: legacy DB encryption failed — $e');
+    src?.close();
+    if (encFile.existsSync()) {
+      try {
+        encFile.deleteSync();
+      } catch (_) {}
+    }
+    rethrow; // fail-closed: never open a half-migrated / still-plaintext DB
+  }
+}
+
+/// Reverse of [_encryptLegacyDbIfNeeded]: if [file] is an existing SQLCipher
+/// database, rewrite it as a PLAINTEXT SQLite database (preserving all data) so
+/// it opens in standard tools (DBeaver / LINQPad) during offline verification.
+/// Only invoked while Pillar 3 encryption is disabled. A plaintext or missing
+/// file is left untouched.
+Future<void> _decryptDbIfNeeded(File file, String hexKey) async {
+  if (!file.existsSync()) return; // fresh install → created plaintext by setup
+
+  // Already plaintext? A keyless read succeeds on plaintext, throws on encrypted.
+  Database? probe;
+  bool isEncrypted;
+  try {
+    probe = sqlite3.open(file.path);
+    probe.select('SELECT count(*) FROM sqlite_master;');
+    isEncrypted = false; // readable unkeyed → already plaintext, nothing to do
+  } on SqliteException {
+    isEncrypted = true;
+  } finally {
+    probe?.close();
+  }
+  if (!isEncrypted) return;
+
+  // Encrypted → export into a new plaintext file (ATTACH … KEY '' = no cipher),
+  // then swap it in. Mirrors the encrypt path, including the user_version carry.
+  final plainPath = '${file.path}.plain';
+  final plainFile = File(plainPath);
+  Database? src;
+  try {
+    if (plainFile.existsSync()) plainFile.deleteSync();
+    src = sqlite3.open(file.path);
+    src.execute("PRAGMA key = '$hexKey';");
+    final userVersion = src.select('PRAGMA user_version;').first.columnAt(0) as int;
+    final escaped = plainPath.replaceAll("'", "''");
+    src.execute("ATTACH DATABASE '$escaped' AS plaintext KEY '';");
+    src.execute("SELECT sqlcipher_export('plaintext');");
+    src.execute('PRAGMA plaintext.user_version = $userVersion;');
+    src.execute('DETACH DATABASE plaintext;');
+    src.close();
+    src = null;
+
+    file.deleteSync();
+    plainFile.renameSync(file.path);
+  } catch (e) {
+    debugPrint('Pillar 3 disabled: DB decryption failed — $e');
+    src?.close();
+    if (plainFile.existsSync()) {
+      try {
+        plainFile.deleteSync();
+      } catch (_) {}
+    }
+    rethrow; // fail-closed: never open a half-migrated DB
+  }
 }

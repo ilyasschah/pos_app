@@ -44,12 +44,22 @@ dependencies:
 
   # Offline-first / Drift
   drift: ^2.22.0
-  sqlite3_flutter_libs: ^0.5.27
+  # Pillar 3 — sqlite3 3.3.3+ ships SQLCipher as a native-assets build hook.
+  # The `hooks.user_defines.sqlite3.source: sqlcipher` block below makes the
+  # hook download a prebuilt SQLCipher library (encryption-at-rest), so NO
+  # `sqlcipher_flutter_libs` / OpenSSL build is needed.
+  sqlite3: ^3.3.3
+  # Pillar 3 — stable per-device fingerprint used as HKDF salt for the DB key.
+  device_info_plus: ^11.1.0
+  # Pillar 3 — HMAC/SHA-256 for HKDF key derivation (never a hardcoded key).
+  crypto: ^3.0.6
   path_provider: ^2.1.5
   path: ^1.9.0
   connectivity_plus: ^6.0.5
   qr_flutter: ^4.1.0
   lottie: ^3.1.2
+  # Pillar 2 — verify the RS256 offline subscription lease signature on-device.
+  dart_jsonwebtoken: ^2.14.0
 
 dependency_overrides:
   phosphor_flutter:
@@ -61,6 +71,8 @@ dependency_overrides:
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
   
   # Code Generators (The "Build" tools)
@@ -79,3 +91,11 @@ flutter:
   uses-material-design: true
   assets:
     - assets/animations/success_animation.json
+
+# Pillar 3 — tell the sqlite3 native-assets build hook to provide SQLCipher
+# (encryption-at-rest) instead of the default plaintext SQLite. The hook
+# downloads a prebuilt, ABI-compatible SQLCipher library for each target.
+hooks:
+  user_defines:
+    sqlite3:
+      source: sqlcipher

@@ -16,6 +16,9 @@ import 'package:pos_app/stock/stock_control_model.dart';
 import 'package:pos_app/stock/stock_control_provider.dart';
 import 'package:pos_app/product/product_model.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
+import 'package:pos_app/security/security_guard.dart';
+import 'package:pos_app/security/security_keys.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 // ── Model ─────────────────────────────────────────────────────────────────────
 
@@ -489,15 +492,19 @@ class _StockScreenState extends ConsumerState<StockScreen> {
           IconButton(
             icon: const Icon(Icons.warehouse_outlined),
             tooltip: "Manage Warehouses",
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const WarehousesScreen()),
-              );
-              // Warehouses may have changed — refresh the list + stock views.
-              ref.invalidate(allWarehousesProvider);
-              ref.invalidate(stockMasterProvider);
-            },
+            onPressed: () => ref.read(securityGuardProvider).guard(
+              context,
+              SecurityKeys.warehouses,
+              () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const WarehousesScreen()),
+                );
+                // Warehouses may have changed — refresh the list + stock views.
+                ref.invalidate(allWarehousesProvider);
+                ref.invalidate(stockMasterProvider);
+              },
+            ),
           ),
           IconButton(
             icon: const Icon(Icons.picture_as_pdf_outlined),
@@ -1020,8 +1027,7 @@ class _AssignStockDialogState
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text("Error: $e")));
+        showAppSnackbar(context, ref, "Error: $e", isError: true);
         setState(() => _isSaving = false);
       }
     }
@@ -1074,7 +1080,6 @@ class _StockControlDialogState
     final lowQty = double.tryParse(_lowStockQtyCtrl.text) ?? 0;
 
     setState(() => _isSaving = true);
-    final messenger = ScaffoldMessenger.of(context);
     try {
       // Offline-first: upsert the rule in local Drift (keyed by product);
       // SyncManager pushes /StockControls/Add or /Update on the next sync.
@@ -1092,7 +1097,7 @@ class _StockControlDialogState
       Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text("Error: $e")));
+      showAppSnackbar(context, ref, "Error: $e", isError: true);
       setState(() => _isSaving = false);
     }
   }
@@ -1103,7 +1108,6 @@ class _StockControlDialogState
     if (company == null) return;
 
     setState(() => _isSaving = true);
-    final messenger = ScaffoldMessenger.of(context);
     try {
       await ref.read(appDatabaseProvider).deleteStockControlLocal(widget.product.id);
       if (!mounted) return;
@@ -1112,7 +1116,7 @@ class _StockControlDialogState
       Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text("Error: $e")));
+      showAppSnackbar(context, ref, "Error: $e", isError: true);
       setState(() => _isSaving = false);
     }
   }
@@ -1299,7 +1303,6 @@ class _ProductDetailPanelState
     if (ref.read(selectedCompanyProvider) == null) return;
 
     setState(() => _isSaving = true);
-    final messenger = ScaffoldMessenger.of(context);
     try {
       // Offline-first: update the local stock row; SyncManager pushes
       // /Stocks/Update on the next sync.
@@ -1318,7 +1321,7 @@ class _ProductDetailPanelState
       widget.onRefresh();
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text("Error: $e")));
+      showAppSnackbar(context, ref, "Error: $e", isError: true);
       setState(() => _isSaving = false);
     }
   }
@@ -1348,7 +1351,6 @@ class _ProductDetailPanelState
     if (confirm != true) return;
 
     setState(() => _isSaving = true);
-    final messenger = ScaffoldMessenger.of(context);
     try {
       // Offline-first: remove the local stock row; SyncManager pushes
       // /Stocks/Delete on the next sync.
@@ -1359,7 +1361,7 @@ class _ProductDetailPanelState
       widget.onRefresh();
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text("Error: $e")));
+      showAppSnackbar(context, ref, "Error: $e", isError: true);
       setState(() => _isSaving = false);
     }
   }

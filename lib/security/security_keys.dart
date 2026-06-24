@@ -18,4 +18,24 @@ abstract final class SecurityKeys {
   static const settings       = 'Settings';
   static const loyaltyCards   = 'Management.LoyaltyCards';
   static const shiftManagement = 'ShiftManagement';
+  static const bookings        = 'Bookings';
+  static const bookingHistory  = 'Bookings.History';
+  static const floorPlanView   = 'FloorPlans.View';
+  static const userProfile     = 'UserProfile';
+
+  // ── Management sub-screens reached outside the management tab list ─────────
+  static const warehouses      = 'Management.Warehouses';
+  static const currencies      = 'Management.Currencies';
+  static const countries       = 'Management.Countries';
+
+  // ── Sales-floor / document actions (hard-blocked for cashiers w/o the rule)─
+  static const orderVoid       = 'Order.Void';
+  static const orderItemVoid   = 'Order.Item.Void';
+  static const orderTransfer   = 'Order.Transfer';
+  static const applyDiscount   = 'Payment.Discount';
+  static const taxOverride     = 'Payment.TaxOverride';
+  static const refund          = 'Refund';
+  static const invoicesDelete  = 'Invoices.Delete';
+  static const reprintReceipt  = 'SalesHistory.Receipt';
+  static const floorPlanDesign = 'FloorPlans.Design';
 }

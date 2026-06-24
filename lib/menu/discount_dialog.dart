@@ -109,7 +109,12 @@ class _DiscountDialogState extends ConsumerState<DiscountDialog>
       return;
     }
 
-    ref.read(cartProvider.notifier).setItemDiscount(selectedCartItemId, finalDiscount, _itemDiscountType);
+    // `finalDiscount` is an absolute currency amount (a % entry was converted to
+    // money above), so store it as Fixed (type 1) — not the entry mode. This
+    // keeps the value self-consistent: reopening the dialog prefills the amount
+    // against the Fixed tab and re-applying it is stable, instead of the amount
+    // being re-read as a percentage and silently shrinking.
+    ref.read(cartProvider.notifier).setItemDiscount(selectedCartItemId, finalDiscount, 1);
     Navigator.pop(context);
   }
 

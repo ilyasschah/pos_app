@@ -9,6 +9,7 @@ import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/auth/auth_storage.dart';
 import 'package:pos_app/auth/login_screen.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/license/license_service.dart';
 import 'package:pos_app/settings/settings_provider.dart';
 import 'package:pos_app/utils/api_error_parser.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
@@ -78,7 +79,15 @@ class _MasterLoginScreenState extends ConsumerState<MasterLoginScreen> {
           ref.read(defaultCompanyIdProvider) ?? 1;
 
       await storage.saveMasterSession(data['token'] as String, companyId);
+      // Pillar 2: persist the signed subscription lease — its validUntil drives
+      // the offline subscription guard.
+      await storage.saveLease(data['lease'] as String?);
       await storage.saveRegisteredEmail(_emailController.text.trim());
+      // Cache the public key + pin the server clock so the boot guard can verify
+      // the lease signature offline on the very next launch. Non-fatal.
+      try {
+        await ref.read(licenseServiceProvider).refreshFromServer(companyId);
+      } catch (_) {}
 
       ref.read(defaultCompanyIdProvider.notifier).setDefaultCompany(companyId);
 

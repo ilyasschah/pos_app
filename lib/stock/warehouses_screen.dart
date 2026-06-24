@@ -4,6 +4,7 @@ import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/stock/stock_model.dart';
 import 'package:pos_app/stock/warehouse_model.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 // --- SCREEN ---
 class WarehousesScreen extends ConsumerWidget {
@@ -137,7 +138,7 @@ class WarehousesScreen extends ConsumerWidget {
     try {
       stocks = await repo.stocksFor(w.id);
     } catch (e) {
-      if (context.mounted) _snack(context, 'Could not check stock: $e', error: true);
+      if (context.mounted) _snack(context, ref, 'Could not check stock: $e', error: true);
       return;
     }
     if (!context.mounted) return;
@@ -163,7 +164,7 @@ class WarehousesScreen extends ConsumerWidget {
         ),
       );
       if (confirm == true && context.mounted) {
-        await _run(context, () => repo.delete(w.id), "Warehouse deleted");
+        await _run(context, ref, () => repo.delete(w.id), "Warehouse deleted");
       }
       return;
     }
@@ -200,7 +201,7 @@ class WarehousesScreen extends ConsumerWidget {
     if (action == null || !context.mounted) return;
 
     if (action == 'revoke') {
-      await _run(context, () => repo.delete(w.id, stockAction: 'revoke'),
+      await _run(context, ref, () => repo.delete(w.id, stockAction: 'revoke'),
           "Warehouse and its stock deleted");
     } else if (action == 'move') {
       final target = await showDialog<Warehouse>(
@@ -210,6 +211,7 @@ class WarehousesScreen extends ConsumerWidget {
       if (target == null || !context.mounted) return;
       await _run(
           context,
+          ref,
           () => repo.delete(w.id,
               stockAction: 'move', targetWarehouseId: target.id),
           "Stock moved to ${target.name}; warehouse deleted");
@@ -219,21 +221,19 @@ class WarehousesScreen extends ConsumerWidget {
   /// Runs a local (offline-first) [op] and reports the outcome. The Drift stream
   /// behind `allWarehousesProvider` refreshes the list on its own — no manual
   /// invalidate, no network round-trip.
-  Future<void> _run(BuildContext context, Future<void> Function() op,
-      String successMsg) async {
+  Future<void> _run(BuildContext context, WidgetRef ref,
+      Future<void> Function() op, String successMsg) async {
     try {
       await op();
-      if (context.mounted) _snack(context, successMsg);
+      if (context.mounted) _snack(context, ref, successMsg);
     } catch (e) {
-      if (context.mounted) _snack(context, e.toString(), error: true);
+      if (context.mounted) _snack(context, ref, e.toString(), error: true);
     }
   }
 
-  void _snack(BuildContext context, String msg, {bool error = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: error ? Colors.red : Colors.green,
-    ));
+  void _snack(BuildContext context, WidgetRef ref, String msg,
+      {bool error = false}) {
+    showAppSnackbar(context, ref, msg, isError: error);
   }
 }
 

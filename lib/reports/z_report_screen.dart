@@ -12,6 +12,7 @@ import 'package:pos_app/reports/z_report_provider.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
 import 'package:pos_app/sync/sync_notifier.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 class EndOfDayScreen extends ConsumerStatefulWidget {
   const EndOfDayScreen({super.key});
@@ -28,12 +29,8 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
     final currentUser = ref.read(currentUserProvider);
 
     if (companyId == null || currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text("Error: Missing company or user context."),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
-      );
+      showAppSnackbar(context, ref, "Error: Missing company or user context.",
+          isError: true);
       return;
     }
 
@@ -134,13 +131,8 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to queue Z-Report: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-            duration: const Duration(seconds: 4),
-          ),
-        );
+        showAppSnackbar(context, ref, 'Failed to queue Z-Report: $e',
+            isError: true);
       }
     } finally {
       if (mounted) {

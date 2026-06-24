@@ -16,6 +16,7 @@ import 'package:pos_app/product/product_group_service.dart';
 import 'package:pos_app/product/product_model.dart';
 import 'package:pos_app/product/product_provider.dart';
 import 'package:pos_app/utils/api_error_parser.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 // ---------------------------------------------------------------------------
 // Tree node helper
@@ -68,12 +69,29 @@ class _ProductGroupsScreenState extends ConsumerState<ProductGroupsScreen> {
   bool _panelOpen = false;
   // true = creating a new group (editingGroup will be null)
   bool _creatingNew = false;
+  // Mirrors the body LayoutBuilder's wide/narrow decision so the AppBar button
+  // (built outside that LayoutBuilder) can pick the matching create path.
+  bool _isWide = false;
 
   void _openNew() => setState(() {
         _editingGroup = null;
         _creatingNew = true;
         _panelOpen = true;
       });
+
+  /// Create flow that works regardless of layout/empty state: on a wide screen
+  /// it opens the inline right-hand editor panel; otherwise (narrow, or the
+  /// empty state where no inline panel is rendered) it opens the editor dialog.
+  void _createGroup() {
+    if (_isWide) {
+      _openNew();
+    } else {
+      showDialog(
+        context: context,
+        builder: (_) => _GroupEditorDialog(onSaved: () {}),
+      );
+    }
+  }
 
   void _openEdit(ProductGroup group) => setState(() {
         _editingGroup = group;
@@ -174,8 +192,7 @@ class _ProductGroupsScreenState extends ConsumerState<ProductGroupsScreen> {
 
     if (_editingGroup?.id == group.id) _closePanel();
     if (ctx.mounted) {
-      ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
-          content: Text("Group deleted"), backgroundColor: Colors.green));
+      showAppSnackbar(ctx, ref, "Group deleted");
     }
   }
 
@@ -202,7 +219,7 @@ class _ProductGroupsScreenState extends ConsumerState<ProductGroupsScreen> {
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: FilledButton.icon(
-              onPressed: _openNew,
+              onPressed: _createGroup,
               icon: const Icon(Icons.add, size: 18),
               label: const Text("New Group"),
             ),
@@ -213,12 +230,20 @@ class _ProductGroupsScreenState extends ConsumerState<ProductGroupsScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => _ErrorView(error: parseApiError(e)),
         data: (groups) {
-          if (groups.isEmpty) {
-            return _EmptyView(onAdd: _openNew);
-          }
           final roots = _buildTree(groups);
           return LayoutBuilder(builder: (context, constraints) {
             final isWide = constraints.maxWidth >= 900;
+            // Cache for the AppBar "New Group" button, which lives outside this
+            // LayoutBuilder and so can't see `isWide` directly.
+            _isWide = isWide;
+
+            // Empty state has no tree to render. On a wide screen we still let
+            // the inline create panel show once "New Group" is pressed
+            // (_panelOpen); otherwise fall back to the friendly empty view whose
+            // button routes through _createGroup (dialog on narrow).
+            if (groups.isEmpty && !(isWide && _panelOpen)) {
+              return _EmptyView(onAdd: _createGroup);
+            }
 
             if (isWide) {
               return _WideLayout(
@@ -801,14 +826,11 @@ class _GroupEditorPanelState extends ConsumerState<_GroupEditorPanel>
           company.id, widget.existingGroup!.id, _assignedProductIds.toList());
       ref.invalidate(productsByGroupProvider);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("Products assigned successfully"),
-            backgroundColor: Colors.green));
+        showAppSnackbar(context, ref, "Products assigned successfully");
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(parseApiError(e)), backgroundColor: Colors.red));
+        showAppSnackbar(context, ref, parseApiError(e), isError: true);
       }
     } finally {
       if (mounted) setState(() => _assignLoading = false);

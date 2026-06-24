@@ -19,6 +19,8 @@ import 'package:pos_app/document/document_model.dart';
 import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/sync/sync_notifier.dart';
 import 'package:pos_app/refund/refund_dialog.dart';
+import 'package:pos_app/security/security_guard.dart';
+import 'package:pos_app/security/security_keys.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/printer/invoice_pdf_service.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
@@ -42,6 +44,10 @@ class SalesHistoryDocument {
   final double totalBeforeTax;
   final double taxTotal;
   final double discount;
+  // 0 = Percentage, 1 = Fixed. The header discount is stored as-entered (unlike
+  // item discounts which are pre-converted to an absolute amount), so the type
+  // decides whether to render it as a '%' or a currency amount.
+  final int discountType;
   final int paidStatus;
   final String? paymentSummary;
 
@@ -61,6 +67,7 @@ class SalesHistoryDocument {
     required this.totalBeforeTax,
     required this.taxTotal,
     required this.discount,
+    this.discountType = 0,
     required this.paidStatus,
     this.paymentSummary,
   });
@@ -81,6 +88,7 @@ class SalesHistoryDocument {
       totalBeforeTax: (j['totalBeforeTax'] as num?)?.toDouble() ?? 0,
       taxTotal: (j['taxTotal'] as num?)?.toDouble() ?? 0,
       discount: (j['discount'] as num?)?.toDouble() ?? 0,
+      discountType: (j['discountType'] as num?)?.toInt() ?? 0,
       paidStatus: j['paidStatus'] ?? 0,
       paymentSummary: j['paymentSummary'],
     );
@@ -337,6 +345,7 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
           totalBeforeTax: row.total - taxTotal,
           taxTotal: taxTotal,
           discount: row.discount,
+          discountType: row.discountType,
           paidStatus: row.paidStatus,
           paymentSummary: paymentSummary,
         ));
@@ -569,12 +578,14 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
     try { printTime = DateTime.parse(doc.stockDate); }
     catch (_) { printTime = DateTime.now(); }
 
-    // Item-level discount total
-    final totalDiscount = items.fold<double>(0, (sum, item) {
-      return sum + (item.discountType == 0
-          ? item.price * item.quantity * item.discount / 100
-          : item.discount * item.quantity);
-    });
+    // Item-level discount total. An item's `discount` is always stored as an
+    // absolute currency amount (the entry dialog converts a % to money before
+    // saving), so sum it directly — interpreting it as a % (the old type==0
+    // branch) under-counted any percentage-entered discount.
+    final totalDiscount = items.fold<double>(
+      0,
+      (sum, item) => sum + item.discount * item.quantity,
+    );
 
     final sym = ref.read(currencySymbolProvider);
 
@@ -752,7 +763,11 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
           _toolBtn(Icons.picture_as_pdf_outlined, 'Save as PDF',
               sel == null ? null : () => _saveInvoicePdf(sel)),
           _toolBtn(Icons.receipt_outlined, 'Receipt',
-              sel == null ? null : () => _reprintReceipt(sel)),
+              sel == null ? null : () => ref.read(securityGuardProvider).guard(
+                    context,
+                    SecurityKeys.reprintReceipt,
+                    () => _reprintReceipt(sel),
+                  )),
           _toolBtn(Icons.mail_outline, 'Send email',
               sel == null ? null : () => _notImplemented('Send email')),
 
@@ -760,13 +775,21 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
           const Gap(2),
 
           _toolBtn(Icons.undo_outlined, 'Refund',
-              sel == null ? null : () => showDialog(
-                    context: context,
-                    builder: (_) => RefundDialog(
-                        initialDocumentNumber: sel.number),
+              sel == null ? null : () => ref.read(securityGuardProvider).guard(
+                    context,
+                    SecurityKeys.refund,
+                    () => showDialog(
+                      context: context,
+                      builder: (_) => RefundDialog(
+                          initialDocumentNumber: sel.number),
+                    ),
                   )),
           _toolBtn(Icons.delete_outline, 'Delete',
-              sel == null ? null : () => _deleteDocument(sel),
+              sel == null ? null : () => ref.read(securityGuardProvider).guard(
+                    context,
+                    SecurityKeys.invoicesDelete,
+                    () => _deleteDocument(sel),
+                  ),
               color: Colors.redAccent),
         ],
       ),
@@ -944,7 +967,14 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
       Text(doc.warehouseName ?? 'N/A', style: ts, overflow: TextOverflow.ellipsis),
       Text(doc.orderNumber ?? 'N/A', style: ts, overflow: TextOverflow.ellipsis),
       Text(doc.paymentSummary ?? 'N/A', style: ts, overflow: TextOverflow.ellipsis),
-      Text('${doc.discount.toStringAsFixed(0)}%', style: ts),
+      Text(
+        doc.discount <= 0
+            ? '-'
+            : (doc.discountType == 1
+                ? '-${_numFmt.format(doc.discount)}'
+                : '${doc.discount.toStringAsFixed(0)}%'),
+        style: ts,
+      ),
       Text(_numFmt.format(doc.totalBeforeTax), style: ts),
       Text(_numFmt.format(doc.taxTotal), style: ts),
       Text('${_numFmt.format(doc.total)} $sym',
@@ -1025,7 +1055,15 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
         Text('${taxPct.toStringAsFixed(0)}%', style: ts),
         Text(_numFmt.format(item.price), style: ts),
         Text(_numFmt.format(totalBeforeDiscount), style: ts),
-        Text('${item.discount.toStringAsFixed(0)}%', style: ts),
+        // Item discounts are always stored as an absolute currency amount
+        // (the entry dialog converts a % to money before saving), so show the
+        // money taken off — never a '%', which would misrepresent a fixed -5.
+        Text(
+          item.discount > 0
+              ? '-${_numFmt.format(item.discount * item.quantity)}'
+              : '-',
+          style: ts,
+        ),
         Text(_numFmt.format(item.total),
             style: ts.copyWith(
                 fontWeight: FontWeight.w700, color: cs.primary)),

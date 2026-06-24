@@ -6,6 +6,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 const _kFontFamilies = [
   '(None)',
@@ -210,13 +211,7 @@ class _RolePrinterTabState extends ConsumerState<_RolePrinterTab>
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Print failed: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        showAppSnackbar(context, ref, 'Print failed: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _testPrinting = false);
@@ -904,14 +899,14 @@ class _CashDrawerSubTab extends ConsumerWidget {
 // TEST DRAWER BUTTON
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _TestDrawerButton extends StatefulWidget {
+class _TestDrawerButton extends ConsumerStatefulWidget {
   const _TestDrawerButton();
 
   @override
-  State<_TestDrawerButton> createState() => _TestDrawerButtonState();
+  ConsumerState<_TestDrawerButton> createState() => _TestDrawerButtonState();
 }
 
-class _TestDrawerButtonState extends State<_TestDrawerButton> {
+class _TestDrawerButtonState extends ConsumerState<_TestDrawerButton> {
   bool _testing = false;
 
   Future<void> _test() async {
@@ -919,21 +914,7 @@ class _TestDrawerButtonState extends State<_TestDrawerButton> {
     await Future.delayed(const Duration(milliseconds: 700));
     if (!mounted) return;
     setState(() => _testing = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.check_circle_outline, color: Colors.white, size: 16),
-            SizedBox(width: 8),
-            Text('Test signal sent to cash drawer'),
-          ],
-        ),
-        backgroundColor: Colors.green.shade700,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    showAppSnackbar(context, ref, 'Test signal sent to cash drawer');
   }
 
   @override
@@ -1151,13 +1132,8 @@ class _PSTextFieldState extends ConsumerState<_PSTextField> {
       await notifier.set(widget.settingKey, _ctrl.text);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save ${widget.label}'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        showAppSnackbar(context, ref, 'Failed to save ${widget.label}',
+            isError: true);
       }
     } finally {
       if (mounted) setState(() => _saving = false);

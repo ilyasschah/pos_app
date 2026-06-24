@@ -18,6 +18,8 @@ import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/database/app_database.dart';
 import 'package:pos_app/database/database_provider.dart';
+import 'package:pos_app/document/document_type_constants.dart';
+import 'package:pos_app/settings/device_identity.dart';
 import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
@@ -289,6 +291,18 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
       final db = ref.read(appDatabaseProvider);
       final now = DateTime.now().toUtc();
 
+      // Offline document number — issued LOCALLY (device-local counter) so the
+      // sale is numbered + scannable the instant it completes: refunds work
+      // offline and two terminals never collide (the DeviceName prefix). Stamped
+      // on BOTH the PosOrder (so BatchSync carries it to the server, which keeps
+      // it instead of generating its own) and the local Document.
+      final deviceName = await getDeviceName();
+      final docNumber = await db.nextDocumentNumber(
+        companyId: company.id,
+        deviceName: deviceName,
+        docTypeCode: DocumentTypes.salesCode,
+      );
+
       // If the cart was loaded from an existing local row (e.g. 'svr_3280'),
       // UPDATE that row instead of inserting a new one. This prevents duplicate
       // orders in both SQLite and SQL Server when the same order is re-opened
@@ -336,6 +350,7 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
         await db.completeExistingOrder(
           existingLocalId,
           PosOrdersTableCompanion(
+            number: Value(docNumber),
             closedAt: Value(now),
             status: const Value(1),
             total: Value(_effectiveTotal),
@@ -355,6 +370,7 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
         await db.insertOfflineOrder(
           PosOrdersTableCompanion(
             localId: Value(orderLocalId),
+            number: Value(docNumber),
             serverId: const Value(null),
             companyId: Value(company.id),
             userId: Value(user.id),
@@ -379,14 +395,12 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
       }
 
       // ── Local inventory deduction ─────────────────────────────────────────
-      // Mirror the server-side delta logic so stock levels stay accurate
-      // offline. If a product is out of stock and negative stock is blocked,
-      // abort checkout and show an inventory notice to the cashier.
-      final allowNeg =
-          (appSettings[SettingKeys.allowNegativeStock] ?? 'false')
-                  .toLowerCase() ==
-              'true';
-      final stockResult = await db.deductStockForCheckout(
+      // Mirror the server-side delta logic so local stock stays accurate.
+      // Stock is verified up-front in the menu / cart when items are added, so
+      // checkout NEVER blocks here — it just deducts (allowing negative if the
+      // item somehow went out of stock) and proceeds. This matches the server's
+      // offline-replay behaviour (BatchSync replays sales with AllowNegativeStock).
+      await db.deductStockForCheckout(
         items: _cartItems
             .map((item) => (
                   productId:   item.productId,
@@ -397,34 +411,8 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
                   productName: item.productName,
                 ))
             .toList(),
-        allowNegative: allowNeg,
+        allowNegative: true,
       );
-
-      if (!stockResult.success) {
-        // Roll back the local order write then surface the error.
-        // (The transaction in insertOfflineOrder/completeExistingOrder already
-        //  committed, but we undo it by re-opening the row as 'pending' with
-        //  an error note — the user must resolve before retrying.)
-        if (mounted) {
-          setState(() => _isProcessing = false);
-          showDialog(
-            context: ctx,
-            builder: (c) => AlertDialog(
-              icon:    const Icon(Icons.inventory_2_outlined,
-                                  color: Colors.orange, size: 36),
-              title:   const Text('Inventory Notice'),
-              content: Text(stockResult.message ?? 'Out of stock.'),
-              actions: [
-                FilledButton(
-                  onPressed: () => Navigator.pop(c),
-                  child: const Text('OK'),
-                ),
-              ],
-            ),
-          );
-        }
-        return;
-      }
 
       // ── Create Document + Payment locally ────────────────────────────────
       // The Document localId = orderLocalId so sync_manager can link it to
@@ -443,6 +431,7 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
           quantity:     Value(item.quantity),
           unitPrice:    Value(item.price),
           discount:     Value(item.discount + item.promotionalDiscount),
+          discountType: Value(item.discountType),
           total:        Value(lineTotal),
           taxAmount:    Value(taxAmt),
         );
@@ -459,6 +448,7 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
       await db.insertOfflineDocument(
         document: DocumentsTableCompanion(
           localId:        Value(orderLocalId),
+          number:         Value(docNumber),
           companyId:      Value(company.id),
           userId:         Value(user.id),
           warehouseId:    Value(cartNotifier.effectiveWarehouseId),

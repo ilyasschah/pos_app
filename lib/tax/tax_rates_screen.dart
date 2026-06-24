@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:dio/dio.dart';
-import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/database/database_provider.dart';
+import 'package:pos_app/sync/sync_notifier.dart';
 import 'package:pos_app/tax/tax_model.dart';
 import 'package:pos_app/tax/tax_provider.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 // --- SCREEN ---
 class TaxRatesScreen extends ConsumerWidget {
@@ -367,7 +368,6 @@ class TaxRatesScreen extends ConsumerWidget {
                                               ref,
                                               t.id,
                                               companyId,
-                                              theme,
                                             );
                                           }
                                         },
@@ -396,30 +396,17 @@ class TaxRatesScreen extends ConsumerWidget {
     WidgetRef ref,
     int id,
     int companyId,
-    ThemeData theme,
   ) async {
     try {
-      final dio = createDio();
-      await dio.delete(
-        '/Taxes/DeleteTax',
-        queryParameters: {'id': id, 'companyId': companyId},
-      );
-      ref.invalidate(allTaxesProvider);
+      // Offline-first: tombstone locally (the list drops it instantly via the
+      // Drift stream); SyncManager issues /Taxes/DeleteTax on the next push.
+      await ref.read(appDatabaseProvider).deleteTaxLocal(id);
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Tax rate deleted"),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } on DioException catch (e) {
+      showAppSnackbar(context, ref, "Tax rate deleted");
+    } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.response?.data?.toString() ?? "Delete failed"),
-          backgroundColor: theme.colorScheme.error,
-        ),
-      );
+      showAppSnackbar(context, ref, "Delete failed", isError: true);
     }
   }
 }
@@ -502,36 +489,25 @@ class _TaxFormDialogState extends ConsumerState<_TaxFormDialog> {
       _errorMessage = null;
     });
 
-    final payload = <String, dynamic>{
-      'name': _nameCtrl.text.trim(),
-      'rate': double.tryParse(_rateCtrl.text.trim()) ?? 0,
-      'code': _codeCtrl.text.trim(),
-      'isFixed': _isFixed,
-      'isTaxOnTotal': _isTaxOnTotal,
-      'isEnabled': _isEnabled,
-    };
-
     try {
-      final dio = createDio();
-      if (_isEditing) {
-        payload['id'] = widget.tax!.id;
-        await dio.patch(
-          '/Taxes/UpdateTax',
-          queryParameters: {'companyId': widget.companyId},
-          data: payload,
-        );
-      } else {
-        await dio.post(
-          '/Taxes/AddTax',
-          queryParameters: {'companyId': widget.companyId},
-          data: payload,
-        );
-      }
+      // Offline-first: write to the local DB first so the list updates instantly
+      // via the Drift stream; SyncManager pushes /Taxes/AddTax|UpdateTax later.
+      await ref.read(appDatabaseProvider).saveTaxLocal(
+            id: _isEditing ? widget.tax!.id : null,
+            companyId: widget.companyId,
+            name: _nameCtrl.text.trim(),
+            rate: double.tryParse(_rateCtrl.text.trim()) ?? 0,
+            code: _codeCtrl.text.trim(),
+            isFixed: _isFixed,
+            isTaxOnTotal: _isTaxOnTotal,
+            isEnabled: _isEnabled,
+          );
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       if (!mounted) return;
       Navigator.of(context).pop();
-    } on DioException catch (e) {
+    } catch (e) {
       setState(() {
-        _errorMessage = e.response?.data?.toString() ?? "Operation failed.";
+        _errorMessage = "Operation failed.";
         _isLoading = false;
       });
     }
@@ -747,29 +723,27 @@ class _SwitchTaxesDialogState extends ConsumerState<_SwitchTaxesDialog> {
     });
 
     try {
-      final dio = createDio();
-      // PATCH the new tax — keep all its fields, only swap the rate
-      await dio.patch(
-        '/Taxes/UpdateTax',
-        queryParameters: {'companyId': widget.companyId},
-        data: {
-          'id': newTax.id,
-          'name': newTax.name,
-          'code': newTax.code,
-          'rate': oldTax.rate, // <-- old tax rate applied to new tax
-          'isFixed': newTax.isFixed,
-          'isTaxOnTotal': newTax.isTaxOnTotal,
-          'isEnabled': newTax.isEnabled,
-        },
-      );
+      // Offline-first: apply the old tax's rate to the new tax locally; keep all
+      // the new tax's other fields. SyncManager pushes /Taxes/UpdateTax later.
+      await ref.read(appDatabaseProvider).saveTaxLocal(
+            id: newTax.id,
+            companyId: widget.companyId,
+            name: newTax.name,
+            rate: oldTax.rate, // <-- old tax rate applied to new tax
+            code: newTax.code,
+            isFixed: newTax.isFixed,
+            isTaxOnTotal: newTax.isTaxOnTotal,
+            isEnabled: newTax.isEnabled,
+          );
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
       setState(
         () => _successMessage =
             "Rate ${oldTax.rate}${oldTax.isFixed ? '' : '%'} from '${oldTax.name}' "
             "applied to '${newTax.name}' successfully.",
       );
-    } on DioException catch (e) {
+    } catch (e) {
       setState(() {
-        _errorMessage = e.response?.data?.toString() ?? "Switch failed.";
+        _errorMessage = "Switch failed.";
       });
     } finally {
       if (mounted) setState(() => _isLoading = false);

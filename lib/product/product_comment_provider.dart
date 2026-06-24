@@ -22,7 +22,9 @@ final productCommentsProvider = StreamProvider.autoDispose
 
   final query = db.select(db.productCommentsTable)
     ..where((t) => t.companyId.equals(companyId))
-    ..where((t) => t.productId.equals(productId));
+    ..where((t) => t.productId.equals(productId))
+    // Hide rows the user is locally deleting (not yet pushed).
+    ..where((t) => t.syncStatus.isNotIn(['pending_delete']));
 
   return query
       .watch()

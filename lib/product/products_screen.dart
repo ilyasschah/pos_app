@@ -1,5 +1,6 @@
 // ignore_for_file: deprecated_member_use
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:drift/drift.dart' show Value;
@@ -23,13 +24,13 @@ import 'package:pos_app/product/product_group_model.dart';
 import 'package:pos_app/product/product_provider.dart';
 import 'package:pos_app/tax/tax_provider.dart';
 import 'package:pos_app/product/product_comment_provider.dart';
-import 'package:pos_app/customer/customer_provider.dart';
-import 'package:pos_app/stock/stock_control_provider.dart';
+import 'package:pos_app/sync/sync_provider.dart';
 import 'package:pos_app/barcode/barcode_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/product/product_import_screen.dart';
 import 'package:pos_app/sync/sync_notifier.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 import 'package:uuid/uuid.dart';
 
 // ---------------------------------------------------------------------------
@@ -255,21 +256,11 @@ Future<void> _runExport(
     await File(path).writeAsString(content, encoding: const Utf8Codec());
 
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Exported ${rows.length} products to $path'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      showAppSnackbar(context, ref, 'Exported ${rows.length} products to $path');
     }
   } catch (e) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Export failed: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      showAppSnackbar(context, ref, 'Export failed: $e', isError: true);
     }
   }
 }
@@ -386,12 +377,21 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
 
     final db = ref.read(appDatabaseProvider);
     int deleted = 0;
+    final blocked = <int>{}; // referenced by an order/document → cannot delete
 
     for (final id in effectiveIds) {
       if (id < 0) {
         // Temp product never reached the server — hard-delete locally.
         await (db.delete(db.productsTable)..where((t) => t.id.equals(id))).go();
       } else {
+        // Pre-flight: mirror the server rule. A product linked to any order or
+        // document line can't be deleted server-side, so deleting it locally
+        // would only get reverted on the next sync (the row reappears). Refuse
+        // up front instead of showing a false "deleted" then un-deleting.
+        if (await _isProductReferenced(db, id)) {
+          blocked.add(id);
+          continue;
+        }
         // Real server product — soft-delete so SyncManager can push the
         // DELETE to the server on the next sync.
         await (db.update(db.productsTable)..where((t) => t.id.equals(id)))
@@ -404,15 +404,47 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
     }
 
     // Fire sync in the background so online deletes propagate immediately.
-    ref.read(syncStateProvider.notifier).sync().catchError((_) {});
+    if (deleted > 0) {
+      ref.read(syncStateProvider.notifier).sync().catchError((_) {});
+    }
 
     if (mounted) {
-      setState(() => _selectedIds.clear());
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text("$deleted product${deleted == 1 ? '' : 's'} deleted"),
-        backgroundColor: Colors.green,
-      ));
+      // Keep blocked products selected so the user sees what wasn't deleted.
+      setState(() => _selectedIds
+        ..clear()
+        ..addAll(blocked));
+      if (blocked.isNotEmpty) {
+        final n = blocked.length;
+        showAppSnackbar(
+          context,
+          ref,
+          deleted > 0
+              ? "$deleted deleted · $n product${n == 1 ? '' : 's'} kept — "
+                  "linked to existing orders or documents"
+              : "Can't delete $n product${n == 1 ? '' : 's'} — "
+                  "linked to existing orders or documents",
+          isError: true,
+        );
+      } else {
+        showAppSnackbar(
+            context, ref, "$deleted product${deleted == 1 ? '' : 's'} deleted");
+      }
     }
+  }
+
+  /// Returns true if [productId] is referenced by any local order line or
+  /// document line — the same constraint the backend enforces on delete.
+  Future<bool> _isProductReferenced(AppDatabase db, int productId) async {
+    final inOrder = await (db.select(db.posOrderItemsTable)
+          ..where((t) => t.productId.equals(productId))
+          ..limit(1))
+        .getSingleOrNull();
+    if (inOrder != null) return true;
+    final inDoc = await (db.select(db.documentItemsTable)
+          ..where((t) => t.productId.equals(productId))
+          ..limit(1))
+        .getSingleOrNull();
+    return inDoc != null;
   }
 
   void _showColumnPicker(BuildContext context) {
@@ -531,11 +563,8 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                   // Product has a temp id — it doesn't exist on the server yet.
                   // Tax/barcode/stock setup requires a real server id; skip Phase 2
                   // and tell the user to sync first.
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('Product saved locally. Sync to complete setup (taxes, barcodes, stock).'),
-                    backgroundColor: Colors.orange,
-                    duration: Duration(seconds: 4),
-                  ));
+                  showAppSnackbar(context, ref,
+                      'Product saved locally. Sync to complete setup (taxes, barcodes, stock).');
                 } else {
                   showDialog(
                     context: context,
@@ -1362,10 +1391,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
         } on DioException {
           // API unreachable — local write is queued. Will sync when online.
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Saved locally. Will sync when online.'),
-              backgroundColor: Colors.orange,
-            ));
+            showAppSnackbar(context, ref, 'Saved locally. Will sync when online.');
             Navigator.of(context).pop();
           }
           return;
@@ -1384,11 +1410,12 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(widget.isPostCreation
+        showAppSnackbar(
+            context,
+            ref,
+            widget.isPostCreation
                 ? "Setup Complete!"
-                : "Product updated successfully!"),
-            backgroundColor: Colors.green));
+                : "Product updated successfully!");
         Navigator.of(context).pop();
       }
     } catch (e) {
@@ -1428,13 +1455,11 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
     if (_isEditing || widget.isPostCreation) {
       dialogTabs.addAll([
         const Tab(text: "Taxes"),
-        const Tab(text: "Stock Control"),
         const Tab(text: "Barcodes"),
         const Tab(text: "Comments"),
       ]);
       dialogTabViews.addAll([
         _buildTaxesTab(),
-        _buildStockControlTab(),
         _buildBarcodesTab(),
         _buildCommentsTab(),
       ]);
@@ -1503,6 +1528,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
   Widget _buildGeneralTab() {
     final theme = Theme.of(context);
     final allGroupsAsync = ref.watch(allProductGroupsProvider);
+    final currencySymbol = ref.watch(currencySymbolProvider);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Row(
@@ -1608,7 +1634,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                                 filled: true,
                                 fillColor: theme.colorScheme.surface,
                                 border: const OutlineInputBorder(),
-                                prefixText: "\$"),
+                                prefixText: "$currencySymbol "),
                             keyboardType: const TextInputType.numberWithOptions(
                                 decimal: true))),
                     const SizedBox(width: 16),
@@ -1620,7 +1646,7 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                                 filled: true,
                                 fillColor: theme.colorScheme.surface,
                                 border: const OutlineInputBorder(),
-                                prefixText: "\$"),
+                                prefixText: "$currencySymbol "),
                             keyboardType: const TextInputType.numberWithOptions(
                                 decimal: true))),
                   ],
@@ -1885,22 +1911,30 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                         companyId == null) return;
 
                     try {
-                      final dio = createDio();
-                      // Instantly push to your C# API!
-                      await dio.post('/ProductComments/Add', queryParameters: {
-                        'companyId': companyId
-                      }, data: {
-                        'productId': productId,
-                        'comment': _newCommentCtrl.text.trim()
-                      });
+                      final commentText = _newCommentCtrl.text.trim();
+                      // Offline-first: write to local Drift immediately (temp id
+                      // + pending_create). The menu's modifier popup sees it at
+                      // once, online or offline; the sync pushes it later and
+                      // swaps in the server id. Works even on an offline-created
+                      // product (its temp productId is remapped before the push).
+                      await ref
+                          .read(appDatabaseProvider)
+                          .createProductCommentLocal(
+                            companyId: companyId,
+                            productId: productId,
+                            comment: commentText,
+                          );
                       _newCommentCtrl.clear();
-                      // Tell Riverpod to instantly refresh the list below!
                       ref.invalidate(productCommentsProvider(productId));
+                      // Push promptly when online (no-op/queued when offline).
+                      unawaited(ref
+                          .read(syncManagerProvider)
+                          .sync(companyId)
+                          .catchError((Object _) => <String>[]));
                     } catch (e) {
                       if (mounted)
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                            content: Text(_parseApiError(e)),
-                            backgroundColor: Colors.red));
+                        showAppSnackbar(context, ref, _parseApiError(e),
+                            isError: true);
                     }
                   })
             ],
@@ -1945,21 +1979,23 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
                             onPressed: () async {
                               if (companyId == null) return;
                               try {
-                                final dio = createDio();
-                                // Instantly delete from C# API!
-                                await dio.delete('/ProductComments/Delete',
-                                    queryParameters: {
-                                      'id': c.id,
-                                      'companyId': companyId
-                                    });
+                                // Offline-first: drop it locally now (temp rows
+                                // vanish; server rows are flagged pending_delete
+                                // and hidden from reads). The sync issues the
+                                // server DELETE when online.
+                                await ref
+                                    .read(appDatabaseProvider)
+                                    .deleteProductCommentLocal(c.id);
                                 ref.invalidate(
                                     productCommentsProvider(productId));
+                                unawaited(ref
+                                    .read(syncManagerProvider)
+                                    .sync(companyId)
+                                    .catchError((Object _) => <String>[]));
                               } catch (e) {
                                 if (mounted)
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                          content: Text(_parseApiError(e)),
-                                          backgroundColor: Colors.red));
+                                  showAppSnackbar(context, ref, _parseApiError(e),
+                                      isError: true);
                               }
                             },
                           ),
@@ -2229,260 +2265,4 @@ class _ProductEditorDialogState extends ConsumerState<_ProductEditorDialog> {
     );
   }
 
-  Widget _buildStockControlTab() {
-    final theme = Theme.of(context);
-    if (widget.existingProduct == null) return const SizedBox();
-    final productId = widget.existingProduct!.id;
-
-    return Padding(
-      padding: const EdgeInsets.all(32.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text("General Stock Settings",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(
-              border: Border.all(color: theme.dividerColor),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: SwitchListTile(
-              title: const Text("Track Inventory (Is Using Default Quantity)"),
-              subtitle: const Text(
-                  "Enable this to allow standard stock tracking for this product."),
-              value: _isUsingDefaultQuantity,
-              onChanged: (v) => setState(() => _isUsingDefaultQuantity = v),
-            ),
-          ),
-          const SizedBox(height: 32),
-          const Text("Advanced Stock Rules",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          Text(
-              "Configure reorder points, low stock warnings, and preferred suppliers.",
-              style: TextStyle(color: theme.hintColor)),
-          const SizedBox(height: 16),
-          Expanded(
-            child: _StockControlRulesEditor(productId: productId),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StockControlRulesEditor extends ConsumerStatefulWidget {
-  final int productId;
-  const _StockControlRulesEditor({required this.productId});
-
-  @override
-  ConsumerState<_StockControlRulesEditor> createState() =>
-      _StockControlRulesEditorState();
-}
-
-class _StockControlRulesEditorState
-    extends ConsumerState<_StockControlRulesEditor> {
-  final _formKey = GlobalKey<FormState>();
-  bool _isInitialized = false;
-  int? _selectedSupplierId;
-
-  late final TextEditingController _reorderPointCtrl;
-  late final TextEditingController _preferredQtyCtrl;
-  late final TextEditingController _lowStockWarningQtyCtrl;
-
-  bool _isWarningEnabled = true;
-  bool _isLoading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _reorderPointCtrl = TextEditingController(text: '0');
-    _preferredQtyCtrl = TextEditingController(text: '0');
-    _lowStockWarningQtyCtrl = TextEditingController(text: '0');
-  }
-
-  @override
-  void dispose() {
-    _reorderPointCtrl.dispose();
-    _preferredQtyCtrl.dispose();
-    _lowStockWarningQtyCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _saveRules(int companyId) async {
-    if (!_formKey.currentState!.validate()) return;
-
-    setState(() => _isLoading = true);
-
-    try {
-      // Offline-first: upsert the rule in local Drift (keyed by product);
-      // SyncManager pushes /StockControls/Add or /Update on the next sync.
-      await ref.read(appDatabaseProvider).saveStockControlLocal(
-            companyId: companyId,
-            productId: widget.productId,
-            reorderPoint: double.tryParse(_reorderPointCtrl.text) ?? 0,
-            preferredQuantity: double.tryParse(_preferredQtyCtrl.text) ?? 0,
-            isLowStockWarningEnabled: _isWarningEnabled,
-            lowStockWarningQuantity:
-                double.tryParse(_lowStockWarningQtyCtrl.text) ?? 0,
-            customerId: _selectedSupplierId,
-          );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text("Stock rules saved successfully!"),
-            backgroundColor: Colors.green));
-        ref.read(syncStateProvider.notifier).sync().catchError((_) {});
-        ref.invalidate(stockControlByProductIdProvider(widget.productId));
-      }
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(_parseApiError(e)), backgroundColor: Colors.red));
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final companyId = ref.watch(selectedCompanyProvider)?.id;
-    final asyncRules =
-        ref.watch(stockControlByProductIdProvider(widget.productId));
-    final asyncSuppliers = ref.watch(allCustomersProvider);
-
-    return asyncRules.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(
-            child: Text("Error: ${_parseApiError(e)}",
-                style: const TextStyle(color: Colors.red))),
-        data: (rules) {
-          // Populate controllers once when data arrives
-          if (!_isInitialized) {
-            if (rules != null) {
-              _selectedSupplierId = rules.customerId;
-              _reorderPointCtrl.text = rules.reorderPoint.toString();
-              _preferredQtyCtrl.text = rules.preferredQuantity.toString();
-              _lowStockWarningQtyCtrl.text =
-                  rules.lowStockWarningQuantity.toString();
-              _isWarningEnabled = rules.isLowStockWarningEnabled;
-            }
-            _isInitialized = true;
-          }
-
-          return Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              border: Border.all(color: theme.dividerColor),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _reorderPointCtrl,
-                          decoration: InputDecoration(
-                              labelText: "Reorder Point",
-                              filled: true,
-                              fillColor: theme.colorScheme.surface,
-                              border: const OutlineInputBorder()),
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _preferredQtyCtrl,
-                          decoration: InputDecoration(
-                              labelText: "Preferred Order Qty",
-                              filled: true,
-                              fillColor: theme.colorScheme.surface,
-                              border: const OutlineInputBorder()),
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Supplier Dropdown
-                  asyncSuppliers.when(
-                      loading: () => const LinearProgressIndicator(),
-                      error: (_, __) => const Text("Error loading suppliers"),
-                      data: (customers) {
-                        final suppliers =
-                            customers.where((c) => c.isSupplier).toList();
-                        // Prevent dropdown crash if saved supplier ID was deleted
-                        final isValid = _selectedSupplierId == null ||
-                            suppliers.any((s) => s.id == _selectedSupplierId);
-
-                        return DropdownButtonFormField<int?>(
-                          initialValue: isValid ? _selectedSupplierId : null,
-                          decoration: InputDecoration(
-                              labelText: "Preferred Supplier",
-                              filled: true,
-                              fillColor: theme.colorScheme.surface,
-                              border: const OutlineInputBorder()),
-                          items: [
-                            const DropdownMenuItem(
-                                value: null, child: Text("None")),
-                            ...suppliers.map((s) => DropdownMenuItem(
-                                value: s.id, child: Text(s.name))),
-                          ],
-                          onChanged: (v) =>
-                              setState(() => _selectedSupplierId = v),
-                        );
-                      }),
-
-                  const SizedBox(height: 16),
-                  Container(
-                    decoration: BoxDecoration(
-                        border: Border.all(color: theme.dividerColor),
-                        borderRadius: BorderRadius.circular(8)),
-                    child: SwitchListTile(
-                      title: const Text("Low Stock Warning Enabled"),
-                      value: _isWarningEnabled,
-                      onChanged: (v) => setState(() => _isWarningEnabled = v),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (_isWarningEnabled)
-                    TextFormField(
-                      controller: _lowStockWarningQtyCtrl,
-                      decoration: InputDecoration(
-                          labelText: "Warning Threshold Qty",
-                          filled: true,
-                          fillColor: theme.colorScheme.surface,
-                          border: const OutlineInputBorder()),
-                      keyboardType: TextInputType.number,
-                    ),
-
-                  const Spacer(),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: _isLoading
-                        ? const CircularProgressIndicator()
-                        : ElevatedButton.icon(
-                            icon: const Icon(Icons.save),
-                            label: const Text("Save Stock Rules"),
-                            style: ElevatedButton.styleFrom(
-                                backgroundColor: theme.colorScheme.primary,
-                                foregroundColor: theme.colorScheme.onPrimary),
-                            onPressed: () {
-                              if (companyId != null) _saveRules(companyId);
-                            },
-                          ),
-                  )
-                ],
-              ),
-            ),
-          );
-        });
-  }
 }

@@ -14,6 +14,16 @@ class AuthStorage {
   static const _keyCompanyId = 'company_id';
   static const _keyCachedUsers = 'cached_users';
   static const _keyRegisteredEmail = 'registered_email';
+  // Pillar 2 — offline subscription lease (signed token + its decoded expiry).
+  static const _keyLease = 'license_lease';
+  static const _keyLeaseValidUntil = 'license_valid_until';
+  // RSA public key used to verify the lease signature offline (cached from the
+  // server). Not secret, but kept beside the lease.
+  static const _keyLeasePubKey = 'license_public_key';
+  // Highest server clock value ever observed (from a verified lease's issuedAt).
+  // The offline guard never trusts a device clock earlier than this, so winding
+  // the system clock back can't resurrect an expired subscription.
+  static const _keyMaxServerTime = 'max_seen_server_time';
 
   Future<String> getOrCreateDeviceId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -31,6 +41,87 @@ class AuthStorage {
     await _secureStorage.write(key: _keyJwt, value: jwt);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyCompanyId, companyId);
+  }
+
+  /// Persists the signed subscription lease and its decoded `validUntil` so the
+  /// app can enforce the subscription offline (Pillar 2).
+  Future<void> saveLease(String? lease) async {
+    if (lease == null || lease.isEmpty) return;
+    await _secureStorage.write(key: _keyLease, value: lease);
+    final validUntil = decodeLeaseValidUntil(lease);
+    final prefs = await SharedPreferences.getInstance();
+    if (validUntil != null) {
+      await prefs.setString(
+          _keyLeaseValidUntil, validUntil.toUtc().toIso8601String());
+    }
+  }
+
+  Future<String?> getLease() async => _secureStorage.read(key: _keyLease);
+
+  /// Caches the server's RSA public key (PEM) used to verify the lease offline.
+  Future<void> saveLeasePublicKey(String pem) async {
+    if (pem.isEmpty) return;
+    await _secureStorage.write(key: _keyLeasePubKey, value: pem);
+  }
+
+  Future<String?> getLeasePublicKey() async =>
+      _secureStorage.read(key: _keyLeasePubKey);
+
+  /// Advances the monotonic anti-rollback clock to [serverTime] if it is newer
+  /// than what we've already seen (never moves backwards).
+  Future<void> recordServerTime(DateTime serverTime) async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = prefs.getString(_keyMaxServerTime);
+    final seen = existing == null ? null : DateTime.tryParse(existing);
+    if (seen == null || serverTime.toUtc().isAfter(seen)) {
+      await prefs.setString(
+          _keyMaxServerTime, serverTime.toUtc().toIso8601String());
+    }
+  }
+
+  Future<DateTime?> getMaxSeenServerTime() async {
+    final prefs = await SharedPreferences.getInstance();
+    final s = prefs.getString(_keyMaxServerTime);
+    return s == null ? null : DateTime.tryParse(s);
+  }
+
+  /// The clock the offline guard trusts: the later of the device clock and the
+  /// highest server time we've ever seen — so a backwards clock jump can't
+  /// extend an expired lease.
+  Future<DateTime> trustedNow() async {
+    final now = DateTime.now().toUtc();
+    final maxSeen = await getMaxSeenServerTime();
+    return (maxSeen != null && maxSeen.isAfter(now)) ? maxSeen : now;
+  }
+
+  Future<DateTime?> getLeaseValidUntil() async {
+    final prefs = await SharedPreferences.getInstance();
+    final s = prefs.getString(_keyLeaseValidUntil);
+    return s == null ? null : DateTime.tryParse(s);
+  }
+
+  /// Decodes the `validUntil` claim from a lease JWT WITHOUT verifying its
+  /// signature (display/quick-check only — verification against the server
+  /// public key happens in the boot guard).
+  static DateTime? decodeLeaseValidUntil(String jwt) {
+    try {
+      final parts = jwt.split('.');
+      if (parts.length != 3) return null;
+      var p = parts[1].replaceAll('-', '+').replaceAll('_', '/');
+      switch (p.length % 4) {
+        case 2:
+          p += '==';
+          break;
+        case 3:
+          p += '=';
+          break;
+      }
+      final map = jsonDecode(utf8.decode(base64.decode(p))) as Map<String, dynamic>;
+      final v = map['validUntil'] as String?;
+      return v == null ? null : DateTime.tryParse(v);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<String?> getJwt() async {
@@ -54,10 +145,12 @@ class AuthStorage {
 
   Future<void> unlinkDevice() async {
     await _secureStorage.delete(key: _keyJwt);
+    await _secureStorage.delete(key: _keyLease);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyCompanyId);
     await prefs.remove(_keyCachedUsers);
     await prefs.remove(_keyRegisteredEmail);
+    await prefs.remove(_keyLeaseValidUntil);
   }
 
   Future<bool> isDeviceRegistered() async {

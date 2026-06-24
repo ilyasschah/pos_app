@@ -5,6 +5,7 @@ import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/auth/auth_storage.dart';
 import 'package:pos_app/utils/api_error_parser.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 class UserInfoScreen extends ConsumerStatefulWidget {
   const UserInfoScreen({super.key});
@@ -66,9 +67,7 @@ class _UserInfoScreenState extends ConsumerState<UserInfoScreen> {
       );
       _fetchDevices();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Device revoked successfully')),
-        );
+        showAppSnackbar(context, ref, 'Device revoked successfully');
       }
     } on DioException catch (e, st) {
       if (mounted) rethrowApiError(e, st);
@@ -132,12 +131,9 @@ class _UserInfoScreenState extends ConsumerState<UserInfoScreen> {
                     ? null
                     : () async {
                         if (newPasswordCtrl.text != confirmPasswordCtrl.text) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text("New passwords do not match"),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
+                          showAppSnackbar(
+                              context, ref, "New passwords do not match",
+                              isError: true);
                           return;
                         }
 
@@ -156,11 +152,8 @@ class _UserInfoScreenState extends ConsumerState<UserInfoScreen> {
                           );
                           if (mounted) {
                             Navigator.pop(ctx);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text("Password updated successfully"),
-                              ),
-                            );
+                            showAppSnackbar(
+                                context, ref, "Password updated successfully");
                           }
                         } on DioException catch (e, st) {
                           rethrowApiError(e, st);
@@ -218,12 +211,8 @@ class _UserInfoScreenState extends ConsumerState<UserInfoScreen> {
                     ? null
                     : () async {
                         if (pinCtrl.text.length < 4) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text("PIN must be 4 digits"),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
+                          showAppSnackbar(context, ref, "PIN must be 4 digits",
+                              isError: true);
                           return;
                         }
 
@@ -242,11 +231,8 @@ class _UserInfoScreenState extends ConsumerState<UserInfoScreen> {
                           );
                           if (mounted) {
                             Navigator.pop(ctx);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text("PIN updated successfully"),
-                              ),
-                            );
+                            showAppSnackbar(
+                                context, ref, "PIN updated successfully");
                             ref.invalidate(allUsersProvider);
                           }
                         } on DioException catch (e, st) {

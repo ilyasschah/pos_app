@@ -7,6 +7,8 @@ import 'package:intl/intl.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:pos_app/api/api_client.dart';
+import 'package:pos_app/security/security_guard.dart';
+import 'package:pos_app/security/security_keys.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
 import 'package:pos_app/auth/auth_provider.dart';
@@ -94,7 +96,7 @@ final allDocumentTypesProvider =
             name: r.name,
             code: r.code,
             documentCategoryId: r.documentCategoryId,
-            warehouseId: r.warehouseId,
+            stockDirection: r.stockDirection,
           ))
       .toList());
 });
@@ -796,7 +798,11 @@ class _DocumentTable extends ConsumerWidget {
       if (v['Order #']  == true) DataCell(Text(d.orderNumber ?? 'N/A')),
       if (v['User']     == true) DataCell(Text(d.userName ?? '-')),
       if (v['Discount'] == true)
-        DataCell(Text("${d.discount.toStringAsFixed(0)}%")),
+        DataCell(Text(d.discount <= 0
+            ? "-"
+            : (d.discountType == 1
+                ? "-${d.discount.toStringAsFixed(2)}"
+                : "${d.discount.toStringAsFixed(0)}%"))),
       if (v['Total'] == true)
         DataCell(Text(
           "${d.total.toStringAsFixed(2)} $sym",
@@ -819,7 +825,11 @@ class _DocumentTable extends ConsumerWidget {
             icon: const Icon(Icons.delete_outline_rounded,
                 color: Colors.redAccent, size: 20),
             tooltip:  "Delete",
-            onPressed: () => _confirmDelete(context, ref, d),
+            onPressed: () => ref.read(securityGuardProvider).guard(
+              context,
+              SecurityKeys.invoicesDelete,
+              () => _confirmDelete(context, ref, d),
+            ),
           ),
         ])),
     ];

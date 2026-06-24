@@ -12,6 +12,7 @@ import 'package:pos_app/bookings/bookings_provider.dart';
 import 'package:pos_app/database/app_database.dart';
 import 'package:pos_app/database/database_provider.dart';
 import 'package:pos_app/navigation/main_layout.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 import 'package:pos_app/cart/cart_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/currency/currencies_provider.dart';
@@ -553,21 +554,11 @@ class _OpenOrderCardState extends ConsumerState<_OpenOrderCard> {
         // cash-in hook). Just point the shared nav index at the POS Menu.
         ref.read(mainNavigationIndexProvider.notifier).state = 0;
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Failed to load order.'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
+        showAppSnackbar(context, ref, 'Failed to load order.', isError: true);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
+        showAppSnackbar(context, ref, 'Error: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _loading = false);

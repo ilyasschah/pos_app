@@ -11,6 +11,9 @@ import 'package:pos_app/product/product_provider.dart';
 import 'package:pos_app/product/product_group_provider.dart';
 import 'package:pos_app/product/product_group_model.dart';
 import 'package:pos_app/product/product_model.dart';
+import 'package:pos_app/app_settings/app_settings_model.dart';
+import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 
 class EditablePromoItem {
   int id;
@@ -58,6 +61,9 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
   TimeOfDay? _endTime;
 
   List<EditablePromoItem> _items = [];
+
+  final TextEditingController _searchController = TextEditingController();
+  String _search = '';
 
   @override
   void initState() {
@@ -110,11 +116,33 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
     }
   }
 
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
   void _save() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Name is required')));
+      showAppSnackbar(context, ref, 'Name is required', isError: true);
+      return;
+    }
+    if (_daysOfWeek == 0) {
+      showAppSnackbar(context, ref, 'Select at least one day of the week',
+          isError: true);
+      return;
+    }
+    if (_items.isEmpty) {
+      showAppSnackbar(context, ref, 'Add at least one product to the promotion',
+          isError: true);
+      return;
+    }
+    // A finite window must not end before it starts.
+    if (_startDate != null && _endDate != null && _endDate!.isBefore(_startDate!)) {
+      showAppSnackbar(context, ref, 'End date is before the start date',
+          isError: true);
       return;
     }
 
@@ -285,6 +313,69 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
     }
   }
 
+  bool _isAdded(int productId) => _items.any((i) => i.productId == productId);
+
+  /// Compact numeric display: drop the trailing `.0` so a whole number reads as
+  /// "10" rather than "10.0" in the editable fields.
+  String _fmtNum(double v) =>
+      v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+
+  /// Add the product to the promotion if absent, remove it if already present.
+  /// Tapping a tile (or its trailing button) toggles membership so the cashier
+  /// can both pick and un-pick from the same list.
+  void _toggleProduct(Product p) {
+    setState(() {
+      final existing = _items.indexWhere((i) => i.productId == p.id);
+      if (existing >= 0) {
+        _items.removeAt(existing);
+      } else {
+        _items.add(
+          EditablePromoItem(
+            id: 0,
+            productId: p.id,
+            discountType: 0,
+            priceType: 0,
+            value: 0,
+            isConditional: false,
+            quantity: 1,
+            conditionType: 0,
+            quantityLimit: 0,
+            productName: p.name,
+          ),
+        );
+      }
+    });
+  }
+
+  /// A single selectable product row, shared by the category tree and the flat
+  /// search results. Reflects whether the product is already in the promotion.
+  Widget _buildProductTile(Product p) {
+    final cs = Theme.of(context).colorScheme;
+    final added = _isAdded(p.id);
+    return ListTile(
+      dense: true,
+      onTap: () => _toggleProduct(p),
+      leading: Icon(Icons.inventory_2, color: cs.onSurfaceVariant, size: 20),
+      title: Text(
+        p.name,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: added ? cs.primary : null,
+          fontWeight: added ? FontWeight.w600 : FontWeight.normal,
+        ),
+      ),
+      trailing: IconButton(
+        tooltip: added ? 'Remove from promotion' : 'Add to promotion',
+        icon: Icon(
+          added ? Icons.check_circle : Icons.add_circle_outline,
+          color: added ? cs.primary : cs.onSurfaceVariant,
+        ),
+        onPressed: () => _toggleProduct(p),
+      ),
+    );
+  }
+
   Widget _buildTree(
     List<ProductGroup> groups,
     List<Product> products,
@@ -294,7 +385,7 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
         .where((g) => g.parentGroupId == parentId)
         .toList();
     final childProducts = products
-        .where((p) => p.productGroupId == parentId)
+        .where((p) => p.productGroupId == parentId && p.isEnabled)
         .toList();
 
     if (childGroups.isEmpty && childProducts.isEmpty) {
@@ -306,53 +397,65 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
       children: [
         ...childGroups.map(
           (g) => ExpansionTile(
+            // Open the top-level categories by default so products are visible
+            // immediately instead of behind a collapsed folder.
+            initiallyExpanded: parentId == null,
+            tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+            childrenPadding: const EdgeInsets.only(left: 16),
             title: Text(
               g.name,
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            leading: Icon(Icons.folder, color: Theme.of(context).colorScheme.onSurfaceVariant),
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(left: 16.0),
-                child: _buildTree(groups, products, g.id),
-              ),
-            ],
+            leading: Icon(Icons.folder,
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
+            children: [_buildTree(groups, products, g.id)],
           ),
         ),
-        ...childProducts.map(
-          (p) => ListTile(
-            title: Text(p.name),
-            leading: Icon(
-              Icons.inventory_2,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              size: 20,
-            ),
-            trailing: IconButton(
-              icon: Icon(Icons.add_circle, color: Theme.of(context).colorScheme.primary),
-              onPressed: () {
-                setState(() {
-                  if (!_items.any((i) => i.productId == p.id)) {
-                    _items.add(
-                      EditablePromoItem(
-                        id: 0,
-                        productId: p.id,
-                        discountType: 0,
-                        priceType: 0,
-                        value: 0,
-                        isConditional: false,
-                        quantity: 1,
-                        conditionType: 0,
-                        quantityLimit: 0,
-                        productName: p.name,
-                      ),
-                    );
-                  }
-                });
-              },
-            ),
-          ),
-        ),
+        ...childProducts.map(_buildProductTile),
       ],
+    );
+  }
+
+  /// Flat, alphabetical list of products whose name matches the search box —
+  /// replaces the category tree while a query is active so a product can be
+  /// found without knowing its category.
+  Widget _buildSearchResults(List<Product> products) {
+    final q = _search.trim().toLowerCase();
+    final matches =
+        products.where((p) => p.isEnabled && p.name.toLowerCase().contains(q)).toList()
+          ..sort((a, b) => a.name.compareTo(b.name));
+
+    if (matches.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(24),
+        child: Center(
+          child: Text(
+            'No products match "$_search"',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: matches.map(_buildProductTile).toList(),
+    );
+  }
+
+  /// One-tap day-of-week preset (e.g. Weekdays / Weekends). [mask] is the packed
+  /// bitmask written straight to [_daysOfWeek].
+  Widget _dayPreset(String label, int mask) {
+    final selected = _daysOfWeek == mask;
+    return ActionChip(
+      label: Text(label),
+      backgroundColor: selected
+          ? Theme.of(context).colorScheme.secondaryContainer
+          : null,
+      onPressed: () => setState(() => _daysOfWeek = mask),
     );
   }
 
@@ -361,6 +464,10 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
     final groupsAsync = ref.watch(allProductGroupsProvider);
     final productsAsync = ref.watch(allProductsListProvider);
     final days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    final cs = Theme.of(context).colorScheme;
+    // Used as the suffix on a fixed-amount discount field.
+    final currencySymbol =
+        ref.watch(appSettingsProvider)[SettingKeys.currencySymbol] ?? '\$';
 
     return Scaffold(
       appBar: AppBar(
@@ -440,6 +547,11 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
                         },
                       );
                     }),
+                    const SizedBox(width: 8),
+                    _dayPreset('All', 127),
+                    _dayPreset('Weekdays', 31),
+                    _dayPreset('Weekends', 96),
+                    _dayPreset('None', 0),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -555,112 +667,243 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
                         ),
                       ),
                     ),
-                    child: groupsAsync.when(
-                      loading: () =>
-                          const Center(child: CircularProgressIndicator()),
-                      error: (err, stack) => Center(child: Text('Error: $err')),
-                      data: (groups) => productsAsync.when(
-                        loading: () =>
-                            const Center(child: CircularProgressIndicator()),
-                        error: (err, stack) =>
-                            Center(child: Text('Error: $err')),
-                        data: (products) {
-                          // Update product names in items list for display
-                          for (var item in _items) {
-                            if (item.productName == null) {
-                              final match = products
-                                  .where((p) => p.id == item.productId)
-                                  .firstOrNull;
-                              if (match != null) item.productName = match.name;
-                            }
-                          }
-                          return SingleChildScrollView(
-                            child: _buildTree(groups, products, null),
-                          );
-                        },
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                          child: TextField(
+                            controller: _searchController,
+                            onChanged: (v) => setState(() => _search = v),
+                            decoration: InputDecoration(
+                              isDense: true,
+                              hintText: 'Search products...',
+                              prefixIcon: const Icon(Icons.search),
+                              suffixIcon: _search.isEmpty
+                                  ? null
+                                  : IconButton(
+                                      icon: const Icon(Icons.clear),
+                                      tooltip: 'Clear',
+                                      onPressed: () {
+                                        _searchController.clear();
+                                        setState(() => _search = '');
+                                      },
+                                    ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: groupsAsync.when(
+                            loading: () => const Center(
+                                child: CircularProgressIndicator()),
+                            error: (err, stack) =>
+                                Center(child: Text('Error: $err')),
+                            data: (groups) => productsAsync.when(
+                              loading: () => const Center(
+                                  child: CircularProgressIndicator()),
+                              error: (err, stack) =>
+                                  Center(child: Text('Error: $err')),
+                              data: (products) {
+                                // Update product names in items list for display
+                                for (var item in _items) {
+                                  if (item.productName == null) {
+                                    final match = products
+                                        .where((p) => p.id == item.productId)
+                                        .firstOrNull;
+                                    if (match != null) {
+                                      item.productName = match.name;
+                                    }
+                                  }
+                                }
+                                return SingleChildScrollView(
+                                  child: _search.trim().isEmpty
+                                      ? _buildTree(groups, products, null)
+                                      : _buildSearchResults(products),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
                 // Right Pane: Selected Items
                 Expanded(
                   flex: 2,
-                  child: _items.isEmpty
-                      ? const Center(
-                          child: Text(
-                            "Select products from the left to add to the promotion.",
-                          ),
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: _items.length,
-                          separatorBuilder: (ctx, i) => const Divider(),
-                          itemBuilder: (ctx, i) {
-                            final item = _items[i];
-                            return Card(
-                              child: Padding(
-                                padding: const EdgeInsets.all(12.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+                        child: Row(
+                          children: [
+                            Text(
+                              'Selected Products',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(width: 8),
+                            if (_items.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primaryContainer,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '${_items.length}',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onPrimaryContainer,
+                                  ),
+                                ),
+                              ),
+                            const Spacer(),
+                            if (_items.isNotEmpty)
+                              TextButton.icon(
+                                icon: const Icon(Icons.clear_all, size: 18),
+                                label: const Text('Clear all'),
+                                onPressed: () =>
+                                    setState(() => _items.clear()),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: _items.isEmpty
+                            ? Center(
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    Icon(
+                                      Icons.local_offer_outlined,
+                                      size: 56,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurface
+                                          .withValues(alpha: 0.25),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      'Select products from the left to add to the promotion.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : ListView.separated(
+                                padding: const EdgeInsets.all(16),
+                                itemCount: _items.length,
+                                separatorBuilder: (ctx, i) =>
+                                    const SizedBox(height: 10),
+                                itemBuilder: (ctx, i) {
+                                  final item = _items[i];
+                            return Card(
+                              margin: EdgeInsets.zero,
+                              elevation: 0,
+                              color: cs.surfaceContainerHighest,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(12, 6, 6, 12),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    // ── Header: product + remove ──────────
                                     Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
                                       children: [
-                                        Text(
-                                          item.productName ??
-                                              'Product ID: ${item.productId}',
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16,
+                                        Icon(Icons.inventory_2,
+                                            size: 18,
+                                            color: cs.onSurfaceVariant),
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            item.productName ??
+                                                'Product ID: ${item.productId}',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleSmall
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.bold,
+                                                ),
                                           ),
                                         ),
                                         IconButton(
-                                          icon: Icon(
-                                            Icons.delete,
-                                            color: Theme.of(context).colorScheme.error,
-                                          ),
-                                          onPressed: () {
-                                            setState(() {
-                                              _items.removeAt(i);
-                                            });
-                                          },
+                                          visualDensity:
+                                              VisualDensity.compact,
+                                          tooltip: 'Remove',
+                                          icon: Icon(Icons.delete_outline,
+                                              color: cs.error),
+                                          onPressed: () => setState(
+                                              () => _items.removeAt(i)),
                                         ),
                                       ],
                                     ),
                                     const SizedBox(height: 8),
+                                    // ── Discount value + type ─────────────
                                     Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Expanded(
                                           child: TextFormField(
-                                            initialValue: item.value.toString(),
-                                            decoration: const InputDecoration(
-                                              labelText: 'Discount Value',
-                                              border: OutlineInputBorder(),
+                                            initialValue: _fmtNum(item.value),
+                                            decoration: InputDecoration(
+                                              labelText: 'Discount',
+                                              isDense: true,
+                                              border:
+                                                  const OutlineInputBorder(),
+                                              suffixText:
+                                                  item.discountType == 0
+                                                      ? '%'
+                                                      : currencySymbol,
                                             ),
                                             keyboardType: TextInputType.number,
                                             onChanged: (v) => item.value =
                                                 double.tryParse(v) ?? 0,
                                           ),
                                         ),
-                                        const SizedBox(width: 16),
+                                        const SizedBox(width: 12),
                                         Expanded(
-                                          child: DropdownButtonFormField<int>(
+                                          child:
+                                              DropdownButtonFormField<int>(
                                             initialValue: item.discountType,
+                                            isDense: true,
                                             decoration: const InputDecoration(
-                                              labelText: 'Discount Type',
+                                              labelText: 'Type',
+                                              isDense: true,
                                               border: OutlineInputBorder(),
                                             ),
                                             items: const [
                                               DropdownMenuItem(
                                                 value: 0,
-                                                child: Text('Percentage (%)'),
+                                                child: Text('Percentage'),
                                               ),
                                               DropdownMenuItem(
                                                 value: 1,
-                                                child: Text(
-                                                  'Fixed Amount (\$)',
-                                                ),
+                                                child: Text('Fixed Amount'),
                                               ),
                                             ],
                                             onChanged: (v) => setState(
@@ -670,43 +913,52 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
                                         ),
                                       ],
                                     ),
-                                    const SizedBox(height: 12),
-                                    CheckboxListTile(
+                                    // ── Conditional toggle ────────────────
+                                    SwitchListTile(
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      visualDensity: VisualDensity.compact,
                                       title: const Text(
-                                        "Is Conditional (e.g. Buy 2 get 1)",
+                                        'Conditional (e.g. Buy 2, get discount)',
                                       ),
                                       value: item.isConditional,
-                                      controlAffinity:
-                                          ListTileControlAffinity.leading,
-                                      contentPadding: EdgeInsets.zero,
                                       onChanged: (v) => setState(
-                                        () => item.isConditional = v ?? false,
+                                        () => item.isConditional = v,
                                       ),
                                     ),
                                     if (item.isConditional)
                                       Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Expanded(
                                             child: TextFormField(
-                                              initialValue: item.quantity
-                                                  .toString(),
-                                              decoration: const InputDecoration(
-                                                labelText: 'Required Quantity',
+                                              initialValue:
+                                                  _fmtNum(item.quantity),
+                                              decoration:
+                                                  const InputDecoration(
+                                                labelText: 'Required Qty',
+                                                isDense: true,
                                                 border: OutlineInputBorder(),
                                               ),
                                               keyboardType:
                                                   TextInputType.number,
-                                              onChanged: (v) => item.quantity =
-                                                  double.tryParse(v) ?? 1,
+                                              onChanged: (v) =>
+                                                  item.quantity =
+                                                      double.tryParse(v) ?? 1,
                                             ),
                                           ),
-                                          const SizedBox(width: 16),
+                                          const SizedBox(width: 12),
                                           Expanded(
-                                            child: DropdownButtonFormField<int>(
-                                              initialValue: item.conditionType,
-                                              decoration: const InputDecoration(
-                                                labelText:
-                                                    'Condition Applied To',
+                                            child:
+                                                DropdownButtonFormField<int>(
+                                              initialValue:
+                                                  item.conditionType,
+                                              isDense: true,
+                                              decoration:
+                                                  const InputDecoration(
+                                                labelText: 'Applies To',
+                                                isDense: true,
                                                 border: OutlineInputBorder(),
                                               ),
                                               items: const [
@@ -714,7 +966,6 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
                                                   value: 0,
                                                   child: Text('Same Product'),
                                                 ),
-                                                // Could extend this later
                                               ],
                                               onChanged: (v) => setState(
                                                 () => item.conditionType = v!,
@@ -729,6 +980,9 @@ class _PromotionEditScreenState extends ConsumerState<PromotionEditScreen> {
                             );
                           },
                         ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

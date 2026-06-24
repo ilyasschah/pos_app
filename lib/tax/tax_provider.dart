@@ -12,7 +12,10 @@ final allTaxesProvider = StreamProvider.autoDispose<List<Tax>>((ref) {
   if (companyId == null) return const Stream.empty();
 
   final query = db.select(db.taxesTable)
-    ..where((t) => t.companyId.equals(companyId));
+    ..where((t) => t.companyId.equals(companyId))
+    // Hide rows tombstoned offline — they're gone from the user's POV and a
+    // pending server delete is queued.
+    ..where((t) => t.syncStatus.isNotIn(['pending_delete']));
 
   return query.watch().map((rows) => rows.map(Tax.fromDrift).toList());
 });

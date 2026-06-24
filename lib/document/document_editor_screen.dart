@@ -17,6 +17,7 @@ import 'package:pos_app/cart/payment_provider.dart';
 import 'package:pos_app/cart/payment_type_provider.dart';
 import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/app_settings/app_settings_provider.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 import 'package:drift/drift.dart' show Value;
 import 'package:uuid/uuid.dart';
 import 'package:pos_app/database/app_database.dart';
@@ -286,26 +287,32 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
       // Offline-first: persist the recomputed total locally; the document is
       // flagged for push and SyncManager sends it to /Document/Update.
       await ref.read(appDatabaseProvider).setDocumentTotalLocal(localId, finalTotal);
-      _savedDocument = _savedDocument == null
-          ? null
-          : Document(
-              id: _savedDocument!.id,
-              localId: _savedDocument!.localId,
-              number: _savedDocument!.number,
-              userId: _savedDocument!.userId,
-              customerId: _savedDocument!.customerId,
-              companyId: _savedDocument!.companyId,
-              documentTypeId: _savedDocument!.documentTypeId,
-              documentTypeName: _savedDocument!.documentTypeName,
-              warehouseId: _savedDocument!.warehouseId,
-              date: _savedDocument!.date,
-              total: finalTotal,
-              discount: _savedDocument!.discount,
-              discountType: _savedDocument!.discountType,
-              discountApplyRule: _savedDocument!.discountApplyRule,
-              paidStatus: _savedDocument!.paidStatus,
-              serviceType: _savedDocument!.serviceType,
-            );
+      if (!mounted) return;
+      // Rebuild so the Payments tab (documentTotal: _savedDocument.total) and
+      // its Remaining Balance reflect the new items immediately — without this
+      // setState the amount due stayed stale until the dialog was reopened.
+      setState(() {
+        _savedDocument = _savedDocument == null
+            ? null
+            : Document(
+                id: _savedDocument!.id,
+                localId: _savedDocument!.localId,
+                number: _savedDocument!.number,
+                userId: _savedDocument!.userId,
+                customerId: _savedDocument!.customerId,
+                companyId: _savedDocument!.companyId,
+                documentTypeId: _savedDocument!.documentTypeId,
+                documentTypeName: _savedDocument!.documentTypeName,
+                warehouseId: _savedDocument!.warehouseId,
+                date: _savedDocument!.date,
+                total: finalTotal,
+                discount: _savedDocument!.discount,
+                discountType: _savedDocument!.discountType,
+                discountApplyRule: _savedDocument!.discountApplyRule,
+                paidStatus: _savedDocument!.paidStatus,
+                serviceType: _savedDocument!.serviceType,
+              );
+      });
       ref.invalidate(allDocumentsProvider);
     } catch (e) {
       debugPrint("Total sync failed: $e");
@@ -415,7 +422,10 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
           userId: Value(_selectedUserId!),
           warehouseId: Value(_selectedWarehouseId!),
           customerId: Value(_selectedCustomerId),
-          orderNumber: Value('ORD-${DateTime.now().millisecondsSinceEpoch}'),
+          // Manual documents (purchases, etc.) are not POS orders — leave the
+          // orderNumber null so it never feeds the POS sequence counter
+          // (syncOrderNumber). The column and the API field are both nullable.
+          orderNumber: const Value(null),
           total: const Value(0),
           discount: Value(_discount),
           discountType: Value(_discountType),
@@ -501,12 +511,7 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
         _kickSync();
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Document saved!"),
-              backgroundColor: Colors.green,
-            ),
-          );
+          showAppSnackbar(context, ref, "Document saved!");
         }
       }
     } catch (e) {
@@ -569,7 +574,11 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
                   setState(() {
                     _selectedDocTypeId = result.id;
                     _selectedDocTypeName = "${result.code} - ${result.name}";
-                    _selectedWarehouseId = result.warehouseId;
+                    // Warehouse is owned by the app context, not the document
+                    // type — default to the active warehouse only if the user
+                    // hasn't already picked one.
+                    _selectedWarehouseId ??=
+                        ref.read(selectedWarehouseProvider)?.id;
                   });
                   if (_numberCtrl.text.isEmpty) {
                     final nextNumber = await _fetchNextDocumentNumber(

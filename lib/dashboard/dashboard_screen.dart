@@ -220,8 +220,11 @@ class _YearlyContent extends StatelessWidget {
       ..sort((a, b) => b.total.compareTo(a.total));
     final topMonth = sorted.isNotEmpty ? sorted.first : null;
 
-    // Max Y with headroom
-    final maxY = data.monthlySales.isEmpty ? 100.0 : sorted.first.total * 1.4;
+    // Max Y with headroom. Floor at a positive value: once refunds are netted
+    // out the top month can be 0 (or negative), and fl_chart asserts if the
+    // grid's horizontalInterval (maxY / 4) is zero.
+    final rawMaxY = data.monthlySales.isEmpty ? 0.0 : sorted.first.total * 1.4;
+    final maxY = rawMaxY <= 0 ? 100.0 : rawMaxY;
 
     final tooltipBg = cs.inverseSurface;
     final tooltipFg = cs.onInverseSurface;
@@ -811,7 +814,10 @@ class _HourlySalesCard extends ConsumerWidget {
                   spots: spots,
                   peakSpot: peakSpot,
                   avgY: avgY,
-                  chartMaxY: rawMax * 1.35,
+                  // Floor at a positive value: netting refunds can make every
+                  // hour 0 (or negative), and a zero maxY → zero grid interval
+                  // crashes fl_chart.
+                  chartMaxY: rawMax > 0 ? rawMax * 1.35 : 100.0,
                   fmt: NumberFormat.currency(
                     symbol: sym,
                     decimalDigits: 2,
@@ -1265,11 +1271,15 @@ class _TopGroupsCardState extends ConsumerState<_TopGroupsCard> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (_, __) => const _EmptyState(message: 'Error loading data'),
         data: (data) {
-          if (data.topProductGroups.isEmpty) return const _EmptyState();
           final total = data.topProductGroups.fold<double>(
             0,
             (s, g) => s + g.total,
           );
+          // No data, or everything netted out by refunds → nothing to chart.
+          // A zero total would make the pie compute value/total = NaN angles.
+          if (data.topProductGroups.isEmpty || total <= 0) {
+            return const _EmptyState();
+          }
           final fmt = NumberFormat.compact(locale: 'en');
 
           return Padding(
@@ -1289,7 +1299,9 @@ class _TopGroupsCardState extends ConsumerState<_TopGroupsCard> {
                             : 0.0;
                         final isTouched = _touched == i;
                         return PieChartSectionData(
-                          value: group.total,
+                          // Clamp: a net-negative group (more refunded than
+                          // sold) must not feed a negative slice into the pie.
+                          value: group.total > 0 ? group.total : 0,
                           color: _kPieColors[i % _kPieColors.length],
                           radius: isTouched ? 52 : 42,
                           showTitle: isTouched,

@@ -101,7 +101,8 @@ class DocumentType {
   final String? code;
   final int? documentCategoryId;
   final String? documentCategoryName;
-  final int? warehouseId;
+  // Server inventory direction (0 = none, 1 = add, 2 = deduct).
+  final int stockDirection;
 
   DocumentType({
     required this.id,
@@ -109,7 +110,7 @@ class DocumentType {
     this.code,
     this.documentCategoryId,
     this.documentCategoryName,
-    this.warehouseId,
+    this.stockDirection = 0,
   });
 
   factory DocumentType.fromJson(Map<String, dynamic> json) {
@@ -119,7 +120,7 @@ class DocumentType {
       code: json['code'],
       documentCategoryId: json['documentCategoryId'],
       documentCategoryName: json['documentCategoryName'],
-      warehouseId: json['warehouseId'],
+      stockDirection: json['stockDirection'] ?? 0,
     );
   }
 }

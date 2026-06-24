@@ -16,6 +16,8 @@ final allPaymentTypesProvider =
 
   final query = db.select(db.paymentTypesTable)
     ..where((t) => t.companyId.equals(companyId))
+    // Hide rows tombstoned offline (pending server delete queued).
+    ..where((t) => t.syncStatus.isNotIn(['pending_delete']))
     ..orderBy([(t) => OrderingTerm.asc(t.ordinal)]);
 
   return query

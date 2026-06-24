@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/auth/auth_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
+import 'package:pos_app/utils/snackbar_helper.dart';
 import 'package:xml/xml.dart' as xml;
 
 // ---------------------------------------------------------------------------
@@ -330,8 +331,7 @@ class _ProductImportScreenState extends ConsumerState<ProductImportScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Import failed: $e'), backgroundColor: Colors.red));
+        showAppSnackbar(context, ref, 'Import failed: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _isImportingCsv = false);
@@ -371,8 +371,7 @@ class _ProductImportScreenState extends ConsumerState<ProductImportScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Import failed: $e'), backgroundColor: Colors.red));
+        showAppSnackbar(context, ref, 'Import failed: $e', isError: true);
       }
     } finally {
       if (mounted) setState(() => _isImportingXml = false);
