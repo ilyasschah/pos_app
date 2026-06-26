@@ -56,6 +56,7 @@ const _salesReports = [
   _ReportType('sales_starting_cash',      'Starting cash entries',         Icons.account_balance_wallet_outlined),
   _ReportType('sales_voided',             'Voided items',                  Icons.delete_outline),
   _ReportType('sales_discounts',          'Discounts granted',             Icons.discount_outlined),
+  _ReportType('sales_discounts_by_source','Discounts by source',           Icons.pie_chart_outline),
   _ReportType('sales_item_discounts',     'Items discounts',               Icons.sell_outlined),
   _ReportType('sales_stock_movement',     'Stock movement',                Icons.swap_horiz_outlined),
 ];
@@ -417,6 +418,14 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         }
         buf.writeln('"","","","","","Total",${rows.fold(0.0, (s, r) => s + r.discountGranted)}');
         filename = 'DiscountsGranted';
+      } else if (reportId == 'sales_discounts_by_source') {
+        final rows = await ref.read(discountsBySourceReportProvider(filter).future);
+        buf.writeln('Discount source,Total');
+        for (final r in rows) {
+          buf.writeln('"${r.label}",${r.amount}');
+        }
+        buf.writeln('"Total",${rows.fold(0.0, (s, r) => s + r.amount)}');
+        filename = 'DiscountsBySource';
       } else if (reportId == 'sales_voided') {
         final rows = await ref.read(voidedItemsReportProvider(filter).future);
         final dtFmt = DateFormat('dd/MM/yyyy HH:mm:ss');
@@ -1523,6 +1532,28 @@ class _TabPdfView extends ConsumerWidget {
             companyAddress: company?.address,
             customerLabel: customerLabel(),
             userLabel: userLabel(),
+          ),
+        ),
+      );
+    }
+
+    if (tab.reportType.id == 'sales_discounts_by_source') {
+      final async = ref.watch(discountsBySourceReportProvider(tab.filter));
+      return async.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) =>
+            Center(child: Text('Error: $e', style: TextStyle(color: cs.error))),
+        data: (rows) => PdfPreview(
+          pdfFileName: 'DiscountsBySource.pdf',
+          initialPageFormat: PdfPageFormat.a4,
+          canChangePageFormat: false,
+          canDebug: false,
+          allowSharing: false,
+          build: (_) => _buildDiscountsBySourcePdf(
+            rows: rows,
+            filter: tab.filter,
+            companyName: company?.name,
+            companyAddress: company?.address,
           ),
         ),
       );
@@ -2854,6 +2885,62 @@ Future<Uint8List> _buildItemsDiscountsPdf({
           ),
         ],
       ),
+    ],
+  ));
+
+  return doc.save();
+}
+
+Future<Uint8List> _buildDiscountsBySourcePdf({
+  required List<DiscountBySourceRow> rows,
+  required ReportFilter filter,
+  String? companyName,
+  String? companyAddress,
+}) async {
+  final doc = pw.Document();
+  final fmt = NumberFormat('#,##0.00');
+  final dateFmt = DateFormat('dd/MM/yyyy');
+
+  final regular = await PdfGoogleFonts.notoSansRegular();
+  final bold = await PdfGoogleFonts.notoSansBold();
+  final theme = pw.ThemeData.withFont(base: regular, bold: bold);
+
+  final grandTotal = rows.fold(0.0, (s, r) => s + r.amount);
+
+  doc.addPage(pw.MultiPage(
+    pageFormat: PdfPageFormat.a4,
+    theme: theme,
+    margin: const pw.EdgeInsets.all(24),
+    footer: (ctx) => pw.Row(
+      mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+      children: [
+        pw.Text(DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.now()),
+            style: const pw.TextStyle(fontSize: 8, color: PdfColors.red)),
+        pw.Text('Page ${ctx.pageNumber}', style: const pw.TextStyle(fontSize: 8)),
+      ],
+    ),
+    build: (ctx) => [
+      pw.Text('DISCOUNTS BY SOURCE',
+          style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+      pw.SizedBox(height: 8),
+      _pdfHeader(dateFmt, filter, companyName, companyAddress, 'All', 'All', 'All'),
+      pw.SizedBox(height: 12),
+      if (rows.isEmpty)
+        pw.Text('No discounts in this period.',
+            style: const pw.TextStyle(fontSize: 10))
+      else
+        pw.TableHelper.fromTextArray(
+          headers: ['Discount source', 'Total'],
+          headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+          cellStyle: const pw.TextStyle(fontSize: 9),
+          headerDecoration: const pw.BoxDecoration(color: PdfColors.grey200),
+          cellAlignments: {0: pw.Alignment.centerLeft, 1: pw.Alignment.centerRight},
+          columnWidths: const {0: pw.FlexColumnWidth(3), 1: pw.FixedColumnWidth(90)},
+          data: [
+            for (final r in rows) [r.label, fmt.format(r.amount)],
+            ['Total', fmt.format(grandTotal)],
+          ],
+        ),
     ],
   ));
 

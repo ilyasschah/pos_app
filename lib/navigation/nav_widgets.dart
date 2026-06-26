@@ -7,6 +7,8 @@ import 'package:pos_app/sync/server_status_provider.dart';
 
 // ── Layout constant (non-colour — safe to keep const) ─────────────────────────
 const kSidebarW = 220.0;
+// Collapsed "mini rail" width — icon-only, used by the Management shell.
+const kSidebarMiniW = 72.0;
 
 // ── Theme helpers (replaces the old hardcoded kNav* constants) ────────────────
 // Each widget now reads from Theme.of(context) so all custom themes apply.
@@ -185,6 +187,9 @@ class NavItem extends StatefulWidget {
   final Color? iconColor;
   final bool isActive;
   final VoidCallback onTap;
+  /// Mini "rail" mode: render only the centred icon (label + trailing hidden)
+  /// and surface the label through a hover Tooltip instead.
+  final bool isMini;
 
   const NavItem({
     super.key,
@@ -195,6 +200,7 @@ class NavItem extends StatefulWidget {
     this.textColor,
     this.iconColor,
     this.isActive = false,
+    this.isMini = false,
   });
 
   @override
@@ -213,6 +219,33 @@ class _NavItemState extends State<NavItem> {
     final bg        = active
         ? context.navActiveBg
         : (_hovered ? context.navHover : Colors.transparent);
+
+    // ── Mini rail: icon-only, label exposed via Tooltip on hover ──────────────
+    if (widget.isMini) {
+      return MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit:  (_) => setState(() => _hovered = false),
+        child: Tooltip(
+          message: widget.label,
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+              child: Container(
+                height: 44,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(widget.icon, size: 20, color: iconColor),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,

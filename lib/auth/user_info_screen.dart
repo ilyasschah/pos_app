@@ -8,7 +8,11 @@ import 'package:pos_app/utils/api_error_parser.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 
 class UserInfoScreen extends ConsumerStatefulWidget {
-  const UserInfoScreen({super.key});
+  /// Opens the POS navigation drawer. Supplied by MainLayout; when null the
+  /// app-bar menu button is hidden (e.g. if pushed as a standalone route).
+  final VoidCallback? onMenuPressed;
+
+  const UserInfoScreen({super.key, this.onMenuPressed});
 
   @override
   ConsumerState<UserInfoScreen> createState() => _UserInfoScreenState();
@@ -276,6 +280,13 @@ class _UserInfoScreenState extends ConsumerState<UserInfoScreen> {
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         automaticallyImplyLeading: false,
+        leading: widget.onMenuPressed != null
+            ? IconButton(
+                icon: const Icon(Icons.menu),
+                tooltip: "Menu",
+                onPressed: widget.onMenuPressed,
+              )
+            : null,
         title: const Text("User Info & Security"),
         backgroundColor: theme.colorScheme.surface,
         elevation: 1,

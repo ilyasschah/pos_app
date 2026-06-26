@@ -26,7 +26,9 @@ class ManagementLayout extends ConsumerStatefulWidget {
 
 class _ManagementLayoutState extends ConsumerState<ManagementLayout> {
   int _selectedIndex = 0;
-  bool _isSidebarVisible = true;
+  // Desktop rail starts expanded; the hamburger collapses it to a mini
+  // icon-only rail (it is never fully removed on desktop).
+  bool _isSidebarExpanded = true;
   bool _landed = false;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
@@ -53,7 +55,9 @@ class _ManagementLayoutState extends ConsumerState<ManagementLayout> {
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width >= 850;
-    final showPermanentSidebar = isDesktop && _isSidebarVisible;
+    // On desktop the rail is always present (expanded or mini); on touch it is
+    // a slide-in drawer. Mini mode only applies to the always-present rail.
+    final isMini = isDesktop && !_isSidebarExpanded;
     final cs = Theme.of(context).colorScheme;
 
     // Synchronous RBAC enforcer for this user. Rebuilds when the user, the
@@ -74,29 +78,26 @@ class _ManagementLayoutState extends ConsumerState<ManagementLayout> {
 
     final canViewSelected = guard.canAccess(_tabKeys[_selectedIndex]);
 
-    void onMenuPressed() {
-      if (isDesktop) {
-        setState(() => _isSidebarVisible = true);
-      } else {
-        _scaffoldKey.currentState?.openDrawer();
-      }
-    }
+    // On desktop the rail is always present, so the per-screen app-bar menu
+    // button is hidden (null); on touch it opens the slide-in drawer.
+    void onMenuPressed() => _scaffoldKey.currentState?.openDrawer();
+    final VoidCallback? screenMenu = isDesktop ? null : onMenuPressed;
 
     final List<Widget> screens = [
-      DashboardScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      DocumentsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      ProductsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      ProductGroupsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      StockScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      ReportsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      CustomersScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      PromotionsListScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      UsersScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      PaymentTypesScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      TaxRatesScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      MyCompanyScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      VoidReasonsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
-      LoyaltyCardsScreen(onMenuPressed: showPermanentSidebar ? null : onMenuPressed),
+      DashboardScreen(onMenuPressed: screenMenu),
+      DocumentsScreen(onMenuPressed: screenMenu),
+      ProductsScreen(onMenuPressed: screenMenu),
+      ProductGroupsScreen(onMenuPressed: screenMenu),
+      StockScreen(onMenuPressed: screenMenu),
+      ReportsScreen(onMenuPressed: screenMenu),
+      CustomersScreen(onMenuPressed: screenMenu),
+      PromotionsListScreen(onMenuPressed: screenMenu),
+      UsersScreen(onMenuPressed: screenMenu),
+      PaymentTypesScreen(onMenuPressed: screenMenu),
+      TaxRatesScreen(onMenuPressed: screenMenu),
+      MyCompanyScreen(onMenuPressed: screenMenu),
+      VoidReasonsScreen(onMenuPressed: screenMenu),
+      LoyaltyCardsScreen(onMenuPressed: screenMenu),
     ];
 
     void handleNavTap(int index) {
@@ -112,40 +113,52 @@ class _ManagementLayoutState extends ConsumerState<ManagementLayout> {
     }
 
     Widget sidebar = Container(
-      width: kSidebarW,
+      width: isMini ? kSidebarMiniW : kSidebarW,
       color: context.navSidebarBg,
       child: SafeArea(
         child: Column(
           children: [
-            // Static title header — no back navigation, no tap interaction.
-            // Padding mirrors NavSidebarHeader so both shells share the same
-            // header rhythm. Colours read from adaptive nav tokens so the title
-            // stays legible in Light Mode (charcoal) and Dark Mode (near-white).
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 24, 8, 20),
-              alignment: Alignment.centerLeft,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      "Management Portal",
-                      style: TextStyle(
-                        color: context.navText,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+            // Header. Expanded: portal title + collapse toggle. Mini: the title
+            // is hidden and a single centred icon expands the rail again.
+            // Colours read from adaptive nav tokens so the title stays legible
+            // in Light Mode (charcoal) and Dark Mode (near-white).
+            isMini
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 24, 0, 20),
+                    child: Center(
+                      child: IconButton(
+                        icon: Icon(Icons.menu, color: context.navMuted),
+                        tooltip: "Expand Sidebar",
+                        onPressed: () =>
+                            setState(() => _isSidebarExpanded = true),
                       ),
                     ),
-                  ),
-                  if (isDesktop)
-                    IconButton(
-                      icon: Icon(Icons.menu_open, color: context.navMuted),
-                      tooltip: "Hide Sidebar",
-                      onPressed: () =>
-                          setState(() => _isSidebarVisible = false),
+                  )
+                : Container(
+                    padding: const EdgeInsets.fromLTRB(16, 24, 8, 20),
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            "Management Portal",
+                            style: TextStyle(
+                              color: context.navText,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        if (isDesktop)
+                          IconButton(
+                            icon: Icon(Icons.menu_open, color: context.navMuted),
+                            tooltip: "Collapse Sidebar",
+                            onPressed: () =>
+                                setState(() => _isSidebarExpanded = false),
+                          ),
+                      ],
                     ),
-                ],
-              ),
-            ),
+                  ),
 
             // Scrollable nav items
             Expanded(
@@ -153,84 +166,98 @@ class _ManagementLayoutState extends ConsumerState<ManagementLayout> {
                 child: Column(
                   children: [
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.dashboard,
                       label: "Dashboard",
                       isActive: _selectedIndex == 0,
                       onTap: () => handleNavTap(0),
                     ),
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.description,
                       label: "Documents",
                       isActive: _selectedIndex == 1,
                       onTap: () => handleNavTap(1),
                     ),
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.local_offer,
                       label: "Products",
                       isActive: _selectedIndex == 2,
                       onTap: () => handleNavTap(2),
                     ),
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.folder,
                       label: "Product Groups",
                       isActive: _selectedIndex == 3,
                       onTap: () => handleNavTap(3),
                     ),
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.inventory_2,
                       label: "Stock",
                       isActive: _selectedIndex == 4,
                       onTap: () => handleNavTap(4),
                     ),
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.bar_chart,
                       label: "Reporting",
                       isActive: _selectedIndex == 5,
                       onTap: () => handleNavTap(5),
                     ),
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.people,
                       label: "Customers & suppliers",
                       isActive: _selectedIndex == 6,
                       onTap: () => handleNavTap(6),
                     ),
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.favorite,
                       label: "Promotions",
                       isActive: _selectedIndex == 7,
                       onTap: () => handleNavTap(7),
                     ),
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.vpn_key,
                       label: "Users & security",
                       isActive: _selectedIndex == 8,
                       onTap: () => handleNavTap(8),
                     ),
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.credit_card,
                       label: "Payment types",
                       isActive: _selectedIndex == 9,
                       onTap: () => handleNavTap(9),
                     ),
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.percent,
                       label: "Tax rates",
                       isActive: _selectedIndex == 10,
                       onTap: () => handleNavTap(10),
                     ),
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.business,
                       label: "My company",
                       isActive: _selectedIndex == 11,
                       onTap: () => handleNavTap(11),
                     ),
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.block,
                       label: "Void reasons",
                       isActive: _selectedIndex == 12,
                       onTap: () => handleNavTap(12),
                     ),
                     NavItem(
+                      isMini: isMini,
                       icon: Icons.card_giftcard,
                       label: "Loyalty Cards",
                       isActive: _selectedIndex == 13,
@@ -247,41 +274,48 @@ class _ManagementLayoutState extends ConsumerState<ManagementLayout> {
             // reads as a destructive/exit action without a heavy solid block.
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-              child: SizedBox(
-                width: double.infinity,
-                child: Material(
-                  color: cs.error.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                  child: InkWell(
+              child: Tooltip(
+                message: "Exit Management",
+                child: SizedBox(
+                  width: double.infinity,
+                  child: Material(
+                    color: cs.error.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(8),
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: cs.error.withValues(alpha: 0.4),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.logout_rounded, color: cs.error, size: 20),
-                          const SizedBox(width: 10),
-                          Flexible(
-                            child: Text(
-                              "Exit Management",
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: cs.error,
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () => Navigator.pop(context),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: cs.error.withValues(alpha: 0.4),
                           ),
-                        ],
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.logout_rounded,
+                                color: cs.error, size: 20),
+                            // Mini rail: icon only — label collapses away.
+                            if (!isMini) ...[
+                              const SizedBox(width: 10),
+                              Flexible(
+                                child: Text(
+                                  "Exit Management",
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: cs.error,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -301,44 +335,24 @@ class _ManagementLayoutState extends ConsumerState<ManagementLayout> {
           : Drawer(backgroundColor: context.navSidebarBg, child: sidebar),
       body: Row(
         children: [
-          // Permanent sidebar shows/hides instantly via conditional inclusion.
-          if (showPermanentSidebar) sidebar,
+          // Desktop rail is always present (expanded or mini); collapsing only
+          // shrinks it to icons, it is never removed. On touch it's a drawer.
+          if (isDesktop) sidebar,
 
+          // Every management screen renders its own AppBar with a menu leading
+          // (no back-arrow), so the shell needs no fallback bar.
+          // Render guard: if the active tab isn't permitted (e.g. cold start
+          // before manual navigation), show an Access Denied panel instead of
+          // the screen — defence in depth alongside the tap guard above.
           Expanded(
-            child: Stack(
-              children: [
-                // Every management screen renders its own AppBar with a menu
-                // leading (no back-arrow), so the shell needs no fallback bar.
-                // No auto-hide — the sidebar only changes on manual toggles.
-                // Render guard: if the active tab isn't permitted (e.g. cold
-                // start before manual navigation), show an Access Denied panel
-                // instead of the screen — defence in depth alongside the tap
-                // guard above.
-                if (canViewSelected)
-                  LazyIndexedStack(
+            child: canViewSelected
+                ? LazyIndexedStack(
                     index: _selectedIndex,
                     children: screens,
                   )
-                else
-                  _AccessDeniedPanel(
-                    onMenuPressed: showPermanentSidebar ? null : onMenuPressed,
+                : _AccessDeniedPanel(
+                    onMenuPressed: screenMenu,
                   ),
-
-                // Flat edge toggle to manually bring the sidebar back (desktop).
-                if (isDesktop && !_isSidebarVisible)
-                  Positioned(
-                    left: 0,
-                    top: 0,
-                    bottom: 0,
-                    child: Center(
-                      child: NavEdgeToggle(
-                        onTap: () =>
-                            setState(() => _isSidebarVisible = true),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
           ),
         ],
       ),

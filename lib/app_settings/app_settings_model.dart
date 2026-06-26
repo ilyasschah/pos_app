@@ -328,6 +328,7 @@ class SettingKeys {
   static const showTablesBtn     = 'ButtonBar.ShowTables';
   static const showKitchenBtn    = 'ButtonBar.ShowKitchen';
   static const showTaxBtn        = 'ButtonBar.ShowTax';
+  static const showQuantityBtn   = 'ButtonBar.ShowQuantity';
 
   // Loyalty
   static const loyaltyEnabled            = 'Loyalty.Enabled';
@@ -581,6 +582,7 @@ const Map<String, String> kSettingDefaults = {
   SettingKeys.showTablesBtn:     'true',
   SettingKeys.showKitchenBtn:    'true',
   SettingKeys.showTaxBtn:        'true',
+  SettingKeys.showQuantityBtn:   'true',
 
   // Printer Role — Kitchen
   'Kitchen.PrinterName':       '',

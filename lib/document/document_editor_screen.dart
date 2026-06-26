@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:pos_app/cart/payment_model.dart';
+import 'package:pos_app/cart/discount_display.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/document/document_model.dart';
@@ -46,14 +47,25 @@ final localDocumentItemsProvider = StreamProvider.autoDispose
     final pById = {for (final p in products) p.id: p};
     return rows.map((r) {
       final p = pById[r.productId];
-      final beforeTaxAfterDisc =
-          r.taxRate > 0 ? r.total / (1 + r.taxRate / 100) : r.total;
+      // Heal older rows where checkout didn't persist these: fall back to the
+      // unit price for the tax base, and derive the rate from the stored tax
+      // amount, so the Edit-Item dialog loads real values instead of 0 / No tax.
+      final effectivePriceBeforeTax =
+          r.priceBeforeTax > 0 ? r.priceBeforeTax : r.unitPrice;
+      final effectiveTaxRate = r.taxRate > 0
+          ? r.taxRate
+          : (r.taxAmount > 0 && r.total > 0
+              ? (r.taxAmount / r.total * 100)
+              : 0.0);
+      final beforeTaxAfterDisc = effectiveTaxRate > 0
+          ? r.total / (1 + effectiveTaxRate / 100)
+          : r.total;
       return DocumentItem(
         id: r.serverId ?? 0,
         localId: r.localId,
         syncStatus: r.syncStatus,
         taxId: r.taxId,
-        taxRate: r.taxRate,
+        taxRate: effectiveTaxRate,
         expirationDate: r.expirationDate,
         companyId: args.companyId,
         documentId: args.docServerId,
@@ -63,7 +75,7 @@ final localDocumentItemsProvider = StreamProvider.autoDispose
         measurementUnit: p?.measurementUnit,
         quantity: r.quantity,
         expectedQuantity: r.quantity,
-        priceBeforeTax: r.priceBeforeTax,
+        priceBeforeTax: effectivePriceBeforeTax,
         price: r.unitPrice,
         discount: r.discount,
         discountType: r.discountType,
@@ -129,13 +141,19 @@ Future<void> showDocumentEditor(
   WidgetRef ref, {
   Document? existingDocument,
 }) async {
+  // Grab the container while the context is still valid. After the dialog
+  // closes the caller's widget may already be deactivated, which makes the
+  // passed-in WidgetRef unsafe to use (it relies on a live BuildContext).
+  // The container outlives individual widgets, so invalidating through it is
+  // safe regardless of the caller's lifecycle.
+  final container = ProviderScope.containerOf(context, listen: false);
   await showDialog(
     context: context,
     useRootNavigator: true,
     barrierDismissible: false,
     builder: (_) => _DocumentEditorDialog(existingDocument: existingDocument),
   );
-  ref.invalidate(allDocumentsProvider);
+  container.invalidate(allDocumentsProvider);
 }
 
 // --- MAIN EDITOR DIALOG ---
@@ -276,8 +294,30 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
   Future<void> _syncDocumentTotal(double itemsSubtotal) async {
     final localId = _savedDocumentLocalId;
     if (localId == null) return;
+    final db = ref.read(appDatabaseProvider);
     double finalTotal = itemsSubtotal;
-    if (_discountType == 1) {
+
+    // Prefer the normalized discount_lines: subtract every ORDER-level discount
+    // (customer profile, manual cart, loyalty points). Item-level discounts
+    // (manual item / promotion) are already baked into itemsSubtotal, so they
+    // must NOT be subtracted again. Key off the SOURCE, not `itemLocalId`:
+    // pulled-back lines all return with a null itemLocalId, so that column
+    // would wrongly pull promotions into the order-level set and double-count.
+    final lines = await db.getDiscountLinesForDocument(localId);
+    final orderLevel = lines
+        .where((l) => DiscountSource.orderLevel.contains(l.source))
+        .toList();
+    if (orderLevel.isNotEmpty) {
+      // Checkout document. itemsSubtotal is the ex-tax items base (after item
+      // discounts), so add the document's tax — summed from the items' stored
+      // taxAmount, which already reflects the Before/After-tax rule — BEFORE
+      // subtracting the order-level discounts. Without the +tax the total came
+      // out negative (clamped to 0), which is why "Remaining" went -5.
+      final docItems = await db.getActiveDocumentItems(localId);
+      finalTotal += docItems.fold<double>(0, (s, i) => s + i.taxAmount);
+      finalTotal -= orderLevel.fold<double>(0, (s, l) => s + l.amount);
+    } else if (_discountType == 1) {
+      // Legacy document (no discount_lines) — fall back to the header discount.
       finalTotal -= _discount;
     } else if (_discountType == 0) {
       finalTotal -= finalTotal * (_discount / 100);
@@ -539,133 +579,160 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
       title = "Document — ${_numberCtrl.text}";
     }
 
-    final List<Widget> dialogTabs = [const Tab(text: "Document Details")];
+    final companyId = ref.read(selectedCompanyProvider)?.id ?? 0;
+    final headerReady = _headerSaved && _savedDocumentLocalId != null;
 
-    final List<Widget> dialogTabViews = [
-      SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _HeaderForm(
-              isEditing: _headerSaved,
-              selectedDocTypeName: _selectedDocTypeName,
-              selectedCustomerId: _selectedCustomerId,
-              selectedUserId: _selectedUserId,
-              selectedWarehouseId: _selectedWarehouseId,
-              date: _date,
-              dueDate: _dueDate,
-              stockDate: _stockDate,
-              numberCtrl: _numberCtrl,
-              internalNoteCtrl: _internalNoteCtrl,
-              noteCtrl: _noteCtrl,
-              refDocCtrl: _refDocCtrl,
-              discount: _discount,
-              discountType: _discountType,
-              discountApplyRule: _discountApplyRule,
-              errorMessage: _errorMessage,
-              isLoading: _isLoading,
-              onSelectDocType: () async {
-                final result = await showDialog<DocumentType>(
-                  context: context,
-                  builder: (_) => const _SelectDocumentTypeDialog(),
-                );
-                if (result != null) {
-                  setState(() {
-                    _selectedDocTypeId = result.id;
-                    _selectedDocTypeName = "${result.code} - ${result.name}";
-                    // Warehouse is owned by the app context, not the document
-                    // type — default to the active warehouse only if the user
-                    // hasn't already picked one.
-                    _selectedWarehouseId ??=
-                        ref.read(selectedWarehouseProvider)?.id;
-                  });
-                  if (_numberCtrl.text.isEmpty) {
-                    final nextNumber = await _fetchNextDocumentNumber(
-                      result.id,
-                    );
-                    if (mounted) setState(() => _numberCtrl.text = nextNumber);
-                  }
-                }
-              },
-              onCustomerChanged: (v) => setState(() => _selectedCustomerId = v),
-              onUserChanged: (v) => setState(() => _selectedUserId = v),
-              onWarehouseChanged: (v) =>
-                  setState(() => _selectedWarehouseId = v),
-              onDatePick: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _date,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2030),
-                );
-                if (picked != null) setState(() => _date = picked);
-              },
-              onDueDatePick: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _dueDate,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2030),
-                );
-                if (picked != null) setState(() => _dueDate = picked);
-              },
-              onStockDatePick: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _stockDate,
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2030),
-                );
-                if (picked != null) setState(() => _stockDate = picked);
-              },
-              onDiscountChanged: (v) => setState(() => _discount = v),
-              onDiscountTypeChanged: (v) => setState(() => _discountType = v),
-              onDiscountApplyRuleChanged: (v) =>
-                  setState(() => _discountApplyRule = v),
-              onSave: _saveOrUpdateHeader,
+    // One factory for the header form — each header tab renders a single card
+    // via [section]; the fields/handlers stay identical across all three.
+    _HeaderForm headerForm(DocumentEditorSection section) => _HeaderForm(
+          section: section,
+          isEditing: _headerSaved,
+          selectedDocTypeName: _selectedDocTypeName,
+          selectedCustomerId: _selectedCustomerId,
+          selectedUserId: _selectedUserId,
+          selectedWarehouseId: _selectedWarehouseId,
+          date: _date,
+          dueDate: _dueDate,
+          stockDate: _stockDate,
+          numberCtrl: _numberCtrl,
+          internalNoteCtrl: _internalNoteCtrl,
+          noteCtrl: _noteCtrl,
+          refDocCtrl: _refDocCtrl,
+          discount: _discount,
+          discountType: _discountType,
+          discountApplyRule: _discountApplyRule,
+          errorMessage: _errorMessage,
+          isLoading: _isLoading,
+          onSelectDocType: () async {
+            final result = await showDialog<DocumentType>(
+              context: context,
+              builder: (_) => const _SelectDocumentTypeDialog(),
+            );
+            if (result != null) {
+              setState(() {
+                _selectedDocTypeId = result.id;
+                _selectedDocTypeName = "${result.code} - ${result.name}";
+                _selectedWarehouseId ??=
+                    ref.read(selectedWarehouseProvider)?.id;
+              });
+              if (_numberCtrl.text.isEmpty) {
+                final nextNumber = await _fetchNextDocumentNumber(result.id);
+                if (mounted) setState(() => _numberCtrl.text = nextNumber);
+              }
+            }
+          },
+          onCustomerChanged: (v) => setState(() => _selectedCustomerId = v),
+          onUserChanged: (v) => setState(() => _selectedUserId = v),
+          onWarehouseChanged: (v) => setState(() => _selectedWarehouseId = v),
+          onDatePick: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: _date,
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2030),
+            );
+            if (picked != null) setState(() => _date = picked);
+          },
+          onDueDatePick: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: _dueDate,
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2030),
+            );
+            if (picked != null) setState(() => _dueDate = picked);
+          },
+          onStockDatePick: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: _stockDate,
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2030),
+            );
+            if (picked != null) setState(() => _stockDate = picked);
+          },
+          onDiscountChanged: (v) => setState(() => _discount = v),
+          onDiscountTypeChanged: (v) => setState(() => _discountType = v),
+          onDiscountApplyRuleChanged: (v) =>
+              setState(() => _discountApplyRule = v),
+          onSave: _saveOrUpdateHeader,
+        );
+
+    Widget headerTab(DocumentEditorSection section) => SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: headerForm(section),
+        );
+
+    // Shown on the items/discount/payments tabs until the header is saved.
+    Widget needsHeader() => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Text(
+              'Save the document header first (Document Info → '
+              '${_isEditing ? "Save Header Changes" : "Create & Add Items"}) '
+              'to manage items, discounts and payments.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
-            if (_headerSaved && _savedDocumentLocalId != null) ...[
-              const SizedBox(height: 24),
-              Divider(thickness: 2, color: theme.dividerColor),
-              const SizedBox(height: 24),
-              _ItemsView(
-                documentId: _savedDocumentId ?? 0,
-                documentLocalId: _savedDocumentLocalId!,
-                companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
-                onItemsChanged: _syncDocumentTotal,
-                isPurchase:
-                    _selectedDocTypeName?.toLowerCase().contains('purchase') ==
-                    true,
-              ),
-            ],
-          ],
-        ),
-      ),
+          ),
+        );
+
+    final List<Widget> dialogTabs = const [
+      Tab(text: "Document Info"),
+      Tab(text: "Parties & Logistics"),
+      Tab(text: "Financials & Notes"),
+      Tab(text: "Document Items"),
+      Tab(text: "Discount Breakdown"),
+      Tab(text: "Payments"),
     ];
 
-    if (_headerSaved && _savedDocumentId != null && _savedDocument != null) {
-      dialogTabs.add(const Tab(text: "Payments"));
-      dialogTabViews.add(
-        Padding(
-          padding: const EdgeInsets.all(24),
-          child: _PaymentsView(
-            documentId: _savedDocumentId!,
-            documentLocalId: _savedDocumentLocalId,
-            companyId: ref.read(selectedCompanyProvider)?.id ?? 0,
-            userId: _selectedUserId ?? 0,
-            documentTotal: _savedDocument!.total,
-            paidStatus: _paidStatus,
-            onPaidStatusChanged: _updatePaidStatus,
-          ),
-        ),
-      );
-    }
+    final List<Widget> dialogTabViews = [
+      headerTab(DocumentEditorSection.info),
+      headerTab(DocumentEditorSection.parties),
+      headerTab(DocumentEditorSection.financials),
+      // Document Items
+      headerReady
+          ? SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: _ItemsView(
+                documentId: _savedDocumentId ?? 0,
+                documentLocalId: _savedDocumentLocalId!,
+                companyId: companyId,
+                onItemsChanged: _syncDocumentTotal,
+                isPurchase: _selectedDocTypeName
+                        ?.toLowerCase()
+                        .contains('purchase') ==
+                    true,
+              ),
+            )
+          : needsHeader(),
+      // Discount Breakdown
+      headerReady
+          ? SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child:
+                  _DiscountBreakdownCard(documentLocalId: _savedDocumentLocalId!),
+            )
+          : needsHeader(),
+      // Payments
+      (headerReady && _savedDocumentId != null && _savedDocument != null)
+          ? Padding(
+              padding: const EdgeInsets.all(24),
+              child: _PaymentsView(
+                documentId: _savedDocumentId!,
+                documentLocalId: _savedDocumentLocalId,
+                companyId: companyId,
+                userId: _selectedUserId ?? 0,
+                documentTotal: _savedDocument!.total,
+                paidStatus: _paidStatus,
+                onPaidStatusChanged: _updatePaidStatus,
+              ),
+            )
+          : needsHeader(),
+    ];
 
     return DefaultTabController(
-      key: ValueKey(
-        dialogTabs.length,
-      ), // Forces rebuild when tab length changes
       length: dialogTabs.length,
       child: AlertDialog(
         contentPadding: EdgeInsets.zero,
@@ -679,6 +746,9 @@ class _DocumentEditorDialogState extends ConsumerState<_DocumentEditorDialog> {
             child: Column(
               children: [
                 TabBar(
+                  // Six tabs — scroll rather than cram them edge to edge.
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
                   labelColor: theme.colorScheme.primary,
                   unselectedLabelColor: theme.disabledColor,
                   indicatorColor: theme.colorScheme.primary,
@@ -813,8 +883,13 @@ class _SelectDocumentTypeDialogState
   }
 }
 
+/// Which section of the header form to render — lets the editor put each card
+/// in its own tab while keeping all the fields/handlers in one widget.
+enum DocumentEditorSection { all, info, parties, financials }
+
 // --- HEADER FORM ---
 class _HeaderForm extends ConsumerWidget {
+  final DocumentEditorSection section;
   final bool isEditing;
   final String? selectedDocTypeName;
   final int? selectedCustomerId;
@@ -845,6 +920,7 @@ class _HeaderForm extends ConsumerWidget {
   final VoidCallback onSave;
 
   const _HeaderForm({
+    this.section = DocumentEditorSection.all,
     required this.isEditing,
     required this.selectedDocTypeName,
     required this.selectedCustomerId,
@@ -918,10 +994,18 @@ class _HeaderForm extends ConsumerWidget {
         selectedDocTypeName?.toLowerCase().contains('purchase') == true ||
         selectedDocTypeName?.toLowerCase().contains('return') == true;
 
+    final showInfo = section == DocumentEditorSection.all ||
+        section == DocumentEditorSection.info;
+    final showParties = section == DocumentEditorSection.all ||
+        section == DocumentEditorSection.parties;
+    final showFinancials = section == DocumentEditorSection.all ||
+        section == DocumentEditorSection.financials;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── CARD 1: Document Info ──
+        if (showInfo)
         _buildCard('Document Info', Icons.description_outlined, [
           Row(
             children: [
@@ -974,9 +1058,10 @@ class _HeaderForm extends ConsumerWidget {
             ],
           ),
         ]),
-        const SizedBox(height: 16),
+        if (showInfo) const SizedBox(height: 16),
 
         // ── CARD 2: Parties & Logistics ──
+        if (showParties)
         _buildCard('Parties & Logistics', Icons.local_shipping_outlined, [
           // Customer / Supplier
           asyncCustomers.when(
@@ -1070,9 +1155,10 @@ class _HeaderForm extends ConsumerWidget {
             ],
           ),
         ]),
-        const SizedBox(height: 16),
+        if (showParties) const SizedBox(height: 16),
 
         // ── CARD 3: Financials & Notes ──
+        if (showFinancials)
         _buildCard('Financials & Notes', Icons.request_quote_outlined, [
           TextFormField(
             controller: refDocCtrl,
@@ -1162,7 +1248,7 @@ class _HeaderForm extends ConsumerWidget {
             ],
           ),
         ]),
-        const SizedBox(height: 16),
+        if (showFinancials) const SizedBox(height: 16),
 
         if (errorMessage != null) ...[
           Container(
@@ -1257,6 +1343,13 @@ class _ItemsView extends ConsumerWidget {
     ref.listen<AsyncValue<List<DocumentItem>>>(
       localDocumentItemsProvider(itemsArgs),
       (previous, next) {
+        // Only recompute + re-save the document total in response to an actual
+        // item EDIT — never on the initial load. Recomputing on open flips a
+        // synced document to pending_update and re-pushes it to the server,
+        // which is exactly the "data changes as soon as I open it" bug. The
+        // first emit is loading→data (previous is not AsyncData); a real edit is
+        // data→data.
+        if (previous is! AsyncData) return;
         next.whenData((items) {
           final subtotal = items.fold<double>(0, (s, i) => s + i.total);
           onItemsChanged(subtotal);
@@ -1435,6 +1528,17 @@ class _ItemsView extends ConsumerWidget {
                           Expanded(
                             flex: 1,
                             child: Text(
+                              "Tax",
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: theme.textTheme.bodyMedium?.color,
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            flex: 1,
+                            child: Text(
                               "Subtotal",
                               textAlign: TextAlign.right,
                               style: TextStyle(
@@ -1523,7 +1627,20 @@ class _ItemsView extends ConsumerWidget {
                                 Expanded(
                                   flex: 1,
                                   child: Text(
-                                    "${item.discount.toStringAsFixed(0)}${item.discountType == 0 ? '%' : ''}",
+                                    item.discount <= 0
+                                        ? '—'
+                                        : item.discountType == 0
+                                            ? '${item.discount.toStringAsFixed(item.discount % 1 == 0 ? 0 : 2)}%'
+                                            : '${item.discount.toStringAsFixed(2)} $sym',
+                                    textAlign: TextAlign.right,
+                                  ),
+                                ),
+                                Expanded(
+                                  flex: 1,
+                                  child: Text(
+                                    item.taxRate > 0
+                                        ? '${item.taxRate.toStringAsFixed(item.taxRate % 1 == 0 ? 0 : 1)}%'
+                                        : '—',
                                     textAlign: TextAlign.right,
                                   ),
                                 ),
@@ -2104,6 +2221,7 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
 
   int? _selectedTaxId;
   double _selectedTaxRate = 0;
+  bool _taxResolved = false; // one-time taxId recovery from rate (older rows)
 
   @override
   void initState() {
@@ -2362,7 +2480,28 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                   allTaxesAsync.when(
                     loading: () => const LinearProgressIndicator(),
                     error: (_, __) => const Text("Error loading taxes"),
-                    data: (taxes) => DropdownButtonFormField<int?>(
+                    data: (taxes) {
+                      // Recover the tax selection for older rows that stored a
+                      // rate but no taxId (checkout used to not persist taxId) —
+                      // match an available tax by rate, once.
+                      if (!_taxResolved &&
+                          _selectedTaxId == null &&
+                          _selectedTaxRate > 0) {
+                        _taxResolved = true;
+                        final match = taxes
+                            .where((t) =>
+                                (t.rate.toDouble() - _selectedTaxRate).abs() <
+                                0.01)
+                            .firstOrNull;
+                        if (match != null) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            if (mounted) {
+                              setState(() => _selectedTaxId = match.id);
+                            }
+                          });
+                        }
+                      }
+                      return DropdownButtonFormField<int?>(
                       initialValue: _selectedTaxId,
                       isExpanded: true,
                       decoration: const InputDecoration(
@@ -2394,7 +2533,8 @@ class _EditItemDialogState extends ConsumerState<_EditItemDialog> {
                                 .rate
                                 .toDouble();
                       }),
-                    ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 16),
                   Container(
@@ -2930,13 +3070,16 @@ class _AddPaymentDialogState extends ConsumerState<_AddPaymentDialog> {
     // Offline-first: write the payment to local SQLite first so it shows
     // instantly and survives offline. SyncManager pushes 'pending_create' rows
     // to /Payments/Add on the next sync.
+    final now = DateTime.now();
     await db.insertLocalPayment(PaymentsTableCompanion(
       localId: Value(localId),
       documentId: Value(widget.documentLocalId),
       paymentTypeId: Value(_selectedPaymentTypeId!),
       amount: Value(amount),
       userId: Value(widget.userId),
-      date: Value(DateTime.now()),
+      date: Value(now),
+      companyId: Value(widget.companyId),
+      dateCreated: Value(now),
       syncStatus: const Value('pending_create'),
     ));
 
@@ -3250,6 +3393,120 @@ class _EditPaymentDialogState extends ConsumerState<_EditPaymentDialog> {
             onPressed: _submit,
           ),
       ],
+    );
+  }
+}
+
+/// Live discount breakdown for a document, ordered by application sequence.
+/// Streams from the normalized `discount_lines` so it reflects edits instantly.
+final documentDiscountLinesProvider = StreamProvider.autoDispose
+    .family<List<DiscountLinesTableData>, String>((ref, documentLocalId) {
+  final db = ref.watch(appDatabaseProvider);
+  final q = db.select(db.discountLinesTable)
+    ..where((t) => t.documentLocalId.equals(documentLocalId));
+  // Sort in Dart to avoid widening the `drift` import (it's `show Value` only).
+  return q.watch().map((rows) =>
+      [...rows]..sort((a, b) => a.sequence.compareTo(b.sequence)));
+});
+
+/// Read-only card listing every discount applied to a document, with its source,
+/// configured value, and resolved amount. The amounts are the figures stored at
+/// sale time (already resolved under whatever discount-apply rule was in force),
+/// so this never re-derives totals. Renders nothing when there are no discounts.
+class _DiscountBreakdownCard extends ConsumerWidget {
+  final String documentLocalId;
+  const _DiscountBreakdownCard({required this.documentLocalId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final sym = ref.watch(currencySymbolProvider);
+    final asyncLines = ref.watch(documentDiscountLinesProvider(documentLocalId));
+
+    return asyncLines.maybeWhen(
+      orElse: () => const SizedBox.shrink(),
+      data: (all) {
+        // Show every discount EXCEPT the per-item manual discount: that one
+        // lives in document_items.discount/discountType and is already rendered
+        // in the items table's "Item Disc." column, so repeating it here would
+        // double-list it. Promotions and the order-level discounts (customer /
+        // cart / loyalty) are NOT in the items table, so they belong here. Key
+        // off the source — not `itemLocalId`, which is null on pulled-back rows.
+        final lines =
+            all.where((l) => l.source != DiscountSource.manualItem).toList();
+        if (lines.isEmpty) return const SizedBox.shrink();
+        final total = lines.fold<double>(0, (s, l) => s + l.amount);
+
+        return Padding(
+          padding: const EdgeInsets.only(top: 24),
+          child: Card(
+            elevation: 1,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: const [
+                      Icon(Icons.sell_outlined, size: 24),
+                      SizedBox(width: 12),
+                      Text('Discount Breakdown',
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  ...lines.map((l) {
+                    final hint = discountLineHint(l, sym);
+                    return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 5),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(discountLineLabel(l),
+                                  style: theme.textTheme.bodyMedium),
+                            ),
+                            if (hint != null) ...[
+                              Text(
+                                hint,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant),
+                              ),
+                              const SizedBox(width: 14),
+                            ],
+                            Text(
+                              '-${l.amount.toStringAsFixed(2)} $sym',
+                              style: theme.textTheme.bodyMedium
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                      );
+                  }),
+                  const Divider(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text('Total discounts',
+                            style: theme.textTheme.titleSmall),
+                      ),
+                      Text(
+                        '-${total.toStringAsFixed(2)} $sym',
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

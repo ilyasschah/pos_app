@@ -70,6 +70,18 @@ class Customer {
     );
   }
 
+  // Identity by primary key. The customers list is a Drift stream that re-emits
+  // fresh Customer instances on every change, so without this a value held in a
+  // DropdownButton / Set (e.g. a selected customer) would no longer match any
+  // emitted item and trip "exactly one item" assertions. Two Customers are the
+  // same iff they share an id.
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || (other is Customer && other.id == id);
+
+  @override
+  int get hashCode => id.hashCode;
+
   factory Customer.fromDrift(CustomersTableData row) {
     return Customer(
       id: row.id,

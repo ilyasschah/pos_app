@@ -8,6 +8,7 @@ import 'package:pos_app/navigation/nav_widgets.dart';
 import 'package:pos_app/sync/pending_count_provider.dart';
 import 'package:pos_app/sync/sync_notifier.dart';
 import 'package:pos_app/sync/sync_provider.dart';
+import 'package:pos_app/sync/sync_status_dialog.dart';
 import 'package:pos_app/utils/error_handler.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 
@@ -83,8 +84,8 @@ class SyncButton extends ConsumerWidget {
     final tooltip = isLoading
         ? 'Syncing…'
         : pendingCount > 0
-            ? '$pendingCount pending — tap to sync'
-            : 'Sync now';
+            ? '$pendingCount pending — tap for sync status'
+            : 'Sync status';
 
     // The badge only sits on the idle icon. While syncing we swap the icon
     // for a spinner — wrapping that in a badge would look noisy (spinner +
@@ -117,9 +118,10 @@ class SyncButton extends ConsumerWidget {
     return Tooltip(
       message: tooltip,
       child: GestureDetector(
-        onTap: isLoading
-            ? null
-            : () => ref.read(syncStateProvider.notifier).sync(),
+        // Tap opens the Sync Status panel (per-entity pending vs synced); the
+        // actual "Sync now" action lives inside it. Available even while a sync
+        // is in flight so progress can be watched.
+        onTap: () => showSyncStatusDialog(context),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
           padding: const EdgeInsets.all(10),

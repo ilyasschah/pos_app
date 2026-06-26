@@ -41,13 +41,20 @@ class LoyaltyCardNotifier extends Notifier<void> {
   }) async {
     final companyId = _companyId;
     if (companyId == null) return;
+    // Auto-assign a number when left blank (the dialog promises this). Use a
+    // device-local timestamp so it's unique offline across terminals — the same
+    // approach as offline document numbering — instead of leaving it null and
+    // showing "No card number".
+    final number = (cardNumber == null || cardNumber.trim().isEmpty)
+        ? DateTime.now().millisecondsSinceEpoch.toString()
+        : cardNumber.trim();
     final tempId = -(DateTime.now().millisecondsSinceEpoch % 1000000000);
     await _db.into(_db.loyaltyCardsTable).insert(
           LoyaltyCardsTableCompanion(
             id: Value(tempId),
             companyId: Value(companyId),
             customerId: Value(customerId),
-            cardNumber: Value(cardNumber),
+            cardNumber: Value(number),
             points: Value(points),
             lastModified: Value(DateTime.now().toUtc()),
             syncStatus: const Value('pending_create'),

@@ -23,6 +23,7 @@ import 'package:pos_app/security/security_guard.dart';
 import 'package:pos_app/security/security_keys.dart';
 import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/printer/invoice_pdf_service.dart';
+import 'package:pos_app/cart/discount_display.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 
@@ -494,10 +495,34 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
     };
   }
 
+  /// Itemized discount lines for a history document, resolved from local Drift
+  /// by document number (offline-first sales carry a discount_lines record).
+  /// Empty for cloud-only/legacy docs — surfaces just fall back to no breakdown.
+  Future<List<ReceiptDiscountLine>> _discountLinesFor(
+    SalesHistoryDocument doc, {
+    bool includeLoyalty = true,
+  }) async {
+    final companyId = ref.read(selectedCompanyProvider)?.id;
+    if (companyId == null) return const [];
+    final db = ref.read(appDatabaseProvider);
+    final row = await (db.select(db.documentsTable)
+          ..where((t) => t.companyId.equals(companyId))
+          ..where((t) => t.number.equals(doc.number))
+          ..limit(1))
+        .getSingleOrNull();
+    if (row == null) return const [];
+    return toReceiptDiscountLines(
+      await db.getDiscountLinesForDocument(row.localId),
+      ref.read(currencySymbolProvider),
+      includeLoyalty: includeLoyalty,
+    );
+  }
+
   Future<void> _printInvoice(SalesHistoryDocument doc) async {
     if (ref.read(selectedCompanyProvider) == null) return;
     await _ensureItemsLoaded(doc);
     final a = _invoiceArgs(doc);
+    final discountLines = await _discountLinesFor(doc);
     await InvoicePdfService.printDocument(
       company:        a['company'],
       invoiceNumber:  a['invoiceNumber'],
@@ -511,6 +536,7 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
       discount:       a['discount'],
       paymentSummary: a['paymentSummary'],
       currencySymbol: a['currencySymbol'],
+      discountLines:  discountLines,
       logoBytes:      a['logoBytes'],
     );
   }
@@ -519,6 +545,7 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
     if (ref.read(selectedCompanyProvider) == null) return;
     await _ensureItemsLoaded(doc);
     final a = _invoiceArgs(doc);
+    final discountLines = await _discountLinesFor(doc);
     await InvoicePdfService.saveAsPdf(
       company:        a['company'],
       invoiceNumber:  a['invoiceNumber'],
@@ -532,6 +559,7 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
       discount:       a['discount'],
       paymentSummary: a['paymentSummary'],
       currencySymbol: a['currencySymbol'],
+      discountLines:  discountLines,
       logoBytes:      a['logoBytes'],
     );
   }
@@ -588,6 +616,7 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
     );
 
     final sym = ref.read(currencySymbolProvider);
+    final discountLines = await _discountLinesFor(doc, includeLoyalty: false);
 
     await ReceiptPrinterService().printCartReceipt(
       company:         company,
@@ -597,6 +626,7 @@ class _SalesHistoryScreenState extends ConsumerState<SalesHistoryScreen> {
       items:           cartItems,
       subtotal:        doc.totalBeforeTax,
       totalDiscount:   totalDiscount,
+      discountLines:   discountLines,
       totalTax:        doc.taxTotal,
       grandTotal:      doc.total,
       currencySymbol:  sym,

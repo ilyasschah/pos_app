@@ -102,8 +102,14 @@ class MainLayout extends ConsumerStatefulWidget {
 }
 
 class _MainLayoutState extends ConsumerState<MainLayout> {
-  bool _isSidebarVisible = true;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  // The POS sidebar is a true overlay drawer: hidden by default, slid in over
+  // the content by the top-left hamburger, and dismissed the instant a cashier
+  // taps any item. Routed through the scaffold key so it works the same on
+  // touch tablets and desktop.
+  void _openSidebar() => _scaffoldKey.currentState?.openDrawer();
+  void _closeSidebar() => _scaffoldKey.currentState?.closeDrawer();
 
   @override
   void initState() {
@@ -134,8 +140,6 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
 
   @override
   Widget build(BuildContext context) {
-    final isDesktop = MediaQuery.of(context).size.width >= 850;
-
     // Keep the connectivity watcher alive while the user is in the main shell.
     // Reading it here lazy-instantiates the provider (and its subscription)
     // on first build, and `autoDispose` is intentionally NOT used on it so it
@@ -164,9 +168,6 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     // changes, never a MainLayout rebuild from a navigator push.
     final selectedIndex = ref.watch(mainNavigationIndexProvider);
 
-    // ✨ Only show the permanent sidebar if we are on Desktop AND it hasn't been hidden
-    final showPermanentSidebar = isDesktop && _isSidebarVisible;
-
     final settings = ref.watch(appSettingsProvider);
     final bookingEnabled =
         settings[SettingKeys.featureBookingEnabled]?.toLowerCase() == 'true';
@@ -190,25 +191,21 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
 
     final List<Widget> screens = [
       MenuScreen(
-        showAppBarNavigation: !showPermanentSidebar,
-        onToggleSidebar: isDesktop
-            ? () => setState(() => _isSidebarVisible = true)
-            : () => _scaffoldKey.currentState?.openDrawer(),
+        showAppBarNavigation: true,
+        onToggleSidebar: _openSidebar,
       ),
-      OpenOrdersScreen(onMenuPressed: showPermanentSidebar ? null : isDesktop ? () => setState(() => _isSidebarVisible = true) : () => _scaffoldKey.currentState?.openDrawer()),
+      OpenOrdersScreen(onMenuPressed: _openSidebar),
       bookingEnabled ? const BookingsScreen() : const SizedBox.shrink(),
       bookingEnabled ? const BookingHistoryScreen() : const SizedBox.shrink(),
       floorPlanEnabled ? const FloorPlanScreen() : const SizedBox.shrink(),
-      const EndOfDayScreen(),
-      const UserInfoScreen(),
+      EndOfDayScreen(onMenuPressed: _openSidebar),
+      UserInfoScreen(onMenuPressed: _openSidebar),
     ];
 
     void handleNavTap(int index) {
       ref.read(mainNavigationIndexProvider.notifier).state = index;
-      // Desktop sidebar stays put on tab select — only manual toggles hide it.
-      if (!isDesktop && Scaffold.of(context).hasDrawer) {
-        Navigator.pop(context);
-      }
+      // Drawer behaviour: dismiss the sidebar the instant a tab is chosen.
+      _closeSidebar();
     }
 
     Widget sidebar = Container(
@@ -219,9 +216,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
           children: [
             NavSidebarHeader(
               name: companyName,
-              onHideSidebar: isDesktop
-                  ? () => setState(() => _isSidebarVisible = false)
-                  : null,
+              onHideSidebar: _closeSidebar,
             ),
             Expanded(
               child: SingleChildScrollView(
@@ -234,8 +229,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         context,
                         SecurityKeys.management,
                         () {
-                          if (!isDesktop && Scaffold.of(context).hasDrawer)
-                            Navigator.pop(context);
+                          _closeSidebar();
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -264,8 +258,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         context,
                         SecurityKeys.salesHistory,
                         () {
-                          if (!isDesktop && Scaffold.of(context).hasDrawer)
-                            Navigator.pop(context);
+                          _closeSidebar();
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -328,8 +321,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         context,
                         SecurityKeys.shiftManagement,
                         () {
-                          if (!isDesktop && Scaffold.of(context).hasDrawer)
-                            Navigator.pop(context);
+                          _closeSidebar();
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -346,8 +338,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         context,
                         SecurityKeys.cashMovement,
                         () {
-                          if (!isDesktop && Scaffold.of(context).hasDrawer)
-                            Navigator.pop(context);
+                          _closeSidebar();
                           Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -364,8 +355,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         context,
                         SecurityKeys.creditPayments,
                         () {
-                          if (!isDesktop && Scaffold.of(context).hasDrawer)
-                            Navigator.pop(context);
+                          _closeSidebar();
                           CreditPaymentsDialog.show(context);
                         },
                       ),
@@ -400,9 +390,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                         ref.read(currentUserProvider.notifier).logout();
                         ref.invalidate(allUsersProvider);
 
-                        if (!isDesktop && Scaffold.of(context).hasDrawer) {
-                          Navigator.pop(context);
-                        }
+                        _closeSidebar();
                         Navigator.pushAndRemoveUntil(
                           context,
                           MaterialPageRoute(
@@ -439,8 +427,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                       context,
                       SecurityKeys.settings,
                       () {
-                        if (!isDesktop && Scaffold.of(context).hasDrawer)
-                          Navigator.pop(context);
+                        _closeSidebar();
                         Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -459,8 +446,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                       icon: Icons.fullscreen,
                       tooltip: "Full Screen",
                       onTap: () async {
-                        if (!isDesktop && Scaffold.of(context).hasDrawer)
-                          Navigator.pop(context);
+                        _closeSidebar();
                         final full = await windowManager.isFullScreen();
                         await windowManager.setFullScreen(!full);
                       },
@@ -470,8 +456,7 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
                     tooltip: "Power",
                     iconColor: Colors.white,
                     onTap: () {
-                      if (!isDesktop && Scaffold.of(context).hasDrawer)
-                        Navigator.pop(context);
+                      _closeSidebar();
                       showDialog(
                         context: context,
                         builder: (_) => const PowerModal(),
@@ -489,42 +474,15 @@ class _MainLayoutState extends ConsumerState<MainLayout> {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: context.navScaffoldBg,
-      drawer: isDesktop
-          ? null
-          : Drawer(backgroundColor: context.navSidebarBg, child: sidebar),
-      body: Row(
-        children: [
-          // Permanent sidebar shows/hides instantly via conditional inclusion
-          // (desktop only) — no width animation.
-          if (showPermanentSidebar) sidebar,
-          Expanded(
-            child: Stack(
-              children: [
-                // Cached, instant tab switching (LazyIndexedStack keeps state).
-                // The sidebar never auto-hides — scroll/tap gestures in the body
-                // leave it untouched; only manual toggles change its visibility.
-                LazyIndexedStack(
-                  index: renderIndex,
-                  children: screens,
-                ),
-
-                // Flat edge toggle to manually bring the sidebar back (desktop).
-                if (isDesktop && !_isSidebarVisible)
-                  Positioned(
-                    left: 0,
-                    top: 0,
-                    bottom: 0,
-                    child: Center(
-                      child: NavEdgeToggle(
-                        onTap: () =>
-                            setState(() => _isSidebarVisible = true),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
+      // True overlay drawer on every form factor: the sidebar slides in over
+      // the content rather than permanently squeezing the layout. The only way
+      // to open it is the top-left hamburger (MenuScreen / OpenOrders app bar).
+      drawer: Drawer(backgroundColor: context.navSidebarBg, child: sidebar),
+      // The body is just the content — no permanent rail, no edge toggle.
+      // Cached, instant tab switching (LazyIndexedStack keeps state).
+      body: LazyIndexedStack(
+        index: renderIndex,
+        children: screens,
       ),
     );
   }

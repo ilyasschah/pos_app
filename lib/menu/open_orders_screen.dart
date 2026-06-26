@@ -228,10 +228,20 @@ class OpenOrdersScreen extends ConsumerStatefulWidget {
 class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
   bool _syncing = false;
 
+  // Free-text filter applied to the order number/name. Empty = show everything.
+  final TextEditingController _searchController = TextEditingController();
+  String _search = '';
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _pullFromServer());
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   /// Fetches open orders from the API and reconciles them into Drift (shared
@@ -292,14 +302,48 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
             ),
         ],
       ),
-      body: ordersAsync.when(
-        loading: () => ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: 6,
-          separatorBuilder: (_, __) => const Gap(10),
-          itemBuilder: (_, __) => const _SkeletonOrderCard(),
-        ),
-        error: (e, _) => Center(
+      body: Column(
+        children: [
+          // Show the search bar whenever there's something to search (or a query
+          // is active) — keeps the empty-state screen uncluttered otherwise.
+          if ((ordersAsync.value?.isNotEmpty ?? false) || _search.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (v) => setState(() => _search = v),
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: 'Search by order, staff or table',
+                  prefixIcon: const PhosphorIcon(
+                      PhosphorIconsRegular.magnifyingGlass, size: 20),
+                  suffixIcon: _search.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const PhosphorIcon(PhosphorIconsRegular.x,
+                              size: 18),
+                          tooltip: 'Clear',
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _search = '');
+                          },
+                        ),
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          Expanded(
+            child: ordersAsync.when(
+              loading: () => ListView.separated(
+                padding: const EdgeInsets.all(16),
+                itemCount: 6,
+                separatorBuilder: (_, __) => const Gap(10),
+                itemBuilder: (_, __) => const _SkeletonOrderCard(),
+              ),
+              error: (e, _) => Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -336,13 +380,46 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
           ),
         ),
         data: (orders) {
-          if (orders.isEmpty) {
+          // Filter by order number/name, staff name or table name
+          // (case-insensitive). Done here rather than in the provider so typing
+          // never re-queries Drift. Staff/table names are resolved the same way
+          // the card does, from the already-watched allUsers/allRooms lists.
+          final q = _search.trim().toLowerCase();
+          String staffNameFor(dynamic id) => id == null
+              ? ''
+              : (allUsers
+                      .where((u) => u.id == id)
+                      .map((u) => u.displayName)
+                      .firstOrNull ??
+                  '');
+          String tableNameFor(dynamic id) => id == null
+              ? ''
+              : (allRooms.where((t) => t.id == id).map((t) => t.name).firstOrNull ??
+                  '');
+          final filtered = q.isEmpty
+              ? orders
+              : orders.where((o) {
+                  final number = ((o['number'] ?? '') as String).toLowerCase();
+                  final staff =
+                      staffNameFor(o['userId'] ?? o['UserId']).toLowerCase();
+                  final table = tableNameFor(
+                          o['floorPlanTableId'] ?? o['FloorPlanTableId'])
+                      .toLowerCase();
+                  return number.contains(q) ||
+                      staff.contains(q) ||
+                      table.contains(q);
+                }).toList();
+
+          if (filtered.isEmpty) {
+            final searching = q.isNotEmpty;
             return Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   PhosphorIcon(
-                    PhosphorIconsRegular.receipt,
+                    searching
+                        ? PhosphorIconsRegular.magnifyingGlass
+                        : PhosphorIconsRegular.receipt,
                     size: 64,
                     color: Theme.of(context)
                         .colorScheme
@@ -351,7 +428,10 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
                   ),
                   const Gap(16),
                   Text(
-                    'No open orders',
+                    searching
+                        ? 'No orders match "${_search.trim()}"'
+                        : 'No open orders',
+                    textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           color: Theme.of(context)
                               .colorScheme
@@ -366,10 +446,10 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
 
           return ListView.separated(
             padding: const EdgeInsets.all(16),
-            itemCount: orders.length,
+            itemCount: filtered.length,
             separatorBuilder: (_, __) => const Gap(10),
             itemBuilder: (context, i) {
-              final o = orders[i];
+              final o = filtered[i];
               final orderId = (o['id'] ?? o['Id']) as int;
               final orderNumber =
                   (o['number'] ?? o['Number'] ?? 'ORD-$orderId') as String;
@@ -420,6 +500,9 @@ class _OpenOrdersScreenState extends ConsumerState<OpenOrdersScreen> {
             },
           );
         },
+            ),
+          ),
+        ],
       ),
     );
   }

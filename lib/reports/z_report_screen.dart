@@ -15,7 +15,12 @@ import 'package:pos_app/sync/sync_notifier.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 
 class EndOfDayScreen extends ConsumerStatefulWidget {
-  const EndOfDayScreen({super.key});
+  /// Opens the POS navigation drawer. Supplied by MainLayout; when null the
+  /// app-bar menu button is hidden (e.g. if the screen is ever pushed as a
+  /// standalone route).
+  final VoidCallback? onMenuPressed;
+
+  const EndOfDayScreen({super.key, this.onMenuPressed});
 
   @override
   ConsumerState<EndOfDayScreen> createState() => _EndOfDayScreenState();
@@ -372,6 +377,13 @@ class _EndOfDayScreenState extends ConsumerState<EndOfDayScreen> {
       child: Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
         appBar: AppBar(
+          leading: widget.onMenuPressed != null
+              ? IconButton(
+                  icon: const Icon(Icons.menu),
+                  tooltip: "Menu",
+                  onPressed: widget.onMenuPressed,
+                )
+              : null,
           title: const Text("End of Day"),
           centerTitle: false,
           elevation: 0,

@@ -2,6 +2,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/reports/report_models.dart';
+import 'package:pos_app/database/app_database.dart';
+import 'package:pos_app/database/database_provider.dart';
+import 'package:pos_app/cart/discount_display.dart';
 
 final salesByProductProvider = FutureProvider.autoDispose
     .family<List<SalesByProductRow>, ReportFilter>((ref, filter) async {
@@ -496,6 +499,32 @@ final discountsGrantedReportProvider = FutureProvider.autoDispose
   return (response.data as List)
       .map((j) => DiscountsGrantedRow.fromJson(j as Map<String, dynamic>))
       .toList();
+});
+
+/// Local, offline-first "Discounts by source" report: aggregates the normalized
+/// discount_lines by source over the filter period. Rows come back in a stable
+/// canonical order, with zero-total sources omitted.
+final discountsBySourceReportProvider = FutureProvider.autoDispose
+    .family<List<DiscountBySourceRow>, ReportFilter>((ref, filter) async {
+  final companyId = ref.watch(selectedCompanyProvider)?.id;
+  if (companyId == null) return const [];
+
+  final db = ref.watch(appDatabaseProvider);
+  final totals = await db.discountTotalsBySource(
+    companyId,
+    filter.startDate,
+    filter.endDate,
+  );
+
+  return [
+    for (final source in DiscountSource.all)
+      if ((totals[source] ?? 0) != 0)
+        DiscountBySourceRow(
+          source: source,
+          label: discountSourceLabelFor(source),
+          amount: totals[source]!,
+        ),
+  ];
 });
 
 final voidedItemsReportProvider = FutureProvider.autoDispose

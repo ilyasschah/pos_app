@@ -444,8 +444,18 @@ class _AddCardDialogState extends ConsumerState<_AddCardDialog> {
               data: (all) {
                 final retailCustomers =
                     all.where((c) => c.isCustomer).toList();
+                // The customers stream re-emits NEW Customer instances on every
+                // change, so a stored _selectedCustomer becomes a stale object
+                // that matches no item (Customer uses identity equality) — which
+                // trips DropdownButton's "exactly one item" assertion. Resolve
+                // the value to the current list's instance by id instead.
+                final selected = _selectedCustomer == null
+                    ? null
+                    : retailCustomers
+                        .where((c) => c.id == _selectedCustomer!.id)
+                        .firstOrNull;
                 return DropdownButtonFormField<Customer>(
-                  initialValue: _selectedCustomer,
+                  initialValue: selected,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     labelText: 'Customer *',

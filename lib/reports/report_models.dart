@@ -586,6 +586,20 @@ class ItemsDiscountsRow {
       );
 }
 
+/// One row of the local "Discounts by source" report — the total currency
+/// deducted by a single discount source over the filter period. Built offline
+/// from the normalized discount_lines, not the server.
+class DiscountBySourceRow {
+  final String source; // DiscountSource.*
+  final String label;
+  final double amount;
+  const DiscountBySourceRow({
+    required this.source,
+    required this.label,
+    required this.amount,
+  });
+}
+
 class DiscountsGrantedRow {
   final String customerName;
   final String documentNumber;

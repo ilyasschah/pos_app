@@ -749,6 +749,79 @@ class PaymentsTable extends Table {
   IntColumn get companyId => integer().nullable()();
 }
 
+/// Discrete origin of a [DiscountLinesTable] row. Stored as text in
+/// `discount_lines.source` so reports can filter ("how much promo this month")
+/// and receipts can label each deduction by where it came from.
+class DiscountSource {
+  static const manualItem = 'manual_item';        // per-product manual discount
+  static const manualCart = 'manual_cart';        // whole-order manual discount
+  static const promotion = 'promotion';           // active promotion on a product
+  static const customerProfile = 'customer_profile'; // customer's saved discount
+  static const loyaltyPoints = 'loyalty_points';  // points redeemed for money off
+
+  static const all = [
+    manualItem,
+    manualCart,
+    promotion,
+    customerProfile,
+    loyaltyPoints,
+  ];
+
+  /// Sources applied to the WHOLE order — they are NOT baked into any item's
+  /// stored total (unlike [manualItem] and [promotion], which are reflected in
+  /// each item's price/total). The document total subtracts only these on top
+  /// of the item subtotal; subtracting an item-baked source here double-counts.
+  ///
+  /// Use this instead of `itemLocalId == null`: pulled-back lines all come back
+  /// with a null itemLocalId (the server keys by ProductId), so the column is
+  /// not a reliable item-vs-order discriminator — the source is.
+  static const orderLevel = <String>{manualCart, customerProfile, loyaltyPoints};
+}
+
+// ============================================================================
+// DISCOUNT LINES — one normalized row per applied discount, so every source
+// (manual item / manual cart / promotion / customer profile / loyalty points)
+// is recorded discretely instead of being squeezed into the single header/item
+// `discount` slot. Percentages are NEVER summed: each line keeps its own
+// [value] + [valueType] for display ("10%" / "−20 MAD"); only the resolved
+// [amount] (company currency) is additive. Offline-first: written locally with
+// a pending `sync_status`, pushed alongside its parent order/document.
+// ============================================================================
+class DiscountLinesTable extends Table {
+  @override
+  String get tableName => 'discount_lines';
+
+  TextColumn get localId => text()();              // UUID — local PK
+  IntColumn get companyId => integer()();
+  // Parent links. A checkout shares one localId across the order AND the
+  // document, so a single line can point at both. At least one is set.
+  TextColumn get orderLocalId => text().nullable()();
+  TextColumn get documentLocalId => text().nullable()();
+  // Set for an item-level discount (matches a pos_order_items / document_items
+  // localId); null for a whole-order/document-level discount.
+  TextColumn get itemLocalId => text().nullable()();
+  // One of [DiscountSource]. Drives reports + receipt labelling.
+  TextColumn get source => text()();
+  // promotionId / customerId / loyaltyCardId / productId — for traceability.
+  IntColumn get sourceRefId => integer().nullable()();
+  // Configured value as entered (e.g. 10) and its type: 0 = %, 1 = fixed.
+  RealColumn get value => real().withDefault(const Constant(0))();
+  IntColumn get valueType => integer().withDefault(const Constant(0))();
+  // The resolved money actually taken off, in company currency. The ONLY field
+  // that may be summed across lines.
+  RealColumn get amount => real().withDefault(const Constant(0))();
+  // Application order, so the stacking sequence can be replayed exactly.
+  IntColumn get sequence => integer().withDefault(const Constant(0))();
+  // Optional display label for receipts (promo name, "Loyalty points", …).
+  TextColumn get label => text().nullable()();
+  IntColumn get serverId => integer().nullable()();
+  TextColumn get syncStatus => text().withDefault(const Constant('pending'))();
+  DateTimeColumn get lastModified => dateTime().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {localId};
+}
+
 // ============================================================================
 // BARCODES — per-product barcode list.
 // Seeded from /Barcodes/GetByProductId when the product editor opens.
@@ -1372,18 +1445,27 @@ class ZReportPaymentSummariesTable extends Table {
     VoidReasonsTable,
     StockControlsTable,
     ProductTaxesTable,
+    DiscountLinesTable,
   ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
 
   @override
-  int get schemaVersion => 46;
+  int get schemaVersion => 47;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) async => m.createAll(),
         onUpgrade: (m, from, to) async {
+          // v47: normalized discount_lines table — one row per applied discount
+          // (manual item/cart, promotion, customer profile, loyalty points) so
+          // each source is stored discretely instead of merged into a single
+          // discount slot. See [DiscountLinesTable].
+          if (from < 47) {
+            await m.createTable(discountLinesTable);
+          }
+
           // v46: product comments become offline-first (create/delete with a
           // temp id while offline, pushed on sync) — needs a sync_status column.
           if (from < 46) {
@@ -2228,8 +2310,29 @@ class AppDatabase extends _$AppDatabase {
         syncStatus:  const Value('synced'),
         lastModified: Value(DateTime.now().toUtc()),
       ));
+      // The checkout payment travelled to the server inside the order's
+      // BatchSync (created by CheckoutPosOrderCommand), so once the document is
+      // linked its 'pending' payment is already on the server — flip it to
+      // 'synced' so it doesn't sit pending forever. Editor-added payments use
+      // 'pending_create' and are left for pushPendingPayments.
+      await (update(paymentsTable)
+            ..where((t) => t.documentId.equals(localId))
+            ..where((t) => t.syncStatus.equals('pending')))
+          .write(const PaymentsTableCompanion(syncStatus: Value('synced')));
     });
   }
+
+  /// Heals checkout payments that are still 'pending' even though their document
+  /// already synced (e.g. created before this reconcile existed, or whose order
+  /// row was deleted right after sync so [linkDocumentToServer] never re-ran).
+  /// A 'pending' payment under a synced document is, by definition, already on
+  /// the server — it was posted by CheckoutPosOrderCommand. Run each sync.
+  Future<void> reconcileSyncedCheckoutPayments() => customStatement(
+        "UPDATE payments SET sync_status = 'synced' "
+        "WHERE sync_status = 'pending' AND document_id IN "
+        "(SELECT local_id FROM documents WHERE sync_status = 'synced' "
+        "AND server_id IS NOT NULL)",
+      );
 
   /// Returns all Documents for a company ordered newest-first.
   /// Used by the Sales History screen — reads local SQLite, no network needed.
@@ -2506,6 +2609,10 @@ class AppDatabase extends _$AppDatabase {
   Future<void> deleteDocumentLocal(String localId) async {
     final current = await getDocumentByLocalId(localId);
     if (current == null) return;
+    // Drop the document's discount breakdown either way — the document is going
+    // away, and the server cascades its own DiscountLine rows when the delete
+    // syncs (DiscountLine→Document FK is ON DELETE CASCADE).
+    await purgeDiscountLinesFor(localId);
     if (current.serverId == null && current.syncStatus != 'synced') {
       await (delete(documentsTable)..where((t) => t.localId.equals(localId)))
           .go();
@@ -2808,6 +2915,9 @@ class AppDatabase extends _$AppDatabase {
       await (delete(posOrdersTable)
             ..where((t) => t.localId.equals(localId)))
           .go();
+      // discount_lines link by local id with no FK cascade, so remove them
+      // explicitly — a voided order leaves no discount records behind.
+      await purgeDiscountLinesFor(localId);
     });
   }
 
@@ -2948,6 +3058,135 @@ class AppDatabase extends _$AppDatabase {
       syncError: Value(errorMessage),
       lastModified: Value(DateTime.now().toUtc()),
     ));
+  }
+
+  /// Records why an order's push didn't go through *without* flipping it out of
+  /// 'pending' — so the next sync still retries it (the cause may be transient,
+  /// e.g. out of stock or a not-yet-synced product) while the Sync Status panel
+  /// can surface the reason instead of it living only in a debugPrint.
+  Future<void> setOrderSyncError(String localId, String errorMessage) {
+    return (update(posOrdersTable)
+          ..where((t) => t.localId.equals(localId)))
+        .write(PosOrdersTableCompanion(syncError: Value(errorMessage)));
+  }
+
+  // ─── Discount lines (normalized per-discount records) ─────────────────────
+  // One row per applied discount; see [DiscountLinesTable] / [DiscountSource].
+  // A checkout shares one localId across the order + document, so write-time
+  // helpers accept either link and the replace helpers clear by either.
+
+  /// Replaces all discount lines for an order (and/or its document) in one
+  /// transaction, then inserts [lines]. Matches on order OR document local id so
+  /// it works whether the caller knows one link or both. Pass an empty [lines]
+  /// list to simply clear them.
+  Future<void> replaceDiscountLines({
+    String? orderLocalId,
+    String? documentLocalId,
+    required List<DiscountLinesTableCompanion> lines,
+  }) async {
+    assert(orderLocalId != null || documentLocalId != null,
+        'replaceDiscountLines needs an order or document local id');
+    await transaction(() async {
+      final del = delete(discountLinesTable)
+        ..where((t) {
+          Expression<bool>? pred;
+          if (orderLocalId != null) {
+            pred = t.orderLocalId.equals(orderLocalId);
+          }
+          if (documentLocalId != null) {
+            final d = t.documentLocalId.equals(documentLocalId);
+            pred = pred == null ? d : pred | d;
+          }
+          return pred!;
+        });
+      await del.go();
+      if (lines.isNotEmpty) {
+        await batch((b) => b.insertAll(discountLinesTable, lines));
+      }
+    });
+  }
+
+  /// All discount lines attached to an order, in application order.
+  Future<List<DiscountLinesTableData>> getDiscountLinesForOrder(
+          String orderLocalId) =>
+      (select(discountLinesTable)
+            ..where((t) => t.orderLocalId.equals(orderLocalId))
+            ..orderBy([(t) => OrderingTerm.asc(t.sequence)]))
+          .get();
+
+  /// All discount lines attached to a document, in application order.
+  Future<List<DiscountLinesTableData>> getDiscountLinesForDocument(
+          String documentLocalId) =>
+      (select(discountLinesTable)
+            ..where((t) => t.documentLocalId.equals(documentLocalId))
+            ..orderBy([(t) => OrderingTerm.asc(t.sequence)]))
+          .get();
+
+  /// Replaces the *synced* discount lines of a document with [lines] pulled from
+  /// the server (multi-device mirror). Locally-pending lines are preserved so an
+  /// edit not yet pushed isn't clobbered by an older server snapshot.
+  Future<void> replacePulledDiscountLines(
+      String documentLocalId, List<DiscountLinesTableCompanion> lines) async {
+    await transaction(() async {
+      await (delete(discountLinesTable)
+            ..where((t) => t.documentLocalId.equals(documentLocalId))
+            ..where((t) => t.syncStatus.equals('synced')))
+          .go();
+      if (lines.isNotEmpty) {
+        await batch((b) => b.insertAll(discountLinesTable, lines));
+      }
+    });
+  }
+
+  /// Removes every discount line tied to a sale's [localId] — matching EITHER
+  /// link, since a checkout shares one localId across its order and document.
+  /// Call this whenever an order or document is deleted so no discount records
+  /// are ever left orphaned. (Server-side rows are cascade-deleted by the
+  /// DiscountLine→Document FK when the document delete syncs.)
+  Future<void> purgeDiscountLinesFor(String localId) =>
+      (delete(discountLinesTable)
+            ..where((t) =>
+                t.orderLocalId.equals(localId) |
+                t.documentLocalId.equals(localId)))
+          .go();
+
+  /// Marks every discount line for an order as synced — called after its sale
+  /// pushes successfully (the server persisted the matching DiscountLine rows).
+  Future<void> markDiscountLinesSynced(String orderLocalId) =>
+      (update(discountLinesTable)
+            ..where((t) => t.orderLocalId.equals(orderLocalId)))
+          .write(const DiscountLinesTableCompanion(syncStatus: Value('synced')));
+
+  /// Discount lines still pending push (offline outbox), oldest first.
+  Future<List<DiscountLinesTableData>> getPendingDiscountLines(int companyId) =>
+      (select(discountLinesTable)
+            ..where((t) => t.companyId.equals(companyId))
+            ..where((t) => t.syncStatus.equals('pending')))
+          .get();
+
+  /// Sums discount amounts by `source` over [from]..[to] (by document date),
+  /// for sales reporting. Returns source → total currency deducted. Joins to
+  /// `documents` so only finalized sales count (parked-order drafts, which have
+  /// no document yet, are excluded). The amount is the resolved money figure, so
+  /// % and fixed lines aggregate correctly without ever being mixed.
+  Future<Map<String, double>> discountTotalsBySource(
+      int companyId, DateTime from, DateTime to) async {
+    final amountSum = discountLinesTable.amount.sum();
+    final query = selectOnly(discountLinesTable).join([
+      innerJoin(
+        documentsTable,
+        documentsTable.localId.equalsExp(discountLinesTable.documentLocalId),
+      ),
+    ])
+      ..addColumns([discountLinesTable.source, amountSum])
+      ..where(documentsTable.companyId.equals(companyId) &
+          documentsTable.date.isBetweenValues(from, to))
+      ..groupBy([discountLinesTable.source]);
+    final rows = await query.get();
+    return {
+      for (final r in rows)
+        (r.read(discountLinesTable.source) ?? ''): (r.read(amountSum) ?? 0),
+    };
   }
 
   /// Local Z-report history for a company, newest-first. Offline-first source

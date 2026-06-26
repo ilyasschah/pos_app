@@ -15,6 +15,7 @@ import 'package:pos_app/customer/customer_provider.dart';
 import 'package:pos_app/stock/warehouse_provider.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/menu/discount_dialog.dart';
+import 'package:pos_app/menu/quantity_keypad_dialog.dart';
 import 'package:pos_app/product/product_group_model.dart';
 import 'package:pos_app/product/product_group_provider.dart';
 import 'package:pos_app/cart/checkout_models.dart';
@@ -183,6 +184,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     final showTablesBtn    = settings[SettingKeys.showTablesBtn]?.toLowerCase()    != 'false';
     final showKitchenBtn   = settings[SettingKeys.showKitchenBtn]?.toLowerCase()   != 'false';
     final showTaxBtn       = settings[SettingKeys.showTaxBtn]?.toLowerCase()       != 'false';
+    final showQuantityBtn  = settings[SettingKeys.showQuantityBtn]?.toLowerCase()  != 'false';
     ref.listen(allCustomersProvider, (previous, next) {
       next.whenData((all) {
         final customers = all.where((c) => c.isCustomer).toList();
@@ -630,6 +632,47 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                           builder: (_) => const DiscountDialog(),
                         ),
                       ),
+                    ),
+                  if (showQuantityBtn)
+                    IconButton(
+                      iconSize: 26,
+                      icon: const Icon(Icons.dialpad),
+                      tooltip: cartState.selectedCartItemId == null
+                          ? "Select a cart item to set its quantity"
+                          : "Change quantity",
+                      // Greyed out until a cart line is selected — same gating
+                      // the Tax button uses.
+                      onPressed: cartState.selectedCartItemId == null
+                          ? null
+                          : () async {
+                              final item = cartState.items
+                                  .where((i) =>
+                                      i.cartItemId ==
+                                      cartState.selectedCartItemId)
+                                  .firstOrNull;
+                              if (item == null) {
+                                showAppSnackbar(context, ref,
+                                    'Selected item not found.',
+                                    isError: true);
+                                return;
+                              }
+                              final newQty = await showQuantityKeypad(
+                                context,
+                                itemName: item.productName,
+                                initialQuantity: item.quantity,
+                                unit: item.measurementUnit,
+                              );
+                              if (newQty == null || !context.mounted) return;
+                              if (newQty < 0) {
+                                showAppSnackbar(context, ref,
+                                    'Quantity cannot be negative.',
+                                    isError: true);
+                                return;
+                              }
+                              ref
+                                  .read(cartProvider.notifier)
+                                  .updateItemQuantity(item.cartItemId, newQty);
+                            },
                     ),
                   if (showTaxBtn)
                     IconButton(
@@ -2196,6 +2239,9 @@ class _CartSectionState extends ConsumerState<CartSection> {
           await (db.delete(db.posOrdersTable)
                 ..where((t) => t.localId.equals(existLocalId)))
               .go();
+          // Remove its discount_lines too (they link by local id with no FK
+          // cascade) so a voided order leaves no discount records behind.
+          await db.purgeDiscountLinesFor(existLocalId);
           // Restore local stock.
           await db.deductStockForCheckout(
             items: cartItems
@@ -2804,7 +2850,9 @@ class _CartSectionState extends ConsumerState<CartSection> {
                     children: [
                       Expanded(
                         child: Text(
-                          "Customer Discount (${cartState.customerDiscountType == 0 ? '${cartState.customerDiscountValue?.toInt()}%' : '${cartState.customerDiscountValue?.toStringAsFixed(2)} $sym'})",
+                          // The deducted amount is shown on the right, so the
+                          // label stays plain (no parenthetical value).
+                          "Customer Discount",
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(

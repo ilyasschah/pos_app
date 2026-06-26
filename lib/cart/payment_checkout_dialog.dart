@@ -22,12 +22,14 @@ import 'package:pos_app/document/document_type_constants.dart';
 import 'package:pos_app/settings/device_identity.dart';
 import 'package:pos_app/navigation/main_layout.dart';
 import 'package:pos_app/printer/receipt_printer_service.dart';
+import 'package:pos_app/cart/discount_display.dart';
 import 'package:pos_app/utils/snackbar_helper.dart';
 import 'package:pos_app/utils/customer_display_service.dart';
 import 'package:pos_app/customer_display/customer_display_provider.dart';
 import 'package:pos_app/customer_display/customer_display_state.dart';
 import 'package:pos_app/customer/customer_picker_dialog.dart';
 import 'package:pos_app/loyalty/loyalty_card_provider.dart';
+import 'package:pos_app/promotions/promotion_provider.dart';
 import 'package:pos_app/sync/sync_notifier.dart';
 
 // ---------------------------------------------------------------------------
@@ -64,6 +66,11 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
   late final double _subtotal;
   late final double _taxTotal;
   late final double _totalDiscount;
+  // Order-level discount components, captured so the summary can break them out
+  // (item-level discounts are shown per item).
+  late final double _itemDiscount;     // manual item + promotion, per line
+  late final double _customerDiscount; // customer-profile discount
+  late final double _cartDiscount;     // whole-order manual discount
   late final List<CartItem> _cartItems;
   late final String _sym;
 
@@ -80,11 +87,12 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
     _grandTotal = ref.read(cartTotalProvider);
     _subtotal = notifier.subtotal;
     _taxTotal = notifier.taxTotal;
-    _totalDiscount =
-        notifier.discountTotal +
-        notifier.manualCartDiscountAmount +
-        notifier.customerDiscountAmount +
-        notifier.promotionalDiscountTotal;
+    // discountTotal already includes the per-item promotion, so it must NOT be
+    // added again (that double-counted the promo in the displayed total).
+    _itemDiscount = notifier.discountTotal;
+    _customerDiscount = notifier.customerDiscountAmount;
+    _cartDiscount = notifier.manualCartDiscountAmount;
+    _totalDiscount = _itemDiscount + _customerDiscount + _cartDiscount;
     _cartItems = List.unmodifiable(ref.read(cartProvider).items);
     _sym = ref.read(currencySymbolProvider);
     _paidNotifier.value = '0';
@@ -417,23 +425,42 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
       // ── Create Document + Payment locally ────────────────────────────────
       // The Document localId = orderLocalId so sync_manager can link it to
       // the server Document returned by CheckoutPosOrderCommand after BatchSync.
+      // cartItemId → document_item localId, so discount_lines link to the
+      // permanent document record (the source of truth for receipts/reports).
+      final docItemLocalIds = <String, String>{};
       final docItems = _cartItems.map((item) {
+        final docItemLocalId = const Uuid().v4();
+        docItemLocalIds[item.cartItemId] = docItemLocalId;
         final lineTotal =
             (item.price - item.discount - item.promotionalDiscount) *
             item.quantity;
-        final taxAmt = item.appliedTaxes
-            .where((t) => !t.isFixed)
-            .fold<double>(0, (s, t) => s + t.rate / 100 * lineTotal);
+        final pctTaxes = item.appliedTaxes.where((t) => !t.isFixed);
+        final taxAmt =
+            pctTaxes.fold<double>(0, (s, t) => s + t.rate / 100 * lineTotal);
+        // Persist the tax-base price + the applied tax so the document editor's
+        // Edit-Item dialog can load real values (it was showing 0 / "No tax"
+        // because these were never written). The editor is single-tax, so carry
+        // the combined % rate and the first applied tax id.
+        final combinedRate =
+            pctTaxes.fold<double>(0, (s, t) => s + t.rate);
+        final firstTaxId =
+            item.appliedTaxes.isNotEmpty ? item.appliedTaxes.first.id : null;
         return DocumentItemsTableCompanion(
-          localId:      Value(const Uuid().v4()),
+          localId:      Value(docItemLocalId),
           documentId:   Value(orderLocalId),
           productId:    Value(item.productId),
           quantity:     Value(item.quantity),
           unitPrice:    Value(item.price),
+          priceBeforeTax: Value(item.price),
+          // The stored discount is the RESOLVED per-unit currency (manual +
+          // promotion), so its type is Fixed (1) — not the manual item's entry
+          // mode. Stamping the manual type made a fixed promo show as "1%".
           discount:     Value(item.discount + item.promotionalDiscount),
-          discountType: Value(item.discountType),
+          discountType: const Value(1),
           total:        Value(lineTotal),
           taxAmount:    Value(taxAmt),
+          taxRate:      Value(combinedRate),
+          taxId:        Value(firstTaxId),
         );
       }).toList();
 
@@ -471,7 +498,51 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
           amount:        Value(amountToSave.toDouble()),
           userId:        Value(user.id),
           date:          Value(now),
+          companyId:     Value(company.id),
+          dateCreated:   Value(now),
         ),
+      );
+
+      // ── Phase 2: persist the normalized discount breakdown ────────────────
+      // Cart-derived lines (manual item/cart, promotion, customer profile) come
+      // from buildDiscountLines; the loyalty-points redemption — which lives in
+      // this dialog, not cart state — is appended last. Must run BEFORE
+      // clearCart() since buildDiscountLines reads the live cart.
+      final discountLines = cartNotifier.buildDiscountLines(
+        companyId: company.id,
+        orderLocalId: orderLocalId,
+        documentLocalId: orderLocalId,
+        itemLocalIds: docItemLocalIds,
+      );
+      if (_pointsDiscount > 0) {
+        discountLines.add(DiscountLinesTableCompanion(
+          localId: Value(const Uuid().v4()),
+          companyId: Value(company.id),
+          orderLocalId: Value(orderLocalId),
+          documentLocalId: Value(orderLocalId),
+          source: const Value(DiscountSource.loyaltyPoints),
+          sourceRefId: Value(cartState.selectedCustomer?.id),
+          value: Value(_pointsUsed), // points redeemed
+          valueType: const Value(1), // resolved to money in `amount`
+          amount: Value(double.parse(_pointsDiscount.toStringAsFixed(4))),
+          sequence: Value(discountLines.length),
+          label: const Value('Loyalty points'),
+          syncStatus: const Value('pending'),
+          lastModified: Value(now),
+        ));
+      }
+      await db.replaceDiscountLines(
+        orderLocalId: orderLocalId,
+        documentLocalId: orderLocalId,
+        lines: discountLines,
+      );
+
+      // Read the persisted lines back as rows to itemize on the receipt. Loyalty
+      // is excluded here because the receipt already prints a "Points Used" row.
+      final receiptDiscountLines = toReceiptDiscountLines(
+        await db.getDiscountLinesForDocument(orderLocalId),
+        _sym,
+        includeLoyalty: false,
       );
 
       // Local-only counter bump — replaces the old syncLatestOrderNumber API
@@ -533,6 +604,7 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
             items: _cartItems,
             subtotal: _subtotal,
             totalDiscount: _totalDiscount,
+            discountLines: receiptDiscountLines,
             totalTax: _taxTotal,
             grandTotal: _grandTotal,
             currencySymbol: _sym,
@@ -709,7 +781,9 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
                 items: _cartItems,
                 subtotal: _subtotal,
                 taxTotal: _taxTotal,
-                discountTotal: _totalDiscount,
+                itemDiscount: _itemDiscount,
+                customerDiscount: _customerDiscount,
+                cartDiscount: _cartDiscount,
                 grandTotal: _grandTotal,
                 pointsDiscount: _pointsDiscount,
                 sym: _sym,
@@ -794,14 +868,17 @@ class _PaymentCheckoutDialogState extends ConsumerState<PaymentCheckoutDialog> {
 // ---------------------------------------------------------------------------
 class _OrderSummaryColumn extends ConsumerWidget {
   final List<CartItem> items;
-  final double subtotal, taxTotal, discountTotal, grandTotal, pointsDiscount;
+  final double subtotal, taxTotal, grandTotal, pointsDiscount;
+  final double itemDiscount, customerDiscount, cartDiscount;
   final String sym;
 
   const _OrderSummaryColumn({
     required this.items,
     required this.subtotal,
     required this.taxTotal,
-    required this.discountTotal,
+    required this.itemDiscount,
+    required this.customerDiscount,
+    required this.cartDiscount,
     required this.grandTotal,
     required this.pointsDiscount,
     required this.sym,
@@ -816,6 +893,47 @@ class _OrderSummaryColumn extends ConsumerWidget {
     final dualSym = settings[SettingKeys.dualCurrencySymbol] ?? '€';
     final dualRate =
         double.tryParse(settings[SettingKeys.dualCurrencyRate] ?? '1.0') ?? 1.0;
+    final discountBeforeTax =
+        settings[SettingKeys.discountApplyRule] == 'Before tax';
+    // When the shop displays/prints tax-inclusive, item lines and the subtotal
+    // fold tax in (mirrors the cart); otherwise tax is shown as its own line.
+    final taxIncluded =
+        settings[SettingKeys.displayAndPrintTaxIncluded]?.toLowerCase() !=
+            'false';
+    // Subtotal incl. tax, already net of item-level discounts:
+    //   grossSubtotal − customer − cart = grandTotal.
+    final grossSubtotal = subtotal - itemDiscount + taxTotal;
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+    final promoNames = {
+      for (final p in (ref.watch(activePromotionsProvider).value ?? const []))
+        p.id: p.name,
+    };
+
+    // One indented detail line under an item (a discount or a tax).
+    Widget detail(String label, String value, {Color? color}) => Padding(
+          padding: const EdgeInsets.only(left: 4, top: 2),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(label,
+                    style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ),
+              const SizedBox(width: 8),
+              Text(value,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: color ?? muted)),
+            ],
+          ),
+        );
+
+    String fmtQty(double q) =>
+        q % 1 == 0 ? q.toInt().toString() : q.toStringAsFixed(2);
+    String fmtRate(double r) =>
+        r % 1 == 0 ? r.toInt().toString() : r.toString();
+
     return SizedBox(
       width: 280,
       child: Column(
@@ -843,28 +961,86 @@ class _OrderSummaryColumn extends ConsumerWidget {
                     Divider(height: 1, color: theme.colorScheme.outlineVariant),
                 itemBuilder: (_, i) {
                   final item = items[i];
-                  final lineTotal =
-                      (item.price - item.discount - item.promotionalDiscount) *
+                  final unitNet =
+                      item.price - item.discount - item.promotionalDiscount;
+                  final lineNet = unitNet * item.quantity;
+                  // Tax base mirrors the cart's rule: "Before tax" taxes the
+                  // discounted price; "After tax" taxes the full price.
+                  final taxBase = (discountBeforeTax ? unitNet : item.price) *
                       item.quantity;
-                  return ListTile(
-                    dense: true,
-                    title: Text(
-                      item.productName,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w500,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      '${item.quantity % 1 == 0 ? item.quantity.toInt() : item.quantity} × $sym ${item.price.toStringAsFixed(2)}',
-                      style: theme.textTheme.bodySmall,
-                    ),
-                    trailing: Text(
-                      '$sym ${lineTotal.toStringAsFixed(2)}',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  final lineTax = item.appliedTaxes.fold<double>(
+                    0,
+                    (s, t) => s +
+                        (t.isFixed
+                            ? t.rate * item.quantity
+                            : taxBase * (t.rate / 100)),
+                  );
+                  // Honor the "display tax-included" setting: the line total and
+                  // the per-unit price fold tax in, and the tax rows below become
+                  // informational ("incl.") rather than an added amount.
+                  final lineShown = taxIncluded ? lineNet + lineTax : lineNet;
+                  final unitShown = taxIncluded && item.quantity > 0
+                      ? item.price + lineTax / item.quantity
+                      : item.price;
+                  return Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Name + line total
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                item.productName,
+                                style: theme.textTheme.bodyMedium
+                                    ?.copyWith(fontWeight: FontWeight.w600),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '$sym ${lineShown.toStringAsFixed(2)}',
+                              style: theme.textTheme.bodyMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                        Text(
+                          '${fmtQty(item.quantity)} × $sym ${unitShown.toStringAsFixed(2)}',
+                          style:
+                              theme.textTheme.bodySmall?.copyWith(color: muted),
+                        ),
+                        // ── Per-item discounts ──
+                        if (item.discount > 0)
+                          detail(
+                            'Item discount',
+                            '- $sym ${(item.discount * item.quantity).toStringAsFixed(2)}',
+                            color: Colors.green,
+                          ),
+                        if (item.promotionalDiscount > 0)
+                          detail(
+                            item.promotionId != null
+                                ? (promoNames[item.promotionId] ?? 'Promotion')
+                                : 'Promotion',
+                            '- $sym ${(item.promotionalDiscount * item.quantity).toStringAsFixed(2)}',
+                            color: Colors.green,
+                          ),
+                        // ── Per-item taxes (informational when tax-included) ──
+                        ...item.appliedTaxes.map((t) {
+                          final amt = t.isFixed
+                              ? t.rate * item.quantity
+                              : taxBase * (t.rate / 100);
+                          final name = t.isFixed
+                              ? t.name
+                              : '${t.name} (${fmtRate(t.rate)}%)';
+                          final label = taxIncluded ? 'incl. $name' : name;
+                          return detail(
+                              label, '$sym ${amt.toStringAsFixed(2)}');
+                        }),
+                      ],
                     ),
                   );
                 },
@@ -882,16 +1058,36 @@ class _OrderSummaryColumn extends ConsumerWidget {
             ),
             child: Column(
               children: [
-                _SummaryRow('Subtotal', subtotal, sym, theme),
-                if (discountTotal > 0)
-                  _SummaryRow(
-                    'Discounts',
-                    -discountTotal,
-                    sym,
-                    theme,
-                    color: Colors.green,
-                  ),
-                if (taxTotal > 0) _SummaryRow('Taxes', taxTotal, sym, theme),
+                // Tax-included (mirrors the cart): subtotal already folds tax in
+                // AND is net of item-level discounts, so only order-level
+                // discounts are listed and tax is shown as an informational line.
+                if (taxIncluded) ...[
+                  _SummaryRow('Subtotal (incl. tax)', grossSubtotal, sym, theme),
+                  if (customerDiscount > 0)
+                    _SummaryRow(
+                        'Customer discount', -customerDiscount, sym, theme,
+                        color: Colors.green),
+                  if (cartDiscount > 0)
+                    _SummaryRow('Cart discount', -cartDiscount, sym, theme,
+                        color: Colors.green),
+                  if (taxTotal > 0)
+                    _SummaryRow('Tax (incl.)', taxTotal, sym, theme,
+                        color: muted),
+                ] else ...[
+                  // Tax-exclusive: gross subtotal, then every discount, then tax.
+                  _SummaryRow('Subtotal', subtotal, sym, theme),
+                  if (itemDiscount > 0)
+                    _SummaryRow('Item discounts', -itemDiscount, sym, theme,
+                        color: Colors.green),
+                  if (customerDiscount > 0)
+                    _SummaryRow(
+                        'Customer discount', -customerDiscount, sym, theme,
+                        color: Colors.green),
+                  if (cartDiscount > 0)
+                    _SummaryRow('Cart discount', -cartDiscount, sym, theme,
+                        color: Colors.green),
+                  if (taxTotal > 0) _SummaryRow('Taxes', taxTotal, sym, theme),
+                ],
                 if (pointsDiscount > 0)
                   _SummaryRow(
                     'Points Redeemed',

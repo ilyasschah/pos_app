@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:pos_app/api/api_client.dart';
 import 'package:pos_app/company/company_provider.dart';
 import 'package:pos_app/currency/country_model.dart';
+import 'package:pos_app/currency/currencies_provider.dart';
 import 'package:pos_app/customer/customer_model.dart';
 import 'package:pos_app/api/customer_discount_models.dart';
 import 'package:pos_app/customer/customer_provider.dart';
@@ -847,32 +848,52 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
           syncError: const Value(null),
         ));
       }
-    } on DioException catch (e) {
-      if (e.response == null) {
-        await _saveDiscountLocal(customerId);
-      }
-      // Server error: silently ignore — the main customer save already succeeded.
-    } catch (_) {}
+    } catch (_) {
+      // ApiClient wraps even DioExceptions in a generic Exception, so we can't
+      // tell offline from a server error here — and silently dropping the
+      // discount is exactly the "it didn't save" bug. Persist it locally with a
+      // pending sync status either way, so it survives and the SyncManager
+      // (pushPendingCustomerDiscountOps) reconciles it with the server later.
+      await _saveDiscountLocal(customerId);
+    }
   }
 
   /// Offline discount save: writes directly to Drift with a pending syncStatus.
+  ///
+  /// Looks up the customer's existing local discount by customerId rather than
+  /// trusting [_existingDiscount] — so a re-save updates the one row instead of
+  /// stacking a duplicate pending_create the server then rejects ("customer
+  /// already has a discount"). The offline-first half of the "doesn't save" fix.
   Future<void> _saveDiscountLocal(int customerId) async {
     final value = double.tryParse(_discountValueCtrl.text) ?? 0;
     final uid = int.tryParse(_discountUidCtrl.text) ?? 0;
     final db = ref.read(appDatabaseProvider);
 
+    final existing = await (db.select(db.customerDiscountsTable)
+          ..where((t) => t.customerId.equals(customerId))
+          ..where((t) => t.companyId.equals(widget.companyId))
+          ..where((t) => t.syncStatus.isNotIn(['pending_delete'])))
+        .getSingleOrNull();
+
     if (value <= 0) {
-      if (_existingDiscount != null) {
-        await (db.update(db.customerDiscountsTable)
-              ..where((t) => t.id.equals(_existingDiscount!.id)))
-            .write(const CustomerDiscountsTableCompanion(
-          syncStatus: Value('pending_delete'),
-        ));
+      if (existing != null) {
+        if (existing.id < 0) {
+          // Temp row that never reached the server — just drop it.
+          await (db.delete(db.customerDiscountsTable)
+                ..where((t) => t.id.equals(existing.id)))
+              .go();
+        } else {
+          await (db.update(db.customerDiscountsTable)
+                ..where((t) => t.id.equals(existing.id)))
+              .write(const CustomerDiscountsTableCompanion(
+            syncStatus: Value('pending_delete'),
+          ));
+        }
       }
       return;
     }
 
-    if (_existingDiscount == null) {
+    if (existing == null) {
       final tempId = -(DateTime.now().millisecondsSinceEpoch);
       await db.into(db.customerDiscountsTable).insert(
         CustomerDiscountsTableCompanion(
@@ -887,14 +908,18 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
         ),
       );
     } else {
+      // A not-yet-synced create stays a create (just with the new values).
+      final nextStatus = existing.syncStatus == 'pending_create'
+          ? 'pending_create'
+          : 'pending_update';
       await (db.update(db.customerDiscountsTable)
-            ..where((t) => t.id.equals(_existingDiscount!.id)))
+            ..where((t) => t.id.equals(existing.id)))
           .write(CustomerDiscountsTableCompanion(
         type: Value(_discountType),
         uid: Value(uid),
         value: Value(value),
         lastModified: Value(DateTime.now().toUtc()),
-        syncStatus: const Value('pending_update'),
+        syncStatus: Value(nextStatus),
       ));
     }
   }
@@ -906,6 +931,7 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final sym = ref.watch(currencySymbolProvider);
 
     return AlertDialog(
       title: Text(_isEditing ? "Edit Customer" : "Add Customer / Supplier"),
@@ -984,6 +1010,9 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
                 _row([
                   DropdownButtonFormField<int>(
                     initialValue: _discountType,
+                    // Fill the field width so a longer label (e.g. "Fixed
+                    // Amount (MAD)") ellipsizes instead of overflowing the Row.
+                    isExpanded: true,
                     decoration: const InputDecoration(
                       labelText: "Discount Type",
                       border: OutlineInputBorder(),
@@ -992,14 +1021,14 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
                         vertical: 10,
                       ),
                     ),
-                    items: const [
-                      DropdownMenuItem(
+                    items: [
+                      const DropdownMenuItem(
                         value: 0,
                         child: Text('Percentage (%)'),
                       ),
                       DropdownMenuItem(
                         value: 1,
-                        child: Text('Fixed Amount (\$)'),
+                        child: Text('Fixed Amount ($sym)'),
                       ),
                     ],
                     onChanged: (v) => setState(() => _discountType = v!),
@@ -1008,6 +1037,9 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
                     _discountValueCtrl,
                     "Discount Value",
                     keyboardType: TextInputType.number,
+                    // Show the unit so a fixed amount reads in the company
+                    // currency (MAD) instead of a bare number, and % for percent.
+                    suffixText: _discountType == 1 ? sym : '%',
                   ),
                 ]),
                 const SizedBox(height: 12),
@@ -1098,12 +1130,14 @@ class _CustomerFormDialogState extends ConsumerState<_CustomerFormDialog> {
     String label, {
     String? Function(String?)? validator,
     TextInputType? keyboardType,
+    String? suffixText,
   }) => TextFormField(
     controller: ctrl,
     decoration: InputDecoration(
       labelText: label,
       border: const OutlineInputBorder(),
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      suffixText: suffixText,
     ),
     validator: validator,
     keyboardType: keyboardType,

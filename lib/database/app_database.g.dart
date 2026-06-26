@@ -35741,6 +35741,879 @@ class ProductTaxesTableCompanion
   }
 }
 
+class $DiscountLinesTableTable extends DiscountLinesTable
+    with TableInfo<$DiscountLinesTableTable, DiscountLinesTableData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $DiscountLinesTableTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _localIdMeta = const VerificationMeta(
+    'localId',
+  );
+  @override
+  late final GeneratedColumn<String> localId = GeneratedColumn<String>(
+    'local_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _companyIdMeta = const VerificationMeta(
+    'companyId',
+  );
+  @override
+  late final GeneratedColumn<int> companyId = GeneratedColumn<int>(
+    'company_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _orderLocalIdMeta = const VerificationMeta(
+    'orderLocalId',
+  );
+  @override
+  late final GeneratedColumn<String> orderLocalId = GeneratedColumn<String>(
+    'order_local_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _documentLocalIdMeta = const VerificationMeta(
+    'documentLocalId',
+  );
+  @override
+  late final GeneratedColumn<String> documentLocalId = GeneratedColumn<String>(
+    'document_local_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _itemLocalIdMeta = const VerificationMeta(
+    'itemLocalId',
+  );
+  @override
+  late final GeneratedColumn<String> itemLocalId = GeneratedColumn<String>(
+    'item_local_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _sourceMeta = const VerificationMeta('source');
+  @override
+  late final GeneratedColumn<String> source = GeneratedColumn<String>(
+    'source',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sourceRefIdMeta = const VerificationMeta(
+    'sourceRefId',
+  );
+  @override
+  late final GeneratedColumn<int> sourceRefId = GeneratedColumn<int>(
+    'source_ref_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _valueMeta = const VerificationMeta('value');
+  @override
+  late final GeneratedColumn<double> value = GeneratedColumn<double>(
+    'value',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _valueTypeMeta = const VerificationMeta(
+    'valueType',
+  );
+  @override
+  late final GeneratedColumn<int> valueType = GeneratedColumn<int>(
+    'value_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _amountMeta = const VerificationMeta('amount');
+  @override
+  late final GeneratedColumn<double> amount = GeneratedColumn<double>(
+    'amount',
+    aliasedName,
+    false,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _sequenceMeta = const VerificationMeta(
+    'sequence',
+  );
+  @override
+  late final GeneratedColumn<int> sequence = GeneratedColumn<int>(
+    'sequence',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _labelMeta = const VerificationMeta('label');
+  @override
+  late final GeneratedColumn<String> label = GeneratedColumn<String>(
+    'label',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _serverIdMeta = const VerificationMeta(
+    'serverId',
+  );
+  @override
+  late final GeneratedColumn<int> serverId = GeneratedColumn<int>(
+    'server_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _syncStatusMeta = const VerificationMeta(
+    'syncStatus',
+  );
+  @override
+  late final GeneratedColumn<String> syncStatus = GeneratedColumn<String>(
+    'sync_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('pending'),
+  );
+  static const VerificationMeta _lastModifiedMeta = const VerificationMeta(
+    'lastModified',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastModified = GeneratedColumn<DateTime>(
+    'last_modified',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    localId,
+    companyId,
+    orderLocalId,
+    documentLocalId,
+    itemLocalId,
+    source,
+    sourceRefId,
+    value,
+    valueType,
+    amount,
+    sequence,
+    label,
+    serverId,
+    syncStatus,
+    lastModified,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'discount_lines';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<DiscountLinesTableData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('local_id')) {
+      context.handle(
+        _localIdMeta,
+        localId.isAcceptableOrUnknown(data['local_id']!, _localIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_localIdMeta);
+    }
+    if (data.containsKey('company_id')) {
+      context.handle(
+        _companyIdMeta,
+        companyId.isAcceptableOrUnknown(data['company_id']!, _companyIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_companyIdMeta);
+    }
+    if (data.containsKey('order_local_id')) {
+      context.handle(
+        _orderLocalIdMeta,
+        orderLocalId.isAcceptableOrUnknown(
+          data['order_local_id']!,
+          _orderLocalIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('document_local_id')) {
+      context.handle(
+        _documentLocalIdMeta,
+        documentLocalId.isAcceptableOrUnknown(
+          data['document_local_id']!,
+          _documentLocalIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('item_local_id')) {
+      context.handle(
+        _itemLocalIdMeta,
+        itemLocalId.isAcceptableOrUnknown(
+          data['item_local_id']!,
+          _itemLocalIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('source')) {
+      context.handle(
+        _sourceMeta,
+        source.isAcceptableOrUnknown(data['source']!, _sourceMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_sourceMeta);
+    }
+    if (data.containsKey('source_ref_id')) {
+      context.handle(
+        _sourceRefIdMeta,
+        sourceRefId.isAcceptableOrUnknown(
+          data['source_ref_id']!,
+          _sourceRefIdMeta,
+        ),
+      );
+    }
+    if (data.containsKey('value')) {
+      context.handle(
+        _valueMeta,
+        value.isAcceptableOrUnknown(data['value']!, _valueMeta),
+      );
+    }
+    if (data.containsKey('value_type')) {
+      context.handle(
+        _valueTypeMeta,
+        valueType.isAcceptableOrUnknown(data['value_type']!, _valueTypeMeta),
+      );
+    }
+    if (data.containsKey('amount')) {
+      context.handle(
+        _amountMeta,
+        amount.isAcceptableOrUnknown(data['amount']!, _amountMeta),
+      );
+    }
+    if (data.containsKey('sequence')) {
+      context.handle(
+        _sequenceMeta,
+        sequence.isAcceptableOrUnknown(data['sequence']!, _sequenceMeta),
+      );
+    }
+    if (data.containsKey('label')) {
+      context.handle(
+        _labelMeta,
+        label.isAcceptableOrUnknown(data['label']!, _labelMeta),
+      );
+    }
+    if (data.containsKey('server_id')) {
+      context.handle(
+        _serverIdMeta,
+        serverId.isAcceptableOrUnknown(data['server_id']!, _serverIdMeta),
+      );
+    }
+    if (data.containsKey('sync_status')) {
+      context.handle(
+        _syncStatusMeta,
+        syncStatus.isAcceptableOrUnknown(data['sync_status']!, _syncStatusMeta),
+      );
+    }
+    if (data.containsKey('last_modified')) {
+      context.handle(
+        _lastModifiedMeta,
+        lastModified.isAcceptableOrUnknown(
+          data['last_modified']!,
+          _lastModifiedMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {localId};
+  @override
+  DiscountLinesTableData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return DiscountLinesTableData(
+      localId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}local_id'],
+      )!,
+      companyId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}company_id'],
+      )!,
+      orderLocalId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}order_local_id'],
+      ),
+      documentLocalId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}document_local_id'],
+      ),
+      itemLocalId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}item_local_id'],
+      ),
+      source: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}source'],
+      )!,
+      sourceRefId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}source_ref_id'],
+      ),
+      value: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}value'],
+      )!,
+      valueType: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}value_type'],
+      )!,
+      amount: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}amount'],
+      )!,
+      sequence: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sequence'],
+      )!,
+      label: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}label'],
+      ),
+      serverId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}server_id'],
+      ),
+      syncStatus: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}sync_status'],
+      )!,
+      lastModified: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_modified'],
+      ),
+    );
+  }
+
+  @override
+  $DiscountLinesTableTable createAlias(String alias) {
+    return $DiscountLinesTableTable(attachedDatabase, alias);
+  }
+}
+
+class DiscountLinesTableData extends DataClass
+    implements Insertable<DiscountLinesTableData> {
+  final String localId;
+  final int companyId;
+  final String? orderLocalId;
+  final String? documentLocalId;
+  final String? itemLocalId;
+  final String source;
+  final int? sourceRefId;
+  final double value;
+  final int valueType;
+  final double amount;
+  final int sequence;
+  final String? label;
+  final int? serverId;
+  final String syncStatus;
+  final DateTime? lastModified;
+  const DiscountLinesTableData({
+    required this.localId,
+    required this.companyId,
+    this.orderLocalId,
+    this.documentLocalId,
+    this.itemLocalId,
+    required this.source,
+    this.sourceRefId,
+    required this.value,
+    required this.valueType,
+    required this.amount,
+    required this.sequence,
+    this.label,
+    this.serverId,
+    required this.syncStatus,
+    this.lastModified,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['local_id'] = Variable<String>(localId);
+    map['company_id'] = Variable<int>(companyId);
+    if (!nullToAbsent || orderLocalId != null) {
+      map['order_local_id'] = Variable<String>(orderLocalId);
+    }
+    if (!nullToAbsent || documentLocalId != null) {
+      map['document_local_id'] = Variable<String>(documentLocalId);
+    }
+    if (!nullToAbsent || itemLocalId != null) {
+      map['item_local_id'] = Variable<String>(itemLocalId);
+    }
+    map['source'] = Variable<String>(source);
+    if (!nullToAbsent || sourceRefId != null) {
+      map['source_ref_id'] = Variable<int>(sourceRefId);
+    }
+    map['value'] = Variable<double>(value);
+    map['value_type'] = Variable<int>(valueType);
+    map['amount'] = Variable<double>(amount);
+    map['sequence'] = Variable<int>(sequence);
+    if (!nullToAbsent || label != null) {
+      map['label'] = Variable<String>(label);
+    }
+    if (!nullToAbsent || serverId != null) {
+      map['server_id'] = Variable<int>(serverId);
+    }
+    map['sync_status'] = Variable<String>(syncStatus);
+    if (!nullToAbsent || lastModified != null) {
+      map['last_modified'] = Variable<DateTime>(lastModified);
+    }
+    return map;
+  }
+
+  DiscountLinesTableCompanion toCompanion(bool nullToAbsent) {
+    return DiscountLinesTableCompanion(
+      localId: Value(localId),
+      companyId: Value(companyId),
+      orderLocalId: orderLocalId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(orderLocalId),
+      documentLocalId: documentLocalId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(documentLocalId),
+      itemLocalId: itemLocalId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(itemLocalId),
+      source: Value(source),
+      sourceRefId: sourceRefId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(sourceRefId),
+      value: Value(value),
+      valueType: Value(valueType),
+      amount: Value(amount),
+      sequence: Value(sequence),
+      label: label == null && nullToAbsent
+          ? const Value.absent()
+          : Value(label),
+      serverId: serverId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(serverId),
+      syncStatus: Value(syncStatus),
+      lastModified: lastModified == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastModified),
+    );
+  }
+
+  factory DiscountLinesTableData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return DiscountLinesTableData(
+      localId: serializer.fromJson<String>(json['localId']),
+      companyId: serializer.fromJson<int>(json['companyId']),
+      orderLocalId: serializer.fromJson<String?>(json['orderLocalId']),
+      documentLocalId: serializer.fromJson<String?>(json['documentLocalId']),
+      itemLocalId: serializer.fromJson<String?>(json['itemLocalId']),
+      source: serializer.fromJson<String>(json['source']),
+      sourceRefId: serializer.fromJson<int?>(json['sourceRefId']),
+      value: serializer.fromJson<double>(json['value']),
+      valueType: serializer.fromJson<int>(json['valueType']),
+      amount: serializer.fromJson<double>(json['amount']),
+      sequence: serializer.fromJson<int>(json['sequence']),
+      label: serializer.fromJson<String?>(json['label']),
+      serverId: serializer.fromJson<int?>(json['serverId']),
+      syncStatus: serializer.fromJson<String>(json['syncStatus']),
+      lastModified: serializer.fromJson<DateTime?>(json['lastModified']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'localId': serializer.toJson<String>(localId),
+      'companyId': serializer.toJson<int>(companyId),
+      'orderLocalId': serializer.toJson<String?>(orderLocalId),
+      'documentLocalId': serializer.toJson<String?>(documentLocalId),
+      'itemLocalId': serializer.toJson<String?>(itemLocalId),
+      'source': serializer.toJson<String>(source),
+      'sourceRefId': serializer.toJson<int?>(sourceRefId),
+      'value': serializer.toJson<double>(value),
+      'valueType': serializer.toJson<int>(valueType),
+      'amount': serializer.toJson<double>(amount),
+      'sequence': serializer.toJson<int>(sequence),
+      'label': serializer.toJson<String?>(label),
+      'serverId': serializer.toJson<int?>(serverId),
+      'syncStatus': serializer.toJson<String>(syncStatus),
+      'lastModified': serializer.toJson<DateTime?>(lastModified),
+    };
+  }
+
+  DiscountLinesTableData copyWith({
+    String? localId,
+    int? companyId,
+    Value<String?> orderLocalId = const Value.absent(),
+    Value<String?> documentLocalId = const Value.absent(),
+    Value<String?> itemLocalId = const Value.absent(),
+    String? source,
+    Value<int?> sourceRefId = const Value.absent(),
+    double? value,
+    int? valueType,
+    double? amount,
+    int? sequence,
+    Value<String?> label = const Value.absent(),
+    Value<int?> serverId = const Value.absent(),
+    String? syncStatus,
+    Value<DateTime?> lastModified = const Value.absent(),
+  }) => DiscountLinesTableData(
+    localId: localId ?? this.localId,
+    companyId: companyId ?? this.companyId,
+    orderLocalId: orderLocalId.present ? orderLocalId.value : this.orderLocalId,
+    documentLocalId: documentLocalId.present
+        ? documentLocalId.value
+        : this.documentLocalId,
+    itemLocalId: itemLocalId.present ? itemLocalId.value : this.itemLocalId,
+    source: source ?? this.source,
+    sourceRefId: sourceRefId.present ? sourceRefId.value : this.sourceRefId,
+    value: value ?? this.value,
+    valueType: valueType ?? this.valueType,
+    amount: amount ?? this.amount,
+    sequence: sequence ?? this.sequence,
+    label: label.present ? label.value : this.label,
+    serverId: serverId.present ? serverId.value : this.serverId,
+    syncStatus: syncStatus ?? this.syncStatus,
+    lastModified: lastModified.present ? lastModified.value : this.lastModified,
+  );
+  DiscountLinesTableData copyWithCompanion(DiscountLinesTableCompanion data) {
+    return DiscountLinesTableData(
+      localId: data.localId.present ? data.localId.value : this.localId,
+      companyId: data.companyId.present ? data.companyId.value : this.companyId,
+      orderLocalId: data.orderLocalId.present
+          ? data.orderLocalId.value
+          : this.orderLocalId,
+      documentLocalId: data.documentLocalId.present
+          ? data.documentLocalId.value
+          : this.documentLocalId,
+      itemLocalId: data.itemLocalId.present
+          ? data.itemLocalId.value
+          : this.itemLocalId,
+      source: data.source.present ? data.source.value : this.source,
+      sourceRefId: data.sourceRefId.present
+          ? data.sourceRefId.value
+          : this.sourceRefId,
+      value: data.value.present ? data.value.value : this.value,
+      valueType: data.valueType.present ? data.valueType.value : this.valueType,
+      amount: data.amount.present ? data.amount.value : this.amount,
+      sequence: data.sequence.present ? data.sequence.value : this.sequence,
+      label: data.label.present ? data.label.value : this.label,
+      serverId: data.serverId.present ? data.serverId.value : this.serverId,
+      syncStatus: data.syncStatus.present
+          ? data.syncStatus.value
+          : this.syncStatus,
+      lastModified: data.lastModified.present
+          ? data.lastModified.value
+          : this.lastModified,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DiscountLinesTableData(')
+          ..write('localId: $localId, ')
+          ..write('companyId: $companyId, ')
+          ..write('orderLocalId: $orderLocalId, ')
+          ..write('documentLocalId: $documentLocalId, ')
+          ..write('itemLocalId: $itemLocalId, ')
+          ..write('source: $source, ')
+          ..write('sourceRefId: $sourceRefId, ')
+          ..write('value: $value, ')
+          ..write('valueType: $valueType, ')
+          ..write('amount: $amount, ')
+          ..write('sequence: $sequence, ')
+          ..write('label: $label, ')
+          ..write('serverId: $serverId, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('lastModified: $lastModified')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    localId,
+    companyId,
+    orderLocalId,
+    documentLocalId,
+    itemLocalId,
+    source,
+    sourceRefId,
+    value,
+    valueType,
+    amount,
+    sequence,
+    label,
+    serverId,
+    syncStatus,
+    lastModified,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is DiscountLinesTableData &&
+          other.localId == this.localId &&
+          other.companyId == this.companyId &&
+          other.orderLocalId == this.orderLocalId &&
+          other.documentLocalId == this.documentLocalId &&
+          other.itemLocalId == this.itemLocalId &&
+          other.source == this.source &&
+          other.sourceRefId == this.sourceRefId &&
+          other.value == this.value &&
+          other.valueType == this.valueType &&
+          other.amount == this.amount &&
+          other.sequence == this.sequence &&
+          other.label == this.label &&
+          other.serverId == this.serverId &&
+          other.syncStatus == this.syncStatus &&
+          other.lastModified == this.lastModified);
+}
+
+class DiscountLinesTableCompanion
+    extends UpdateCompanion<DiscountLinesTableData> {
+  final Value<String> localId;
+  final Value<int> companyId;
+  final Value<String?> orderLocalId;
+  final Value<String?> documentLocalId;
+  final Value<String?> itemLocalId;
+  final Value<String> source;
+  final Value<int?> sourceRefId;
+  final Value<double> value;
+  final Value<int> valueType;
+  final Value<double> amount;
+  final Value<int> sequence;
+  final Value<String?> label;
+  final Value<int?> serverId;
+  final Value<String> syncStatus;
+  final Value<DateTime?> lastModified;
+  final Value<int> rowid;
+  const DiscountLinesTableCompanion({
+    this.localId = const Value.absent(),
+    this.companyId = const Value.absent(),
+    this.orderLocalId = const Value.absent(),
+    this.documentLocalId = const Value.absent(),
+    this.itemLocalId = const Value.absent(),
+    this.source = const Value.absent(),
+    this.sourceRefId = const Value.absent(),
+    this.value = const Value.absent(),
+    this.valueType = const Value.absent(),
+    this.amount = const Value.absent(),
+    this.sequence = const Value.absent(),
+    this.label = const Value.absent(),
+    this.serverId = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.lastModified = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  DiscountLinesTableCompanion.insert({
+    required String localId,
+    required int companyId,
+    this.orderLocalId = const Value.absent(),
+    this.documentLocalId = const Value.absent(),
+    this.itemLocalId = const Value.absent(),
+    required String source,
+    this.sourceRefId = const Value.absent(),
+    this.value = const Value.absent(),
+    this.valueType = const Value.absent(),
+    this.amount = const Value.absent(),
+    this.sequence = const Value.absent(),
+    this.label = const Value.absent(),
+    this.serverId = const Value.absent(),
+    this.syncStatus = const Value.absent(),
+    this.lastModified = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : localId = Value(localId),
+       companyId = Value(companyId),
+       source = Value(source);
+  static Insertable<DiscountLinesTableData> custom({
+    Expression<String>? localId,
+    Expression<int>? companyId,
+    Expression<String>? orderLocalId,
+    Expression<String>? documentLocalId,
+    Expression<String>? itemLocalId,
+    Expression<String>? source,
+    Expression<int>? sourceRefId,
+    Expression<double>? value,
+    Expression<int>? valueType,
+    Expression<double>? amount,
+    Expression<int>? sequence,
+    Expression<String>? label,
+    Expression<int>? serverId,
+    Expression<String>? syncStatus,
+    Expression<DateTime>? lastModified,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (localId != null) 'local_id': localId,
+      if (companyId != null) 'company_id': companyId,
+      if (orderLocalId != null) 'order_local_id': orderLocalId,
+      if (documentLocalId != null) 'document_local_id': documentLocalId,
+      if (itemLocalId != null) 'item_local_id': itemLocalId,
+      if (source != null) 'source': source,
+      if (sourceRefId != null) 'source_ref_id': sourceRefId,
+      if (value != null) 'value': value,
+      if (valueType != null) 'value_type': valueType,
+      if (amount != null) 'amount': amount,
+      if (sequence != null) 'sequence': sequence,
+      if (label != null) 'label': label,
+      if (serverId != null) 'server_id': serverId,
+      if (syncStatus != null) 'sync_status': syncStatus,
+      if (lastModified != null) 'last_modified': lastModified,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  DiscountLinesTableCompanion copyWith({
+    Value<String>? localId,
+    Value<int>? companyId,
+    Value<String?>? orderLocalId,
+    Value<String?>? documentLocalId,
+    Value<String?>? itemLocalId,
+    Value<String>? source,
+    Value<int?>? sourceRefId,
+    Value<double>? value,
+    Value<int>? valueType,
+    Value<double>? amount,
+    Value<int>? sequence,
+    Value<String?>? label,
+    Value<int?>? serverId,
+    Value<String>? syncStatus,
+    Value<DateTime?>? lastModified,
+    Value<int>? rowid,
+  }) {
+    return DiscountLinesTableCompanion(
+      localId: localId ?? this.localId,
+      companyId: companyId ?? this.companyId,
+      orderLocalId: orderLocalId ?? this.orderLocalId,
+      documentLocalId: documentLocalId ?? this.documentLocalId,
+      itemLocalId: itemLocalId ?? this.itemLocalId,
+      source: source ?? this.source,
+      sourceRefId: sourceRefId ?? this.sourceRefId,
+      value: value ?? this.value,
+      valueType: valueType ?? this.valueType,
+      amount: amount ?? this.amount,
+      sequence: sequence ?? this.sequence,
+      label: label ?? this.label,
+      serverId: serverId ?? this.serverId,
+      syncStatus: syncStatus ?? this.syncStatus,
+      lastModified: lastModified ?? this.lastModified,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (localId.present) {
+      map['local_id'] = Variable<String>(localId.value);
+    }
+    if (companyId.present) {
+      map['company_id'] = Variable<int>(companyId.value);
+    }
+    if (orderLocalId.present) {
+      map['order_local_id'] = Variable<String>(orderLocalId.value);
+    }
+    if (documentLocalId.present) {
+      map['document_local_id'] = Variable<String>(documentLocalId.value);
+    }
+    if (itemLocalId.present) {
+      map['item_local_id'] = Variable<String>(itemLocalId.value);
+    }
+    if (source.present) {
+      map['source'] = Variable<String>(source.value);
+    }
+    if (sourceRefId.present) {
+      map['source_ref_id'] = Variable<int>(sourceRefId.value);
+    }
+    if (value.present) {
+      map['value'] = Variable<double>(value.value);
+    }
+    if (valueType.present) {
+      map['value_type'] = Variable<int>(valueType.value);
+    }
+    if (amount.present) {
+      map['amount'] = Variable<double>(amount.value);
+    }
+    if (sequence.present) {
+      map['sequence'] = Variable<int>(sequence.value);
+    }
+    if (label.present) {
+      map['label'] = Variable<String>(label.value);
+    }
+    if (serverId.present) {
+      map['server_id'] = Variable<int>(serverId.value);
+    }
+    if (syncStatus.present) {
+      map['sync_status'] = Variable<String>(syncStatus.value);
+    }
+    if (lastModified.present) {
+      map['last_modified'] = Variable<DateTime>(lastModified.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('DiscountLinesTableCompanion(')
+          ..write('localId: $localId, ')
+          ..write('companyId: $companyId, ')
+          ..write('orderLocalId: $orderLocalId, ')
+          ..write('documentLocalId: $documentLocalId, ')
+          ..write('itemLocalId: $itemLocalId, ')
+          ..write('source: $source, ')
+          ..write('sourceRefId: $sourceRefId, ')
+          ..write('value: $value, ')
+          ..write('valueType: $valueType, ')
+          ..write('amount: $amount, ')
+          ..write('sequence: $sequence, ')
+          ..write('label: $label, ')
+          ..write('serverId: $serverId, ')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('lastModified: $lastModified, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -35842,6 +36715,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $StockControlsTableTable(this);
   late final $ProductTaxesTableTable productTaxesTable =
       $ProductTaxesTableTable(this);
+  late final $DiscountLinesTableTable discountLinesTable =
+      $DiscountLinesTableTable(this);
   late final Index idxProductsGroupId = Index(
     'idx_products_group_id',
     'CREATE INDEX idx_products_group_id ON products (product_group_id)',
@@ -35952,6 +36827,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     voidReasonsTable,
     stockControlsTable,
     productTaxesTable,
+    discountLinesTable,
     idxProductsGroupId,
     idxProductsBarcode,
     idxPosOrdersSyncStatus,
@@ -54527,6 +55403,421 @@ typedef $$ProductTaxesTableTableProcessedTableManager =
       ProductTaxesTableData,
       PrefetchHooks Function()
     >;
+typedef $$DiscountLinesTableTableCreateCompanionBuilder =
+    DiscountLinesTableCompanion Function({
+      required String localId,
+      required int companyId,
+      Value<String?> orderLocalId,
+      Value<String?> documentLocalId,
+      Value<String?> itemLocalId,
+      required String source,
+      Value<int?> sourceRefId,
+      Value<double> value,
+      Value<int> valueType,
+      Value<double> amount,
+      Value<int> sequence,
+      Value<String?> label,
+      Value<int?> serverId,
+      Value<String> syncStatus,
+      Value<DateTime?> lastModified,
+      Value<int> rowid,
+    });
+typedef $$DiscountLinesTableTableUpdateCompanionBuilder =
+    DiscountLinesTableCompanion Function({
+      Value<String> localId,
+      Value<int> companyId,
+      Value<String?> orderLocalId,
+      Value<String?> documentLocalId,
+      Value<String?> itemLocalId,
+      Value<String> source,
+      Value<int?> sourceRefId,
+      Value<double> value,
+      Value<int> valueType,
+      Value<double> amount,
+      Value<int> sequence,
+      Value<String?> label,
+      Value<int?> serverId,
+      Value<String> syncStatus,
+      Value<DateTime?> lastModified,
+      Value<int> rowid,
+    });
+
+class $$DiscountLinesTableTableFilterComposer
+    extends Composer<_$AppDatabase, $DiscountLinesTableTable> {
+  $$DiscountLinesTableTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get localId => $composableBuilder(
+    column: $table.localId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get companyId => $composableBuilder(
+    column: $table.companyId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get orderLocalId => $composableBuilder(
+    column: $table.orderLocalId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get documentLocalId => $composableBuilder(
+    column: $table.documentLocalId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get itemLocalId => $composableBuilder(
+    column: $table.itemLocalId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sourceRefId => $composableBuilder(
+    column: $table.sourceRefId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get valueType => $composableBuilder(
+    column: $table.valueType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get amount => $composableBuilder(
+    column: $table.amount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sequence => $composableBuilder(
+    column: $table.sequence,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get label => $composableBuilder(
+    column: $table.label,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get serverId => $composableBuilder(
+    column: $table.serverId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastModified => $composableBuilder(
+    column: $table.lastModified,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$DiscountLinesTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $DiscountLinesTableTable> {
+  $$DiscountLinesTableTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get localId => $composableBuilder(
+    column: $table.localId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get companyId => $composableBuilder(
+    column: $table.companyId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get orderLocalId => $composableBuilder(
+    column: $table.orderLocalId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get documentLocalId => $composableBuilder(
+    column: $table.documentLocalId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get itemLocalId => $composableBuilder(
+    column: $table.itemLocalId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get source => $composableBuilder(
+    column: $table.source,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sourceRefId => $composableBuilder(
+    column: $table.sourceRefId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get value => $composableBuilder(
+    column: $table.value,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get valueType => $composableBuilder(
+    column: $table.valueType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get amount => $composableBuilder(
+    column: $table.amount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sequence => $composableBuilder(
+    column: $table.sequence,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get label => $composableBuilder(
+    column: $table.label,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get serverId => $composableBuilder(
+    column: $table.serverId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastModified => $composableBuilder(
+    column: $table.lastModified,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$DiscountLinesTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $DiscountLinesTableTable> {
+  $$DiscountLinesTableTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get localId =>
+      $composableBuilder(column: $table.localId, builder: (column) => column);
+
+  GeneratedColumn<int> get companyId =>
+      $composableBuilder(column: $table.companyId, builder: (column) => column);
+
+  GeneratedColumn<String> get orderLocalId => $composableBuilder(
+    column: $table.orderLocalId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get documentLocalId => $composableBuilder(
+    column: $table.documentLocalId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get itemLocalId => $composableBuilder(
+    column: $table.itemLocalId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get source =>
+      $composableBuilder(column: $table.source, builder: (column) => column);
+
+  GeneratedColumn<int> get sourceRefId => $composableBuilder(
+    column: $table.sourceRefId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get value =>
+      $composableBuilder(column: $table.value, builder: (column) => column);
+
+  GeneratedColumn<int> get valueType =>
+      $composableBuilder(column: $table.valueType, builder: (column) => column);
+
+  GeneratedColumn<double> get amount =>
+      $composableBuilder(column: $table.amount, builder: (column) => column);
+
+  GeneratedColumn<int> get sequence =>
+      $composableBuilder(column: $table.sequence, builder: (column) => column);
+
+  GeneratedColumn<String> get label =>
+      $composableBuilder(column: $table.label, builder: (column) => column);
+
+  GeneratedColumn<int> get serverId =>
+      $composableBuilder(column: $table.serverId, builder: (column) => column);
+
+  GeneratedColumn<String> get syncStatus => $composableBuilder(
+    column: $table.syncStatus,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get lastModified => $composableBuilder(
+    column: $table.lastModified,
+    builder: (column) => column,
+  );
+}
+
+class $$DiscountLinesTableTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $DiscountLinesTableTable,
+          DiscountLinesTableData,
+          $$DiscountLinesTableTableFilterComposer,
+          $$DiscountLinesTableTableOrderingComposer,
+          $$DiscountLinesTableTableAnnotationComposer,
+          $$DiscountLinesTableTableCreateCompanionBuilder,
+          $$DiscountLinesTableTableUpdateCompanionBuilder,
+          (
+            DiscountLinesTableData,
+            BaseReferences<
+              _$AppDatabase,
+              $DiscountLinesTableTable,
+              DiscountLinesTableData
+            >,
+          ),
+          DiscountLinesTableData,
+          PrefetchHooks Function()
+        > {
+  $$DiscountLinesTableTableTableManager(
+    _$AppDatabase db,
+    $DiscountLinesTableTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$DiscountLinesTableTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$DiscountLinesTableTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$DiscountLinesTableTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> localId = const Value.absent(),
+                Value<int> companyId = const Value.absent(),
+                Value<String?> orderLocalId = const Value.absent(),
+                Value<String?> documentLocalId = const Value.absent(),
+                Value<String?> itemLocalId = const Value.absent(),
+                Value<String> source = const Value.absent(),
+                Value<int?> sourceRefId = const Value.absent(),
+                Value<double> value = const Value.absent(),
+                Value<int> valueType = const Value.absent(),
+                Value<double> amount = const Value.absent(),
+                Value<int> sequence = const Value.absent(),
+                Value<String?> label = const Value.absent(),
+                Value<int?> serverId = const Value.absent(),
+                Value<String> syncStatus = const Value.absent(),
+                Value<DateTime?> lastModified = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => DiscountLinesTableCompanion(
+                localId: localId,
+                companyId: companyId,
+                orderLocalId: orderLocalId,
+                documentLocalId: documentLocalId,
+                itemLocalId: itemLocalId,
+                source: source,
+                sourceRefId: sourceRefId,
+                value: value,
+                valueType: valueType,
+                amount: amount,
+                sequence: sequence,
+                label: label,
+                serverId: serverId,
+                syncStatus: syncStatus,
+                lastModified: lastModified,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String localId,
+                required int companyId,
+                Value<String?> orderLocalId = const Value.absent(),
+                Value<String?> documentLocalId = const Value.absent(),
+                Value<String?> itemLocalId = const Value.absent(),
+                required String source,
+                Value<int?> sourceRefId = const Value.absent(),
+                Value<double> value = const Value.absent(),
+                Value<int> valueType = const Value.absent(),
+                Value<double> amount = const Value.absent(),
+                Value<int> sequence = const Value.absent(),
+                Value<String?> label = const Value.absent(),
+                Value<int?> serverId = const Value.absent(),
+                Value<String> syncStatus = const Value.absent(),
+                Value<DateTime?> lastModified = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => DiscountLinesTableCompanion.insert(
+                localId: localId,
+                companyId: companyId,
+                orderLocalId: orderLocalId,
+                documentLocalId: documentLocalId,
+                itemLocalId: itemLocalId,
+                source: source,
+                sourceRefId: sourceRefId,
+                value: value,
+                valueType: valueType,
+                amount: amount,
+                sequence: sequence,
+                label: label,
+                serverId: serverId,
+                syncStatus: syncStatus,
+                lastModified: lastModified,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$DiscountLinesTableTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $DiscountLinesTableTable,
+      DiscountLinesTableData,
+      $$DiscountLinesTableTableFilterComposer,
+      $$DiscountLinesTableTableOrderingComposer,
+      $$DiscountLinesTableTableAnnotationComposer,
+      $$DiscountLinesTableTableCreateCompanionBuilder,
+      $$DiscountLinesTableTableUpdateCompanionBuilder,
+      (
+        DiscountLinesTableData,
+        BaseReferences<
+          _$AppDatabase,
+          $DiscountLinesTableTable,
+          DiscountLinesTableData
+        >,
+      ),
+      DiscountLinesTableData,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -54667,4 +55958,6 @@ class $AppDatabaseManager {
       $$StockControlsTableTableTableManager(_db, _db.stockControlsTable);
   $$ProductTaxesTableTableTableManager get productTaxesTable =>
       $$ProductTaxesTableTableTableManager(_db, _db.productTaxesTable);
+  $$DiscountLinesTableTableTableManager get discountLinesTable =>
+      $$DiscountLinesTableTableTableManager(_db, _db.discountLinesTable);
 }

@@ -84,6 +84,8 @@ Future<void> refreshDocumentPaymentsFromServer(
     final rows = (response.data as List).map((j) {
       final m = j as Map<String, dynamic>;
       final serverId = (m['id'] as num?)?.toInt();
+      final paidDate = DateTime.tryParse(m['date']?.toString() ?? '') ??
+          DateTime.now();
       return PaymentsTableCompanion(
         localId: Value('srvpay_$serverId'),
         serverId: Value(serverId),
@@ -91,9 +93,15 @@ Future<void> refreshDocumentPaymentsFromServer(
         paymentTypeId: Value((m['paymentTypeId'] as num?)?.toInt() ?? 0),
         amount: Value((m['amount'] as num?)?.toDouble() ?? 0.0),
         userId: Value((m['userId'] as num?)?.toInt() ?? 0),
-        date: Value(DateTime.tryParse(m['date']?.toString() ?? '') ??
-            DateTime.now()),
+        date: Value(paidDate),
         zReportId: Value((m['zReportId'] as num?)?.toInt()),
+        // Were left null on pulled rows — populate from the server (companyId
+        // falls back to the known company; dateCreated to the server's value or
+        // the payment date).
+        companyId: Value((m['companyId'] as num?)?.toInt() ?? companyId),
+        dateCreated:
+            Value(DateTime.tryParse(m['dateCreated']?.toString() ?? '') ??
+                paidDate),
         syncStatus: const Value('synced'),
       );
     }).toList();

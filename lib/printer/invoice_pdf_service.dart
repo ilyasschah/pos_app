@@ -7,6 +7,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:pos_app/company/company_model.dart';
 import 'package:pos_app/document/document_model.dart';
+import 'package:pos_app/cart/discount_display.dart';
 
 // Orange accent matching the Aronium invoice style
 const _kOrange      = PdfColor(0.878, 0.482, 0.0);
@@ -36,6 +37,7 @@ class InvoicePdfService {
     required double discount,
     required String? paymentSummary,
     required String currencySymbol,
+    List<ReceiptDiscountLine> discountLines = const [],
     Uint8List? logoBytes,
   }) async {
     final bytes = await generate(
@@ -51,6 +53,7 @@ class InvoicePdfService {
       discount: discount,
       paymentSummary: paymentSummary,
       currencySymbol: currencySymbol,
+      discountLines: discountLines,
       logoBytes: logoBytes,
     );
     await Printing.layoutPdf(
@@ -72,6 +75,7 @@ class InvoicePdfService {
     required double discount,
     required String? paymentSummary,
     required String currencySymbol,
+    List<ReceiptDiscountLine> discountLines = const [],
     Uint8List? logoBytes,
   }) async {
     final bytes = await generate(
@@ -87,6 +91,7 @@ class InvoicePdfService {
       discount: discount,
       paymentSummary: paymentSummary,
       currencySymbol: currencySymbol,
+      discountLines: discountLines,
       logoBytes: logoBytes,
     );
     final path = await FilePicker.platform.saveFile(
@@ -115,6 +120,7 @@ class InvoicePdfService {
     required double discount,
     required String? paymentSummary,
     required String currencySymbol,
+    List<ReceiptDiscountLine> discountLines = const [],
     Uint8List? logoBytes,
   }) async {
     pw.Font font;
@@ -324,6 +330,16 @@ class InvoicePdfService {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.stretch,
               children: [
+                // Itemized discount breakdown (each source kept on its own line
+                // with its configured value, so % and fixed never merge).
+                if (discountLines.isNotEmpty) ...[
+                  ...discountLines.map((d) => _summaryRow(
+                        d.hint == null ? d.label : '${d.label} (${d.hint})',
+                        '-$currencySymbol${_numFmt.format(d.amount)}',
+                        ts: ts,
+                      )),
+                  pw.SizedBox(height: 6),
+                ],
                 // Total row with background
                 pw.Container(
                   padding: const pw.EdgeInsets.symmetric(

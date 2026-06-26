@@ -114,9 +114,22 @@ class CartItem {
   double quantity;
   double price;
   final double cost;
+  // Resolved per-unit manual discount in currency (the item-discount dialog
+  // converts a % entry to money before storing, so the cart math can subtract
+  // it directly). [discountType] is therefore effectively "fixed" for the math.
   double discount;
   int discountType;
+  // The discount as the user ENTERED it, preserved for display/records so a
+  // "10%" entry isn't flattened to its money value. Null = no manual discount
+  // (or a legacy row where only the resolved amount is known). discount_lines
+  // and receipts read these; the cart totals keep using [discount].
+  double? discountInputValue;
+  int? discountInputType; // 0 = %, 1 = fixed
   double promotionalDiscount;
+  // Id of the promotion that produced [promotionalDiscount], set by
+  // _applyPromotions. Lets the normalized discount_lines record trace a promo
+  // discount back to its source. Null when no promotion applies.
+  int? promotionId;
   String? comment;
   String? bundle;
   bool isSaved;
@@ -136,7 +149,10 @@ class CartItem {
     this.cost = 0.0,
     this.discount = 0,
     this.discountType = 0,
+    this.discountInputValue,
+    this.discountInputType,
     this.promotionalDiscount = 0,
+    this.promotionId,
     this.comment,
     this.bundle,
     this.isSaved = false,

@@ -2,7 +2,9 @@ import 'dart:typed_data';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pos_app/auth/user_model.dart';
+import 'package:pos_app/app_settings/app_settings_model.dart';
 import 'package:pos_app/cart/checkout_models.dart';
+import 'package:pos_app/cart/discount_display.dart';
 import 'package:pos_app/company/company_model.dart';
 import 'package:pos_app/reports/z_report_model.dart';
 import 'package:printing/printing.dart';
@@ -140,6 +142,11 @@ class ReceiptPrinterService {
     required double totalTax,
     required double grandTotal,
     required String currencySymbol,
+    // Itemized discount breakdown (manual item/cart, promotion, customer). When
+    // non-empty each line is printed instead of the single merged "Discount:"
+    // row. Loyalty points are shown separately (Points Used), so the caller
+    // excludes them from this list.
+    List<ReceiptDiscountLine> discountLines = const [],
     String? paymentTypeName,
     double? amountPaid,
     Uint8List? logoBytes,
@@ -152,6 +159,13 @@ class ReceiptPrinterService {
     double pointValue = 1.0,
   }) async {
     const role = 'Receipt';
+    // Print item prices tax-inclusive when the shop is configured that way
+    // (matches the cart + payment screen). Tax base follows the discount rule.
+    final taxIncluded =
+        roleSettings[SettingKeys.displayAndPrintTaxIncluded]?.toLowerCase() !=
+            'false';
+    final discountBeforeTax =
+        roleSettings[SettingKeys.discountApplyRule] == 'Before tax';
     final fmt = _paperFmt(roleSettings['$role.PaperSize']);
     final margins = _margins(roleSettings, role);
     final copies = _copies(roleSettings, role);
@@ -267,9 +281,24 @@ class ReceiptPrinterService {
               final qty = item.quantity % 1 == 0
                   ? item.quantity.toInt().toString()
                   : item.quantity.toStringAsFixed(2);
-              final unitPrice =
+              final unitNet =
                   item.price - item.discount - item.promotionalDiscount;
-              final lineTotal = unitPrice * item.quantity;
+              final taxBase =
+                  (discountBeforeTax ? unitNet : item.price) * item.quantity;
+              final lineTax = item.appliedTaxes.fold<double>(
+                0,
+                (s, t) => s +
+                    (t.isFixed
+                        ? t.rate * item.quantity
+                        : taxBase * (t.rate / 100)),
+              );
+              // Tax-inclusive line/unit when configured (mirrors cart + screen).
+              final unitPrice = taxIncluded && item.quantity > 0
+                  ? unitNet + lineTax / item.quantity
+                  : unitNet;
+              final lineTotal = taxIncluded
+                  ? unitNet * item.quantity + lineTax
+                  : unitNet * item.quantity;
               final nameW = pw.Text(
                 item.productName,
                 style: ts(11, bold: true),
@@ -307,7 +336,13 @@ class ReceiptPrinterService {
 
             // ── Totals ─────────────────────────────────────────────────────
             rowW('Subtotal:', '${subtotal.toStringAsFixed(2)} $currencySymbol'),
-            if (totalDiscount > 0)
+            // Itemized discounts when available; otherwise the single merged row.
+            if (discountLines.isNotEmpty)
+              ...discountLines.map((d) => rowW(
+                    d.hint == null ? '${d.label}:' : '${d.label} (${d.hint}):',
+                    '-${d.amount.toStringAsFixed(2)} $currencySymbol',
+                  ))
+            else if (totalDiscount > 0)
               rowW(
                 'Discount:',
                 '-${totalDiscount.toStringAsFixed(2)} $currencySymbol',
@@ -330,16 +365,33 @@ class ReceiptPrinterService {
                 '-${(pointsUsed * pointValue).toStringAsFixed(2)} $currencySymbol'
                 ' (${pointsUsed.toInt()} pts)',
               ),
+              // The actual amount owed once points are applied — otherwise the
+              // receipt printed GRAND TOTAL but the cashier collected less.
+              rowW(
+                'To Pay:',
+                '${(grandTotal - pointsUsed * pointValue).clamp(0.0, double.infinity).toStringAsFixed(2)} $currencySymbol',
+                bold: true,
+              ),
             ],
             pw.Divider(),
             pw.SizedBox(height: 6),
 
             // ── Payment ────────────────────────────────────────────────────
-            if (!isGuestCheck && paymentTypeName != null)
+            if (!isGuestCheck && paymentTypeName != null) ...[
               rowW(
                 '$paymentTypeName:',
                 '${(amountPaid ?? grandTotal).toStringAsFixed(2)} $currencySymbol',
               ),
+              // Change due, so the receipt is self-explanatory at the till.
+              if (amountPaid != null &&
+                  amountPaid >
+                      (grandTotal - pointsUsed * pointValue)
+                          .clamp(0.0, double.infinity))
+                rowW(
+                  'Change:',
+                  '${(amountPaid - (grandTotal - pointsUsed * pointValue).clamp(0.0, double.infinity)).toStringAsFixed(2)} $currencySymbol',
+                ),
+            ],
             rowW('Items:', itemCountStr),
             if (!isGuestCheck && pointsEarned > 0)
               rowW('Points Earned:', '+${pointsEarned.toInt()} pts'),

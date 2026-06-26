@@ -197,7 +197,15 @@ class CartNotifier extends Notifier<CartState> {
     final fromState = state.activeWarehouseId;
     if (fromState != null && fromState > 0) return fromState;
     final fromProvider = ref.read(selectedWarehouseProvider)?.id ?? 0;
-    return fromProvider > 0 ? fromProvider : 1;
+    if (fromProvider > 0) return fromProvider;
+    // Nothing selected yet (e.g. the warehouse seed hasn't resolved). Fall back
+    // to the configured default warehouse (Order.DefaultWarehouseId) rather than
+    // a hardcoded id 1 — otherwise the order targets the wrong warehouse and the
+    // item shows as out of stock ("available in None") at sync.
+    final defaultId = int.tryParse(
+            ref.read(appSettingsProvider)[SettingKeys.defaultWarehouseId] ?? '') ??
+        0;
+    return defaultId > 0 ? defaultId : 1;
   }
 
   String _getPrefix(int serviceType) {
@@ -369,10 +377,112 @@ class CartNotifier extends Notifier<CartState> {
       manualCartDiscountAmount +
       taxTotal;
 
+  /// Builds the normalized `discount_lines` rows for the current cart state —
+  /// one per discount that actually deducted money. Each line keeps its own
+  /// value + valueType (so a 10% line and a −20 MAD line never get mixed); the
+  /// resolved `amount` is the additive currency figure.
+  ///
+  /// [itemLocalIds] maps each `CartItem.cartItemId` to the localId of the
+  /// persisted item row it should link to (pos_order_items for a parked order,
+  /// document_items for a checkout). Provide [orderLocalId] and/or
+  /// [documentLocalId] — a checkout shares one header id across both. The
+  /// loyalty-points line is appended by the checkout dialog (points live there).
+  List<DiscountLinesTableCompanion> buildDiscountLines({
+    required int companyId,
+    String? orderLocalId,
+    String? documentLocalId,
+    required Map<String, String> itemLocalIds,
+  }) {
+    final now = DateTime.now().toUtc();
+    final lines = <DiscountLinesTableCompanion>[];
+    var seq = 0;
+
+    final promoNames = {
+      for (final p in (ref.read(activePromotionsProvider).value ?? const []))
+        p.id: p.name,
+    };
+
+    DiscountLinesTableCompanion mk({
+      required String source,
+      required double value,
+      required int valueType,
+      required double amount,
+      String? itemLocalId,
+      int? sourceRefId,
+      String? label,
+    }) =>
+        DiscountLinesTableCompanion(
+          localId: Value(const Uuid().v4()),
+          companyId: Value(companyId),
+          orderLocalId: Value(orderLocalId),
+          documentLocalId: Value(documentLocalId),
+          itemLocalId: Value(itemLocalId),
+          source: Value(source),
+          sourceRefId: Value(sourceRefId),
+          value: Value(value),
+          valueType: Value(valueType),
+          amount: Value(double.parse(amount.toStringAsFixed(4))),
+          sequence: Value(seq++),
+          label: Value(label),
+          syncStatus: const Value('pending'),
+          lastModified: Value(now),
+        );
+
+    // ── Item-level lines (manual + promotional), in cart order ──────────────
+    for (final item in state.items) {
+      final itemLocalId = itemLocalIds[item.cartItemId];
+      if (item.discount > 0) {
+        lines.add(mk(
+          source: DiscountSource.manualItem,
+          // Record the figure as entered ("10%") when known, falling back to the
+          // resolved money value. `amount` is always the resolved currency.
+          value: item.discountInputValue ?? item.discount,
+          valueType: item.discountInputType ?? item.discountType,
+          amount: item.discount * item.quantity,
+          itemLocalId: itemLocalId,
+          sourceRefId: item.productId,
+        ));
+      }
+      if (item.promotionalDiscount > 0) {
+        lines.add(mk(
+          source: DiscountSource.promotion,
+          value: item.promotionalDiscount,
+          valueType: 1, // already resolved to per-unit currency
+          amount: item.promotionalDiscount * item.quantity,
+          itemLocalId: itemLocalId,
+          sourceRefId: item.promotionId,
+          label: item.promotionId == null ? null : promoNames[item.promotionId],
+        ));
+      }
+    }
+
+    // ── Order-level lines, in application order (customer → manual cart) ─────
+    if (customerDiscountAmount > 0) {
+      lines.add(mk(
+        source: DiscountSource.customerProfile,
+        value: state.customerDiscountValue ?? 0,
+        valueType: state.customerDiscountType ?? 0,
+        amount: customerDiscountAmount,
+        sourceRefId: state.selectedCustomer?.id,
+      ));
+    }
+    if (manualCartDiscountAmount > 0) {
+      lines.add(mk(
+        source: DiscountSource.manualCart,
+        value: state.manualCartDiscount,
+        valueType: state.manualCartDiscountType,
+        amount: manualCartDiscountAmount,
+      ));
+    }
+
+    return lines;
+  }
+
   void _applyPromotions(List<CartItem> items) {
     final activePromotions = ref.read(activePromotionsProvider).value ?? [];
     for (var item in items) {
       double bestDiscount = 0;
+      int? bestPromoId;
       for (var promo in activePromotions) {
         for (var pItem in promo.items) {
           if (pItem.productId == item.productId) {
@@ -385,11 +495,15 @@ class CartNotifier extends Notifier<CartState> {
             }
             if (currentDiscount > bestDiscount) {
               bestDiscount = currentDiscount;
+              bestPromoId = promo.id;
             }
           }
         }
       }
       item.promotionalDiscount = bestDiscount;
+      // Track which promotion won so the discount_lines record can reference it
+      // (null when no promo applied).
+      item.promotionId = bestDiscount > 0 ? bestPromoId : null;
     }
   }
 
@@ -424,6 +538,29 @@ class CartNotifier extends Notifier<CartState> {
       customerDiscountType: discount?.type,
     );
     ref.read(currentCustomerProvider.notifier).setCustomer(customer);
+  }
+
+  /// Restores the customer + their profile discount for a reopened order from
+  /// the saved `discount_lines` (fully offline — no API call). Reopening used to
+  /// drop the customer discount entirely, silently changing the total; we now
+  /// read the `customer_profile` line's value/type back. Returns nulls when the
+  /// order carried no customer discount.
+  Future<({Customer? customer, double? value, int? type})>
+      _restoreCustomerDiscount(String orderLocalId, int? customerId) async {
+    final db = ref.read(appDatabaseProvider);
+    Customer? customer;
+    if (customerId != null) {
+      final row = await (db.select(db.customersTable)
+            ..where((t) => t.id.equals(customerId))
+            ..limit(1))
+          .getSingleOrNull();
+      if (row != null) customer = Customer.fromDrift(row);
+    }
+    final lines = await db.getDiscountLinesForOrder(orderLocalId);
+    final cust = lines
+        .where((l) => l.source == DiscountSource.customerProfile)
+        .firstOrNull;
+    return (customer: customer, value: cust?.value, type: cust?.valueType);
   }
 
   Future<void> clearFloorPlanTable(
@@ -530,12 +667,24 @@ class CartNotifier extends Notifier<CartState> {
     );
   }
 
-  void setItemDiscount(String cartItemId, double discount, int discountType) {
+  /// Sets a per-item manual discount. [discount] is the resolved per-unit money
+  /// the dialog already computed; [inputValue]/[inputType] are the figure as the
+  /// user entered it ("10" + 0 for 10%), preserved so records/receipts can show
+  /// "10%" instead of its flattened money value.
+  void setItemDiscount(
+    String cartItemId,
+    double discount,
+    int discountType, {
+    double? inputValue,
+    int? inputType,
+  }) {
     final items = List<CartItem>.from(state.items);
     final index = items.indexWhere((i) => i.cartItemId == cartItemId);
     if (index >= 0) {
       items[index].discount = discount;
       items[index].discountType = discountType;
+      items[index].discountInputValue = inputValue;
+      items[index].discountInputType = inputType;
       state = state.copyWith(items: items);
     }
   }
@@ -822,7 +971,14 @@ class CartNotifier extends Notifier<CartState> {
 
       final taxRows = <PosOrderItemTaxesTableCompanion>[];
 
+      // cartItemId → the localId its pos_order_item row gets, so discount_lines
+      // can link item-level discounts to the right row.
+      final itemLocalIds = <String, String>{};
+
       final items = state.items.map((item) {
+        final itemLocalId = const Uuid().v4();
+        itemLocalIds[item.cartItemId] = itemLocalId;
+
         final summedRate = item.appliedTaxes
             .where((t) => !t.isFixed)
             .fold<double>(0, (sum, t) => sum + t.rate);
@@ -857,7 +1013,7 @@ class CartNotifier extends Notifier<CartState> {
         }
 
         return PosOrderItemsTableCompanion(
-          localId: Value(const Uuid().v4()),
+          localId: Value(itemLocalId),
           orderId: Value(localId),
           productId: Value(item.productId),
           quantity: Value(item.quantity),
@@ -896,6 +1052,17 @@ class CartNotifier extends Notifier<CartState> {
         ),
         items,
         itemTaxes: taxRows,
+      );
+
+      // Phase 2: record the normalized discount breakdown for this order. The
+      // legacy header/item `discount` columns above stay populated for back-compat.
+      await db.replaceDiscountLines(
+        orderLocalId: localId,
+        lines: buildDiscountLines(
+          companyId: companyId,
+          orderLocalId: localId,
+          itemLocalIds: itemLocalIds,
+        ),
       );
 
       final isFirstSave = state.existingLocalOrderId == null;
@@ -1013,6 +1180,29 @@ class CartNotifier extends Notifier<CartState> {
 
       _applyPromotions(loadedItems);
 
+      // Restore each item's manual-discount entry (%/fixed) from the saved lines
+      // (matched by product) so a reopened order shows "10%" rather than its
+      // flattened money value, and re-saving preserves the original figure.
+      final savedLines = await db.getDiscountLinesForOrder(localId);
+      final manualByProduct = <int, DiscountLinesTableData>{};
+      for (final l in savedLines) {
+        if (l.source == DiscountSource.manualItem && l.sourceRefId != null) {
+          manualByProduct[l.sourceRefId!] = l;
+        }
+      }
+      for (final it in loadedItems) {
+        final l = manualByProduct[it.productId];
+        if (l != null) {
+          it.discountInputValue = l.value;
+          it.discountInputType = l.valueType;
+        }
+      }
+
+      // Restore the customer + their profile discount from the saved lines, so
+      // the reopened total matches what was parked (offline, no API call).
+      final restored =
+          await _restoreCustomerDiscount(localId, row.customerId);
+
       state = state.copyWith(
         activePosOrderId: row.serverId,
         items: loadedItems,
@@ -1023,6 +1213,9 @@ class CartNotifier extends Notifier<CartState> {
         activeWarehouseId: row.warehouseId,
         manualCartDiscount: row.discount,
         manualCartDiscountType: row.discountType,
+        selectedCustomer: restored.customer,
+        customerDiscountValue: restored.value,
+        customerDiscountType: restored.type,
         isLoading: false,
         existingLocalOrderId: localId,
       );
@@ -1323,17 +1516,27 @@ class CartNotifier extends Notifier<CartState> {
         lastModified: Value(now),
       );
 
+      // cartItemId → its pos_order_item localId, for discount_lines linkage.
+      final itemLocalIds = <String, String>{};
+
       final itemCompanions = state.items.map((item) {
+        final itemLocalId = const Uuid().v4();
+        itemLocalIds[item.cartItemId] = itemLocalId;
         final summedRate = item.appliedTaxes
             .where((t) => !t.isFixed)
             .fold<double>(0, (sum, t) => sum + t.rate);
         return PosOrderItemsTableCompanion(
-          localId: Value(const Uuid().v4()),
+          localId: Value(itemLocalId),
           orderId: Value(orderLocalId),
           productId: Value(item.productId),
           quantity: Value(item.quantity),
           unitPrice: Value(item.price),
-          discount: Value(item.discount + item.promotionalDiscount),
+          // Store the MANUAL item discount only. The promotion portion now lives
+          // in discount_lines — folding it in here is what made the promo
+          // double-count when the parked order was reopened (loadOrderFromLocal
+          // re-applies promotions on top).
+          discount: Value(item.discount),
+          discountType: Value(item.discountType),
           taxRate: Value(summedRate),
           comment: Value(item.comment),
           warehouseId: Value(item.warehouseId ?? effectiveWarehouseId),
@@ -1342,6 +1545,14 @@ class CartNotifier extends Notifier<CartState> {
       }).toList();
 
       await db.insertOfflineOrder(orderCompanion, itemCompanions);
+      await db.replaceDiscountLines(
+        orderLocalId: orderLocalId,
+        lines: buildDiscountLines(
+          companyId: companyId,
+          orderLocalId: orderLocalId,
+          itemLocalIds: itemLocalIds,
+        ),
+      );
       ref.read(dailyOrderNumberProvider.notifier).state =
           ref.read(dailyOrderNumberProvider) + 1;
 

@@ -114,7 +114,17 @@ class _DiscountDialogState extends ConsumerState<DiscountDialog>
     // keeps the value self-consistent: reopening the dialog prefills the amount
     // against the Fixed tab and re-applying it is stable, instead of the amount
     // being re-read as a percentage and silently shrinking.
-    ref.read(cartProvider.notifier).setItemDiscount(selectedCartItemId, finalDiscount, 1);
+    //
+    // The as-entered figure (val + the chosen tab) is passed alongside so the
+    // discount record/receipt can show "10%" rather than its money value, while
+    // the cart math keeps using the resolved `finalDiscount`.
+    ref.read(cartProvider.notifier).setItemDiscount(
+          selectedCartItemId,
+          finalDiscount,
+          1,
+          inputValue: val,
+          inputType: _itemDiscountType,
+        );
     Navigator.pop(context);
   }
 

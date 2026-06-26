@@ -360,6 +360,8 @@ class RefundService {
         amount:        Value(-refundTotal),
         userId:        Value(_userId),
         date:          Value(now),
+        companyId:     Value(_companyId),
+        dateCreated:   Value(now),
         syncStatus:    Value(status),
       ),
     );

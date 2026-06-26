@@ -2027,6 +2027,12 @@ final _kSearchableSettings = <SearchableSetting>[
     trailingBuilder: (_) => const _SwitchControl(SettingKeys.showTaxBtn),
   ),
   SearchableSetting(
+    title: 'Change quantity button',
+    tabName: 'General · POS Buttons',
+    tabIndex: 0,
+    trailingBuilder: (_) => const _SwitchControl(SettingKeys.showQuantityBtn),
+  ),
+  SearchableSetting(
     title: 'API Base URL',
     tabName: 'General · API',
     tabIndex: 0,
@@ -3573,6 +3579,10 @@ class _GeneralTab extends ConsumerWidget {
             const _SettingSwitch(
               settingKey: SettingKeys.showTaxBtn,
               label: 'Tax',
+            ),
+            const _SettingSwitch(
+              settingKey: SettingKeys.showQuantityBtn,
+              label: 'Change quantity',
             ),
           ],
         ),

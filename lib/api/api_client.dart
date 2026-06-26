@@ -760,7 +760,8 @@ class ApiClient {
   ) async {
     try {
       final response = await _dio.post(
-        '/CustomerDiscounts/Create',
+        // Backend route is [HttpPost("Add")] — NOT "Create" (that 404s).
+        '/CustomerDiscounts/Add',
         queryParameters: {'companyId': companyId},
         data: request.toJson(),
       );

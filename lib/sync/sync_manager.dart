@@ -107,6 +107,8 @@ class SyncManager {
     // here so a document-pull failure is reported but never throws.
     await pullMasterData(companyId);
     await _step('documents', () => pullDocuments(companyId));
+    // After documents (so each line's local document exists to attach to).
+    await _step('discountLines', () => pullDiscountLines(companyId));
 
     return List.of(_failedSteps);
   }
@@ -146,6 +148,9 @@ class SyncManager {
     // server id before their payments are pushed.
     await pushPendingPaidStatus(companyId);
     await pushPendingPayments(companyId);
+    // Heal checkout payments that are still 'pending' under an already-synced
+    // document (they were posted server-side by checkout, so they're not lost).
+    await db.reconcileSyncedCheckoutPayments();
     await pushPendingVoids(companyId);
     await pushPendingCashMovements(companyId);
     await pushPendingZReports(companyId);
@@ -915,7 +920,15 @@ class SyncManager {
     final pending = await db.getPendingOrders();
     if (pending.isEmpty) return;
 
-    final payload = {'orders': pending.map(_orderToBatchJson).toList()};
+    // Attach each order's normalized discount breakdown so DiscountLine rows are
+    // persisted server-side for cloud analytics. Fetched per order (async) and
+    // folded into the batch payload below.
+    final orders = <Map<String, dynamic>>[];
+    for (final o in pending) {
+      final discounts = await db.getDiscountLinesForOrder(o.order.localId);
+      orders.add(_orderToBatchJson(o, discounts));
+    }
+    final payload = {'orders': orders};
 
     final List<dynamic> results;
     try {
@@ -953,6 +966,10 @@ class SyncManager {
           final serverId = r['serverId'] as int?;
           if (serverId != null) {
             await db.linkDocumentToServer(localId, serverId);
+            // The server persisted this sale's DiscountLine rows — stamp the
+            // local lines synced so they aren't re-pushed. (They survive the
+            // order delete: they also link to the document by localId.)
+            await db.markDiscountLinesSynced(localId);
             await db.deleteCompletedOrder(localId);
           } else {
             await db.markOrderFailed(
@@ -968,7 +985,14 @@ class SyncManager {
     }
   }
 
-  Map<String, dynamic> _orderToBatchJson(PosOrderWithItems o) {
+  Map<String, dynamic> _orderToBatchJson(
+    PosOrderWithItems o,
+    List<DiscountLinesTableData> discounts,
+  ) {
+    // Resolve item-level discount lines to their productId via the order items
+    // (the local line stores productId only as sourceRefId for manual_item, not
+    // for promotion — this map is reliable for both).
+    final productByItemLocalId = {for (final it in o.items) it.localId: it.productId};
     return {
       'localId': o.order.localId,
       'existingServerId': o.order.serverId,
@@ -1013,7 +1037,79 @@ class SyncManager {
           'taxes': taxes,
         };
       }).toList(),
+      'discounts': discounts.map((d) => {
+            // Item-level lines carry their productId (resolved from the order
+            // item); whole-order lines send null.
+            'productId':
+                d.itemLocalId != null ? productByItemLocalId[d.itemLocalId] : null,
+            'source': d.source,
+            'sourceRefId': d.sourceRefId,
+            'value': d.value,
+            'valueType': d.valueType,
+            'amount': d.amount,
+            'sequence': d.sequence,
+            'label': d.label,
+          }).toList(),
     };
+  }
+
+  // ==========================================================================
+  // PULL — discount lines (multi-device mirror). Brings the discount breakdown
+  // of sales made on OTHER devices into local Drift, so the document editor /
+  // reports show them everywhere. Read-only: lines are only created at checkout.
+  //
+  // Each server line is attached to the local document whose serverId matches
+  // its DocumentId. Lines whose document isn't local yet are skipped (the next
+  // sync, after pullDocuments lands it, picks them up). Per document we replace
+  // only the SYNCED rows, so a not-yet-pushed local edit is never clobbered.
+  // ==========================================================================
+  Future<void> pullDiscountLines(int companyId) async {
+    final res = await dio.get<List<dynamic>>(
+      '/DiscountLines/GetAll',
+      queryParameters: {'companyId': companyId},
+    );
+    final rows = res.data;
+    if (rows == null) return;
+
+    // serverId → local document localId, for the documents we hold locally.
+    final localDocs = await (db.select(db.documentsTable)
+          ..where((t) => t.serverId.isNotNull()))
+        .get();
+    final localIdByServerId = {
+      for (final d in localDocs)
+        if (d.serverId != null) d.serverId!: d.localId,
+    };
+
+    // Group incoming lines by their (local) document.
+    final byDocLocalId = <String, List<DiscountLinesTableCompanion>>{};
+    for (final j in rows.cast<Map<String, dynamic>>()) {
+      final documentId = (j['documentId'] as num?)?.toInt();
+      final docLocalId = documentId == null ? null : localIdByServerId[documentId];
+      if (docLocalId == null) continue; // document not present locally yet
+      byDocLocalId.putIfAbsent(docLocalId, () => []).add(
+            DiscountLinesTableCompanion(
+              localId: Value(const Uuid().v4()),
+              companyId: Value(companyId),
+              orderLocalId: Value(docLocalId),
+              documentLocalId: Value(docLocalId),
+              itemLocalId: const Value(null),
+              source: Value((j['source'] as String?) ?? ''),
+              sourceRefId: Value((j['sourceRefId'] as num?)?.toInt()),
+              value: Value((j['value'] as num?)?.toDouble() ?? 0),
+              valueType: Value((j['valueType'] as num?)?.toInt() ?? 0),
+              amount: Value((j['amount'] as num?)?.toDouble() ?? 0),
+              sequence: Value((j['sequence'] as num?)?.toInt() ?? 0),
+              label: Value(j['label'] as String?),
+              serverId: Value((j['id'] as num?)?.toInt()),
+              syncStatus: const Value('synced'),
+              lastModified: Value(DateTime.now().toUtc()),
+            ),
+          );
+    }
+
+    for (final entry in byDocLocalId.entries) {
+      await db.replacePulledDiscountLines(entry.key, entry.value);
+    }
   }
 
   Future<void> pushPendingOpenOrders(int companyId) async {
@@ -1021,6 +1117,21 @@ class SyncManager {
     if (pending.isEmpty) return;
 
     for (final o in pending) {
+      // An item still pointing at a temp (negative) product id means that
+      // product's own create hasn't reached the server yet (e.g. its push is
+      // stuck). Posting now would 400 with "product not found", so wait for the
+      // next cycle once the product syncs — and record why in the meantime.
+      if (o.items.any((i) => i.productId < 0)) {
+        await db.setOrderSyncError(
+          o.order.localId,
+          'Waiting for an offline product in this order to sync first.',
+        );
+        debugPrint(
+          'pushPendingOpenOrders: ${o.order.localId} skipped — '
+          'item references an unsynced (temp) product id.',
+        );
+        continue;
+      }
       try {
         int serverId;
         if (o.order.serverId == null) {
@@ -1112,6 +1223,11 @@ class SyncManager {
               'companyId': companyId,
               'warehouseId': o.order.warehouseId,
               'orderTotal': o.order.total ?? 0,
+              // This is an offline replay of an already-parked order — the stock
+              // decision was made at cart-add time (menu's _passesStockGuards),
+              // so don't let the server re-block it for current stock levels.
+              // Mirrors BatchSync's behaviour for completed sales.
+              'allowNegativeStock': true,
             },
             data: itemsJson,
           );
@@ -1120,7 +1236,15 @@ class SyncManager {
         // Phase 3: mark fully synced.
         await db.markOrderSynced(o.order.localId, serverId);
       } catch (e) {
-        debugPrint('pushPendingOpenOrders: ${o.order.localId} failed — $e');
+        // Pull the server's structured reason out of the response body (the raw
+        // DioException only says "status code 400"). Per the API contract a
+        // business rejection looks like {success:false, message:"...", ...}.
+        final msg = _serverErrMsg(e);
+        // Keep the order 'pending' so it auto-recovers once the cause is fixed
+        // (e.g. restock, or the referenced product finishes syncing) — but
+        // persist the reason so the Sync Status panel explains the hold-up.
+        await db.setOrderSyncError(o.order.localId, msg);
+        debugPrint('pushPendingOpenOrders: ${o.order.localId} failed — $msg');
         // Leave as pending; next sync will retry.
       }
     }
@@ -1329,6 +1453,11 @@ class SyncManager {
       }
       debugPrint('$logLabel rejected — $msg (resolved, won\'t retry)');
     } else {
+      // Offline / transient (no HTTP response) — keep the row at its current
+      // status so the next sync retries, but PERSIST the reason so the Sync
+      // Status panel can explain why it's still pending (instead of the cause
+      // living only in a debugPrint the operator never sees).
+      await apply(syncStatus, _serverErrMsg(error));
       debugPrint('$logLabel failed — $error (will retry)');
     }
   }
@@ -1637,9 +1766,6 @@ class SyncManager {
     // Sequential image processing — one file handle at a time. ImageSyncHelper
     // never throws (it logs + returns null on failure), so a single bad image
     // can never abort the loop or leave a half-written product row.
-    var productCount = 0;
-    var imageSuccessCount = 0;
-
     for (final json in rows.cast<Map<String, dynamic>>()) {
       final id = json['id'] as int;
 
@@ -1652,9 +1778,6 @@ class SyncManager {
         json['image'] as String?,
         id,
       );
-      if (localImagePath != null) imageSuccessCount++;
-      productCount++;
-
       await db
           .into(db.productsTable)
           .insertOnConflictUpdate(
@@ -1700,11 +1823,6 @@ class SyncManager {
     }
 
     await _setLastSync(_kProducts, startedAt);
-
-    debugPrint(
-      'pullProducts: saved $productCount products. '
-      'Successfully cached $imageSuccessCount images.',
-    );
   }
 
   String? _firstBarcode(Map<String, dynamic> json) {
@@ -2150,9 +2268,6 @@ class SyncManager {
 
     // Sequential image saves + upserts. Can't use db.batch here because the
     // ImageSyncHelper awaits don't compose with batch's sync callback.
-    var groupCount = 0;
-    var imageSuccessCount = 0;
-
     for (final json in rows.cast<Map<String, dynamic>>()) {
       final id = json['id'] as int;
 
@@ -2169,9 +2284,6 @@ class SyncManager {
         id,
         folder: 'group_images',
       );
-      if (localImagePath != null) imageSuccessCount++;
-      groupCount++;
-
       await db
           .into(db.productGroupsTable)
           .insertOnConflictUpdate(
@@ -2190,11 +2302,6 @@ class SyncManager {
     }
 
     await _setLastSync(_kProductGroups, startedAt);
-
-    debugPrint(
-      'pullProductGroups: saved $groupCount groups. '
-      'Successfully cached $imageSuccessCount images.',
-    );
   }
 
   /// Drains offline payment-type writes to the server (mirrors pushPendingTaxOps).
@@ -2556,7 +2663,8 @@ class SyncManager {
         switch (d.syncStatus) {
           case 'pending_create':
             final res = await dio.post<dynamic>(
-              '/CustomerDiscounts/Create',
+              // Backend route is [HttpPost("Add")] — NOT "Create" (that 404s).
+              '/CustomerDiscounts/Add',
               queryParameters: {'companyId': companyId},
               data: {
                 'customerId': d.customerId,
